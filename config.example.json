@@ -1,0 +1,11 @@
+{
+  "allowedRepositories": ["D:/PersonalAgent/.validation/my-repo"],
+  "runtimeDir": "D:/PersonalAgent/.runtime",
+  "mode": "mock",
+  "claudeExecutable": "claude",
+  "timeoutMs": 120000,
+  "maxLoops": 10,
+  "maxReworks": 2,
+  "tests": [{ "executable": "C:/Program Files/nodejs/node.exe", "args": ["D:/PersonalAgent/.validation/acceptance.cjs"] }],
+  "mockScenario": "pass"
+}

@@ -1,0 +1,26 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { git } from '../src/workspace.js';
+import { createRun, drive } from '../src/controller.js';
+import { MockAgents } from '../src/adapters.js';
+import { RealAgents } from '../src/real-agents.js';
+import type { Config } from '../src/schema.js';
+
+const dir = path.resolve('.validation', `demo-${randomUUID()}`); mkdirSync(dir, { recursive: true });
+const repo = path.join(dir, 'repo'); mkdirSync(repo); await git(repo, ['init']);
+writeFileSync(path.join(repo, 'seed.txt'), 'Independent validation repository\n'); await git(repo, ['add', '.']);
+await git(repo, ['-c', 'user.name=Validation', '-c', 'user.email=validation@example.invalid', 'commit', '-m', 'seed']);
+const testFile = path.join(dir, 'acceptance.cjs');
+writeFileSync(testFile, `const fs=require('node:fs');const assert=require('node:assert/strict');assert.equal(fs.readFileSync('hello.txt','utf8'),'hello\\n');if(fs.existsSync('done.txt'))assert.equal(fs.readFileSync('done.txt','utf8'),'done\\n');`);
+const config: Config = { allowedRepositories: [repo], runtimeDir: path.resolve('.runtime'), mode: process.argv.includes('--real') ? 'real' : 'mock', claudeExecutable: 'claude', timeoutMs: 120000, maxLoops: 5, maxReworks: 2, tests: [{ executable: process.execPath, args: [testFile] }], mockScenario: 'pass' };
+const configFile = path.join(dir, 'config.json'); writeFileSync(configFile, JSON.stringify(config, null, 2));
+const multi = process.argv.includes('--multi');
+const goal = multi ? 'Exactly two ordered tasks. First create hello.txt containing exactly hello followed by newline. Second create done.txt containing exactly done followed by newline. Do not edit seed.txt.' : 'Create hello.txt containing exactly hello followed by newline. One task only. Do not edit seed.txt.';
+const store = await createRun(config, repo, goal);
+console.log(JSON.stringify({ runId: store.id, configFile, source: repo }));
+const state = await drive(store, config.mode === 'mock' ? new MockAgents(config) : new RealAgents(config));
+console.log(JSON.stringify({ phase: state.phase, reason: state.reason, loops: state.loops, workspace: state.workspace }));
+if (await git(repo, ['status', '--porcelain'])) throw new Error('Source repository was modified');
+if (state.phase === 'completed' && multi && readFileSync(path.join(state.workspace, 'done.txt'), 'utf8') !== 'done\n') throw new Error('Final independent acceptance failed');
+process.exitCode = state.phase === 'completed' ? 0 : 1;

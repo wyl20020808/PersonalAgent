@@ -1,0 +1,15 @@
+{
+  "name": "personal-agent-controller",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node dist/scripts/export-schemas.js",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "start": "node dist/src/cli.js",
+    "demo": "node dist/scripts/demo.js"
+  },
+  "dependencies": { "@openai/codex-sdk": "0.161.0", "ajv": "^8.17.1" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.9.0" }
+}

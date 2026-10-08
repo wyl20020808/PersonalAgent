@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.runtime/
+.cache/
+.tmp/
+.validation/
+*.local.json
+snake-validation/node_modules/
+.desktop-data/
+desktop/out/
