@@ -111,8 +111,12 @@ async function completionProof(store: Store, state: State): Promise<string> {
     if (record.event === 'plan') plan = record.data.tasks;
     if (record.event === 'transition') { taskIndex = record.data.taskIndex; if (record.data.phase === 'executing') check = null; }
     if (record.event === 'independent-check') check = record.data;
-    const expectedTests = state.nativeExecution && taskIndex === state.tasks.length - 1 ? state.config.tests.length : testIndexes(state.tasks[taskIndex], state.config).length;
-    if (record.event === 'review' && record.data.verdict === 'pass' && check?.passed && check.executorExitCode === 0 && check.issues.length === 0 && check.tests.length === expectedTests && check.tests.every(result => result.exitCode === 0) && check.acceptanceRulesHash === rules) approvals.set(taskIndex, check);
+    if (record.event === 'review' && record.data.verdict === 'pass') {
+      // Only reviews refer to an active task. Completed transitions advance the
+      // index beyond the plan and must not resolve a trusted task-stage mapping.
+      const expectedTests = state.nativeExecution && taskIndex === state.tasks.length - 1 ? state.config.tests.length : testIndexes(state.tasks[taskIndex], state.config).length;
+      if (check?.passed && check.executorExitCode === 0 && check.issues.length === 0 && check.tests.length === expectedTests && check.tests.every(result => result.exitCode === 0) && check.acceptanceRulesHash === rules) approvals.set(taskIndex, check);
+    }
   }
   if (JSON.stringify(plan) !== JSON.stringify(state.tasks) || state.tasks.some((_, index) => !approvals.has(index)) || JSON.stringify(approvals.get(state.tasks.length - 1)) !== JSON.stringify(state.evidence)) throw new Error('Run lacks verified supervisor approvals for every task');
   return hash(JSON.stringify({ tasks: state.tasks, checks: [...approvals], rules }));

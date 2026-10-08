@@ -71,6 +71,39 @@ test('source changes invalidate direct approval before final confirmation', asyn
   await approveDelivery(f.store, preview.id, preview.digest, '批准具体成果'); fs.appendFileSync(path.join(f.source, 'answer.cjs'), '// later user change\n');
   assert.equal((await deliveryStatus(f.store, preview.id)).phase, 'invalidated'); await assert.rejects(applyDelivery(f.store, preview.id), /approval/);
 });
+
+test('completed direct delivery preserves trusted stages across two dependent native tasks', async () => {
+  const f = await fixture('mapped-stages-delivery', false, {
+    acceptanceStages: { core: [0], full: [0] }, taskStages: { core: 'core', hardening: 'full' }
+  });
+  const agents: Agents = {
+    executionMode: 'native',
+    async plan() { return { humanDecision: null, tasks: [
+      { id: 'core', instruction: '实现答案', acceptance: ['外部验收通过'], acceptanceStage: 'core' },
+      { id: 'hardening', instruction: '补充说明', acceptance: ['保留答案并增加说明'], dependsOn: ['core'], acceptanceStage: 'full' }
+    ] }; },
+    async execute(state) {
+      fs.writeFileSync(path.join(state.workspace, state.taskIndex === 0 ? 'answer.cjs' : 'README.md'), state.taskIndex === 0 ? 'module.exports=42;\n' : '完成说明\n');
+      return { mode: 'native', summary: '本地原生夹具；没有真实模型调用' };
+    },
+    async review() { return { verdict: 'pass', reason: '独立验收和当前任务满足' }; }
+  };
+  const state = await drive(f.store, agents);
+  assert.equal(state.phase, 'completed'); assert.equal(state.taskIndex, 2);
+  const file = path.join(f.source, 'answer.cjs'), mtime = fs.statSync(file).mtimeMs, before = await snapshot(f.source);
+  const preview = await previewDelivery(f.store, f.source, 'direct');
+  const manifest = JSON.parse(fs.readFileSync(path.join(preview.directory, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.kind, 'direct'); assert.ok(manifest.changes.some((c: {path: string}) => c.path === 'README.md'));
+  await assert.rejects(applyDelivery(f.store, preview.id), /approval/);
+  await approveDelivery(f.store, preview.id, preview.digest, '本地夹具明确确认当前快照');
+  const applied = await applyDelivery(f.store, preview.id);
+  assert.equal(applied.phase, 'applied'); assert.deepEqual(applied.written, []);
+  assert.equal(await snapshot(f.source), before); assert.equal(fs.statSync(file).mtimeMs, mtime);
+  const rules = fs.readFileSync(f.verifier);
+  fs.writeFileSync(f.verifier, "console.log('changed rules');");
+  await assert.rejects(previewDelivery(f.store, f.source, 'direct'), /Acceptance rules changed/);
+  fs.writeFileSync(f.verifier, rules);
+});
 test('direct project lock spans independent Runs and runtime directories', async () => {
   const f = await fixture('lock'), release = lockProject(f.source);
   try { await assert.rejects(drive(f.store, localAgents()), /already running/); await assert.rejects(createRun({ ...f.config, runtimeDir: path.join(f.dir, 'other-runtime') }, f.source, 'concurrent'), /already running/); }
