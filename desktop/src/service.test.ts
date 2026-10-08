@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -5,8 +6,33 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {DesktopService,validateRequest,redact} from './service.js';
 import {git} from '../../dist/src/workspace.js';
-const root='D:/PersonalAgent',data=path.join(root,'.validation','desktop-unit-'+randomUUID());
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
+test('ordinary project detection reads scripts without executing them and requires explicit direct/paid authorization',()=>{
+ const project=path.join(data,'ordinary');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'package.json'),JSON.stringify({scripts:{test:'throw never execute',build:'throw never execute'}}));
+ const info=service.inspectProject(project);assert.equal(info.git,false);assert.equal(info.kind,'Node.js');assert.deepEqual(info.testCommands,['npm run test']);assert.equal(info.settings.projectMode,'direct');assert.equal(info.settings.mode,'mock');assert.equal(info.directAuthorized,false);
+ assert.throws(()=>service.inspectProject('relative'),/绝对/);assert.throws(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock'}),/明确授权/);
+ assert.throws(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'isolated',mode:'real'}),/付费/);
+ assert.equal(service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock',directAcknowledged:true}).path,fs.realpathSync(project));
+});
+test('Mock refuses preexisting user marker contents before config creation or Agent launch',async()=>{
+ const project=path.join(data,'collision');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'hello.txt'),'user data');
+ await assert.rejects(service.startProject({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock',directAcknowledged:true,maxClaudeCalls:5,maxLoops:4,maxReworks:1}),/拒绝覆盖/);
+ assert.equal(fs.readFileSync(path.join(project,'hello.txt'),'utf8'),'user data');assert.equal(service.children.size,0);
+});
+test('automatic config starts non-Git direct and isolated Mock runs, preserves existing files and restores recent projects',async()=>{
+ const service=new DesktopService(root,path.join(data,'auto'),process.execPath);
+ const projects=path.join(data,'projects');fs.mkdirSync(projects,{recursive:true});
+ for(const projectMode of ['direct','isolated'] as const){
+  const project=path.join(projects,projectMode);fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'existing user work');
+  const run=await service.dispatch({operation:'startProject',projectPath:project,goal:'Create local Mock fixture markers only',projectMode,mode:'mock',directAcknowledged:true,maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;
+  let result:any;for(let i=0;i<150;i++){result=service.detail(run.profileId,run.id).run;if(['completed','failed','paused'].includes(result.phase)&&!result.active)break;await new Promise(resolve=>setTimeout(resolve,100));}
+  assert.equal(result.phase,'completed',result.reason);assert.equal(result.projectMode,projectMode);assert.equal(fs.readFileSync(path.join(project,'user.txt'),'utf8'),'existing user work');assert.equal(fs.existsSync(path.join(project,'.git')),false);
+  assert.equal(fs.existsSync(path.join(project,'hello.txt')),projectMode==='direct');assert.ok(fs.readFileSync(path.join(result.workspace,`mock-result-${run.id}.txt`),'utf8').includes('任务 done'));
+  if(projectMode==='direct')assert.ok(await service.dispatch({operation:'preview',profileId:run.profileId,runId:run.id,target:project,branch:'direct'}));
+  const reopened=new DesktopService(root,service.data,process.execPath);assert.equal(reopened.overview().runs.filter(r=>r.id===run.id).length,1);assert.equal(reopened.inspectProject(project).settings.projectMode,projectMode);assert.equal(reopened.inspectProject(project).directAuthorized,projectMode==='direct');assert.ok(reopened.overview().recentProjects?.some(p=>p.path===fs.realpathSync(project)));
+ }
+});
 let profileId='',runId='',target='',head='';
 async function wait(phase:string){for(let n=0;n<150;n++){const detail=service.detail(profileId,runId);if(detail.run.phase===phase)return detail.run;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out waiting for '+phase);}
 test('IPC rejects generic shell, extra fields, path-shaped IDs and malformed approval digests',()=>{

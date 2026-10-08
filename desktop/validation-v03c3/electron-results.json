@@ -1,0 +1,69 @@
+{
+  "dir": "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b",
+  "checks": [
+    {
+      "name": "普通入口不要求导入配置；Windows文件夹选择器取消与直接授权取消安全",
+      "passed": true
+    },
+    {
+      "name": "无Git空文件夹完整GUI Mock闭环和外部配置快照",
+      "passed": true
+    },
+    {
+      "name": "已有普通项目直接修改并保留用户文件",
+      "passed": true
+    },
+    {
+      "name": "含未提交修改的Git项目直接运行，无自动提交",
+      "passed": true
+    },
+    {
+      "name": "普通文件夹隔离开发、分别审批和应用",
+      "passed": true
+    },
+    {
+      "name": "重启恢复最近项目、自动配置、模式与历史Run，无重复记录",
+      "passed": true
+    },
+    {
+      "name": "1280布局无横向溢出、Renderer无错误，真实付费调用为零",
+      "passed": true
+    },
+    {
+      "name": "C盘普通项目可直接开发，PersonalAgent配置和快照仍保存在D盘",
+      "passed": true
+    },
+    {
+      "name": "旧Git隔离Mock与群聊角色筛选、待生效备注兼容",
+      "passed": true
+    },
+    {
+      "name": "群聊IPC断连保留记录，恢复后事件不重复",
+      "passed": true
+    },
+    {
+      "name": "暂停决策、可信截图放大、明确视觉确认后续接兼容",
+      "passed": true
+    }
+  ],
+  "screenshots": [
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\00-project-create.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\01-create-and-authorization.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\02-empty-direct-completed.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\03-existing-direct-completed.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\04-dirty-git-completed.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\05-isolated-completed.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\05-isolated-applied.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\06-restarted-recent-project.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\07-layout-1280.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\08-other-drive-completed.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\09-legacy-group-note.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\10-legacy-trusted-image.png",
+    "D:\\PersonalAgent-worktrees\\integration\\.validation\\e3-cfa41f2b\\11-legacy-formal-resume.png"
+  ],
+  "errors": [],
+  "realAgentCalls": 0,
+  "nativeDialogPolicy": "Actual Electron dialog API stubbed only for deterministic fixture selection and explicit accept/cancel; production native API wiring exercised",
+  "passed": 11,
+  "failed": 0
+}

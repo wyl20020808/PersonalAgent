@@ -82,7 +82,7 @@ test('reject forbidden paths, duplicate targets, traversal and deletion payloads
   }
   assert.throws(() => applyEdits(workspace, { summary: 'x', changes: [{ path: 'ok.txt', content: 'x' }, { path: '../bad', content: 'x' }] }));
   assert.equal(existsSync(path.join(workspace, 'ok.txt')), false);
-  const bad = { ...store.load().config, tests: [] }; assert.throws(() => validate(configSchema, bad));
+  const bad = { ...store.load().config, tests: [{executable:'',args:[]}] }; assert.throws(() => validate(configSchema, bad));
 });
 test('no change cannot pass', async () => {
   const { store, config } = await fixture('nochange', { maxReworks: 0 }); const state = await drive(store, new MockAgents(config));

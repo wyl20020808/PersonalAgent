@@ -1,0 +1,200 @@
+
+> personalagent-desktop@0.3.0 test
+> node --test out/service.test.js out/thread.test.js
+
+TAP version 13
+# Subtest: ordinary project detection reads scripts without executing them and requires explicit direct/paid authorization
+ok 1 - ordinary project detection reads scripts without executing them and requires explicit direct/paid authorization
+  ---
+  duration_ms: 3.8747
+  type: 'test'
+  ...
+# Subtest: Mock refuses preexisting user marker contents before config creation or Agent launch
+ok 2 - Mock refuses preexisting user marker contents before config creation or Agent launch
+  ---
+  duration_ms: 2.8076
+  type: 'test'
+  ...
+# Subtest: automatic config starts non-Git direct and isolated Mock runs, preserves existing files and restores recent projects
+ok 3 - automatic config starts non-Git direct and isolated Mock runs, preserves existing files and restores recent projects
+  ---
+  duration_ms: 4826.3119
+  type: 'test'
+  ...
+# Subtest: IPC rejects generic shell, extra fields, path-shaped IDs and malformed approval digests
+ok 4 - IPC rejects generic shell, extra fields, path-shaped IDs and malformed approval digests
+  ---
+  duration_ms: 3.6592
+  type: 'test'
+  ...
+# Subtest: sensitive diagnostics are redacted before entering Renderer
+ok 5 - sensitive diagnostics are redacted before entering Renderer
+  ---
+  duration_ms: 0.1296
+  type: 'test'
+  ...
+# Subtest: configuration import accepts optional D path but never bypasses native trust confirmation
+ok 6 - configuration import accepts optional D path but never bypasses native trust confirmation
+  ---
+  duration_ms: 1.2317
+  type: 'test'
+  ...
+# Subtest: create isolated Mock profile without touching delivered games
+ok 7 - create isolated Mock profile without touching delivered games
+  ---
+  duration_ms: 444.3122
+  type: 'test'
+  ...
+# Subtest: trusted upper limits and repository whitelist cannot be expanded by GUI
+ok 8 - trusted upper limits and repository whitelist cannot be expanded by GUI
+  ---
+  duration_ms: 3.8156
+  type: 'test'
+  ...
+# Subtest: native CLI executes full Mock cycle, returns actual tests and durable session IDs
+ok 9 - native CLI executes full Mock cycle, returns actual tests and durable session IDs
+  ---
+  duration_ms: 6100.7668
+  type: 'test'
+  ...
+# Subtest: application without explicit approval is rejected and target remains clean
+ok 10 - application without explicit approval is rejected and target remains clean
+  ---
+  duration_ms: 1986.1344
+  type: 'test'
+  ...
+# Subtest: separate digest-bound approval and apply safely deliver only generated markers
+ok 11 - separate digest-bound approval and apply safely deliver only generated markers
+  ---
+  duration_ms: 4697.0129
+  type: 'test'
+  ...
+# Subtest: changed registered configuration is refused rather than silently trusted
+ok 12 - changed registered configuration is refused rather than silently trusted
+  ---
+  duration_ms: 5.4569
+  type: 'test'
+  ...
+# Subtest: read-only historic profiles cannot start, stop, resume or approve
+ok 13 - read-only historic profiles cannot start, stop, resume or approve
+  ---
+  duration_ms: 26.3255
+  type: 'test'
+  ...
+# Subtest: preferences persist across service restarts
+ok 14 - preferences persist across service restarts
+  ---
+  duration_ms: 16.4681
+  type: 'test'
+  ...
+# Subtest: real mode refuses missing explicit consumption acknowledgement without calling services
+ok 15 - real mode refuses missing explicit consumption acknowledgement without calling services
+  ---
+  duration_ms: 17.5642
+  type: 'test'
+  ...
+# Subtest: audit tampering blocks UI detail instead of displaying forged evidence
+ok 16 - audit tampering blocks UI detail instead of displaying forged evidence
+  ---
+  duration_ms: 5.5056
+  type: 'test'
+  ...
+# Subtest: concurrent delivery polling is serialized without bypassing Controller locks
+ok 17 - concurrent delivery polling is serialized without bypassing Controller locks
+  ---
+  duration_ms: 5038.7212
+  type: 'test'
+  ...
+# Subtest: messages sorted and deduplicated by persistent audit hash
+ok 18 - messages sorted and deduplicated by persistent audit hash
+  ---
+  duration_ms: 9.5248
+  type: 'test'
+  ...
+# Subtest: task, loop and source associations survive historical replay
+ok 19 - task, loop and source associations survive historical replay
+  ---
+  duration_ms: 0.1843
+  type: 'test'
+  ...
+# Subtest: plan, tests, paths and public activity are redacted before Renderer
+ok 20 - plan, tests, paths and public activity are redacted before Renderer
+  ---
+  duration_ms: 0.3504
+  type: 'test'
+  ...
+# Subtest: unknown audit events do not invent Agent chat or progress
+ok 21 - unknown audit events do not invent Agent chat or progress
+  ---
+  duration_ms: 0.0968
+  type: 'test'
+  ...
+# Subtest: native tool, file diff and independent checks retain actual agent/task/loop associations
+ok 22 - native tool, file diff and independent checks retain actual agent/task/loop associations
+  ---
+  duration_ms: 0.3544
+  type: 'test'
+  ...
+# Subtest: cursor pagination reconnects without duplicates and invalid cursor resets
+ok 23 - cursor pagination reconnects without duplicates and invalid cursor resets
+  ---
+  duration_ms: 0.7384
+  type: 'test'
+  ...
+# Subtest: notes are explicitly pending and never represented as executed decisions
+ok 24 - notes are explicitly pending and never represented as executed decisions
+  ---
+  duration_ms: 0.1186
+  type: 'test'
+  ...
+# Subtest: new IPC operations reject unsafe paths, extra parameters and malformed visual proof
+ok 25 - new IPC operations reject unsafe paths, extra parameters and malformed visual proof
+  ---
+  duration_ms: 24.9451
+  type: 'test'
+  ...
+# Subtest: Mock fixture uses formal Controller and zero paid services
+ok 26 - Mock fixture uses formal Controller and zero paid services
+  ---
+  duration_ms: 6776.0413
+  type: 'test'
+  ...
+# Subtest: pending note idempotence, persistence and no Controller state or audit mutation
+ok 27 - pending note idempotence, persistence and no Controller state or audit mutation
+  ---
+  duration_ms: 20.0797
+  type: 'test'
+  ...
+# Subtest: read-only replay and GUI notes do not authorize resume or delivery
+ok 28 - read-only replay and GUI notes do not authorize resume or delivery
+  ---
+  duration_ms: 18.0331
+  type: 'test'
+  ...
+# Subtest: tampered audit blocks group history and screenshot queries
+ok 29 - tampered audit blocks group history and screenshot queries
+  ---
+  duration_ms: 4.8192
+  type: 'test'
+  ...
+# Subtest: visual intent requires current-stage trusted proof; stale task and replaced file rejected
+ok 30 - visual intent requires current-stage trusted proof; stale task and replaced file rejected
+  ---
+  duration_ms: 50.7509
+  type: 'test'
+  ...
+# Subtest: exhausted rework intent is refused before Controller is launched
+ok 31 - exhausted rework intent is refused before Controller is launched
+  ---
+  duration_ms: 7.1371
+  type: 'test'
+  ...
+1..31
+# tests 31
+# suites 0
+# pass 31
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 23374.2498

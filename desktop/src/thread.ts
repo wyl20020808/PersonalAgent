@@ -28,7 +28,8 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    else if(e.event==='review-vetoed'||e.event==='agent-activity-limit'){title=e.event==='review-vetoed'?'Controller 否决审查通过':'活动输出已达展示上限';text=d.reason??d.note;kind='warning';}
    else if(e.event.startsWith('delivery-')){const phases:Record<string,string>={preview:'交付预览已生成 · 等待负责人审批',approved:'具体交付已获批准 · 尚未应用',applying:'正在受控应用',applied:'已批准的交付已应用',invalidated:'交付批准已失效',blocked:'交付应用已停止'};title=phases[d.phase]??'交付状态记录';text=`Delivery ID：${d.deliveryId??'见正式交付页'}${d.digest?'\n\n审批摘要：`'+d.digest+'`':''}${d.reason?'\n\n'+d.reason:''}`;kind='delivery';}
    else continue;
-   result.push({id:`audit:${e.hash}`,time:e.time,role,title:redact(String(title)),text:redact(String(text??'')).slice(0,100000),kind,status,runId:state.id,taskId:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,source:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
+   const visibleText=redact(String(text??''));
+   result.push({id:`audit:${e.hash}`,time:e.time,role,title:redact(String(title)),text:kind==='error'?visibleText:visibleText.slice(0,100000),kind,status,runId:state.id,taskId:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,source:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
  }
  for(const note of notes)result.push({id:`note:${note.id}`,time:note.time,role:'user',title:'补充需求 · 已记录，尚未生效',text:note.text,kind:'note',status:'pending',runId:state.id,taskId:note.taskId,loop:note.loop,source:`desktop-note:${note.id}`});
  return [...new Map(result.map(m=>[m.id,m])).values()].sort((a,b)=>a.time.localeCompare(b.time)||a.id.localeCompare(b.id));

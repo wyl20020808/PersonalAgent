@@ -3,15 +3,17 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store, assertD, atomicJson, type State } from './store.js';
-import { git, safeTarget, snapshot } from './workspace.js';
+import { git, safeTarget, snapshot, collectEvidence, workspaceHead, workspaceBaseHead } from './workspace.js';
+import { readProject, loadProject, projectTarget, projectFiles, lockProject } from './project-files.js';
 import { editSchema, validate } from './schema.js';
 import { acceptanceRulesHash } from './rules.js';
-import { runProcess } from './process.js';
+import { gitProcess, gitDiffCheck } from './git-process.js';
 import { testIndexes } from './dependencies.js';
+import { baselineDiff } from './incremental.js';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 function destination(repo: string, file: string): string {
-  const target = safeTarget(repo, file);
+  const target = projectTarget(repo, file);
   if (existsSync(target)) {
     const stat = lstatSync(target);
     if (!stat.isFile() || stat.nlink > 1) throw new Error('Delivery hardlink or non-file target rejected');
@@ -21,6 +23,7 @@ function destination(repo: string, file: string): string {
 type FileMap = Record<string, string>;
 interface Change { path: string; content: string; before: string | null; after: string }
 export interface Delivery {
+  kind?: 'direct';
   version: 1; id: string; runId: string; target: string; branch: string; head: string;
   baseline: FileMap; targetStatus: string; indexHash: string; workspaceSnapshot: string; rulesHash: string; proofHash: string;
   diff: string; changes: Change[];
@@ -32,7 +35,7 @@ export interface DeliveryState {
 }
 const str = { type: 'string' }, sha = { type: 'string', pattern: '^[0-9a-f]{64}$' }, uuid = { type: 'string', pattern: '^[0-9a-f-]{36}$' };
 export const deliverySchema = { type: 'object', additionalProperties: false, required: ['version', 'id', 'runId', 'target', 'branch', 'head', 'baseline', 'targetStatus', 'indexHash', 'workspaceSnapshot', 'rulesHash', 'proofHash', 'diff', 'changes'], properties: {
-  version: { const: 1 }, id: uuid, runId: uuid, target: str, branch: str, head: str,
+  kind: { const: 'direct' }, version: { const: 1 }, id: uuid, runId: uuid, target: str, branch: str, head: str,
   baseline: { type: 'object', additionalProperties: sha }, targetStatus: { const: '' }, indexHash: sha, workspaceSnapshot: sha, rulesHash: sha, proofHash: sha, diff: str,
   changes: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'object', additionalProperties: false, required: ['path', 'content', 'before', 'after'], properties: { path: str, content: str, before: { anyOf: [sha, { type: 'null' }] }, after: sha } } }
 } };
@@ -49,6 +52,8 @@ function save(store: Store, state: DeliveryState): void {
   store.audit('delivery-transition', { deliveryId: state.id, digest: state.digest, phase: state.phase, written: state.written, intent: state.intent, reason: state.reason });
 }
 function render(delivery: Delivery, digest: string): string {
+  if (delivery.kind === 'direct') return `# 直接开发成果确认\n\nRun：${delivery.runId}\n项目：${delivery.target}\n审批摘要：${digest}\n\n文件已经由 Agent 在项目目录中修改。此审批确认已发生的成果，不会再次写入、提交、合并、推送或部署。\n\n${delivery.changes.map(c => `${c.path}: ${c.before ?? '新增'} -> ${c.after}`).join('\n')}\n\n完整 Diff 见 diff.patch。\n`;
+
   return `# Delivery preview\n\nDelivery: ${delivery.id}\nRun: ${delivery.runId}\nTarget: ${JSON.stringify(delivery.target)}\nBranch: ${JSON.stringify(delivery.branch)}\nHEAD: ${delivery.head}\nApproval digest: ${digest}\nAcceptance rules: ${delivery.rulesHash}\nWorkspace snapshot: ${delivery.workspaceSnapshot}\n\nOnly additions and modifications. No commit, merge, push or deletion.\n\n${delivery.changes.map(change => `${change.before === null ? 'ADD' : 'MODIFY'} ${JSON.stringify(change.path)}: ${change.before ?? 'absent'} -> ${change.after}`).join('\n')}\n\nFull diff is in diff.patch and manifest.json. Approve this exact digest only after inspecting them.\n`;
 }
 function load(store: Store, id: string): { delivery: Delivery; state: DeliveryState } {
@@ -56,7 +61,12 @@ function load(store: Store, id: string): { delivery: Delivery; state: DeliverySt
   const delivery = validate<Delivery>(deliverySchema, JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')));
   const state = validate<DeliveryState>(deliveryStateSchema, JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8')));
   if (delivery.id !== id || state.id !== id || delivery.runId !== store.id || hash(JSON.stringify(delivery)) !== state.digest) throw new Error('Delivery content digest mismatch');
-  if (assertD(delivery.target) !== delivery.target) throw new Error('Delivery target must be on D drive');
+  if (delivery.kind === 'direct') {
+    if (realpathSync(delivery.target) !== delivery.target || store.load().config.projectMode !== 'direct') throw new Error('Direct delivery project mismatch');
+    if (readFileSync(path.join(dir, 'diff.patch'), 'utf8') !== delivery.diff || readFileSync(path.join(dir, 'preview.md'), 'utf8') !== render(delivery, state.digest)) throw new Error('Delivery preview was replaced');
+    return { delivery, state };
+  }
+  if (delivery.branch !== 'project-files' && assertD(delivery.target) !== delivery.target) throw new Error('Delivery target must be on D drive');
   validate(editSchema, { summary: 'Delivery', changes: delivery.changes.map(({ path, content }) => ({ path, content })) });
   const seen = new Set<string>(); let size = 0;
   for (const change of delivery.changes) {
@@ -69,8 +79,9 @@ function load(store: Store, id: string): { delivery: Delivery; state: DeliverySt
   if (readFileSync(path.join(dir, 'diff.patch'), 'utf8') !== delivery.diff || readFileSync(path.join(dir, 'preview.md'), 'utf8') !== render(delivery, state.digest)) throw new Error('Delivery preview was replaced');
   return { delivery, state };
 }
-async function fileMap(repo: string): Promise<FileMap> {
+async function fileMap(repo: string, generic = false): Promise<FileMap> {
   const result: FileMap = Object.create(null);
+  if(generic) {for(const [name,content] of Object.entries(readProject(repo).files)) result[name]=hash(Buffer.from(content,'base64'));return result;}
   for (const file of (await git(repo, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).sort()) {
     const target = path.resolve(repo, file);
     if (!target.startsWith(`${repo}${path.sep}`) || lstatSync(target).isSymbolicLink()) throw new Error('Unsafe delivery snapshot path');
@@ -89,7 +100,7 @@ async function fullDiff(repo: string, base: string): Promise<string> {
 }
 async function completionProof(store: Store, state: State): Promise<string> {
   if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !state.evidence?.passed || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
-  if (await snapshot(state.workspace) !== state.evidence.snapshotDigest || await git(state.workspace, ['rev-parse', 'HEAD']) !== state.base) throw new Error('Completed workspace changed');
+  if (await snapshot(state.workspace,undefined,!!state.config.projectMode) !== state.evidence.snapshotDigest || await workspaceHead(state) !== workspaceBaseHead(state)) throw new Error('Completed workspace changed');
   const rules = await acceptanceRulesHash(state, true);
   if (rules !== state.evidence.acceptanceRulesHash) throw new Error('Acceptance rules changed since verification');
   const approvals = new Map<number, unknown>(); let previous = '', taskIndex = 0; let check: State['evidence'] = null;
@@ -100,7 +111,8 @@ async function completionProof(store: Store, state: State): Promise<string> {
     if (record.event === 'plan') plan = record.data.tasks;
     if (record.event === 'transition') { taskIndex = record.data.taskIndex; if (record.data.phase === 'executing') check = null; }
     if (record.event === 'independent-check') check = record.data;
-    if (record.event === 'review' && record.data.verdict === 'pass' && check?.passed && check.executorExitCode === 0 && check.issues.length === 0 && check.tests.length === testIndexes(state.tasks[taskIndex], state.config).length && check.tests.every(result => result.exitCode === 0) && check.acceptanceRulesHash === rules) approvals.set(taskIndex, check);
+    const expectedTests = state.nativeExecution && taskIndex === state.tasks.length - 1 ? state.config.tests.length : testIndexes(state.tasks[taskIndex], state.config).length;
+    if (record.event === 'review' && record.data.verdict === 'pass' && check?.passed && check.executorExitCode === 0 && check.issues.length === 0 && check.tests.length === expectedTests && check.tests.every(result => result.exitCode === 0) && check.acceptanceRulesHash === rules) approvals.set(taskIndex, check);
   }
   if (JSON.stringify(plan) !== JSON.stringify(state.tasks) || state.tasks.some((_, index) => !approvals.has(index)) || JSON.stringify(approvals.get(state.tasks.length - 1)) !== JSON.stringify(state.evidence)) throw new Error('Run lacks verified supervisor approvals for every task');
   return hash(JSON.stringify({ tasks: state.tasks, checks: [...approvals], rules }));
@@ -113,11 +125,18 @@ async function repositoryCheck(target: string, branch: string, head: string): Pr
 }
 async function validateCurrent(store: Store, delivery: Delivery, journal: DeliveryState): Promise<void> {
   const run = store.load();
+
+  const generic=delivery.branch==='project-files';
   if (!run.config.allowedRepositories.some(repo => realpathSync(repo).toLowerCase() === delivery.target.toLowerCase())) throw new Error('Target is not in persisted allowed repositories');
   if (await completionProof(store, run) !== delivery.proofHash || run.evidence!.snapshotDigest !== delivery.workspaceSnapshot) throw new Error('Delivery completion proof changed');
-  await repositoryCheck(delivery.target, delivery.branch, delivery.head);
-  if (hash(await git(delivery.target, ['ls-files', '--stage', '-z'])) !== delivery.indexHash) throw new Error('Target index changed');
-  const current = await fileMap(delivery.target), allowed = new Set([...journal.written, ...(journal.intent ? [journal.intent] : [])]);
+  if (delivery.kind === 'direct') {
+    if (run.config.projectMode !== 'direct' || realpathSync(run.source) !== delivery.target || run.workspace !== delivery.target) throw new Error('Direct delivery target mismatch');
+    return;
+  }
+  if(generic) {if(realpathSync(delivery.target)!==delivery.target || delivery.target!==realpathSync(run.source) || run.config.projectMode!=='isolated')throw new Error('Project delivery target mismatch');}
+  else {await repositoryCheck(delivery.target, delivery.branch, delivery.head);
+  if (hash(await git(delivery.target, ['ls-files', '--stage', '-z'])) !== delivery.indexHash) throw new Error('Target index changed');}
+  const current = await fileMap(delivery.target,generic), allowed = new Set([...journal.written, ...(journal.intent ? [journal.intent] : [])]);
   for (const file of new Set([...Object.keys(delivery.baseline), ...Object.keys(current)])) {
     const before = delivery.baseline[file] ?? null, actual = current[file] ?? null;
     const change = delivery.changes.find(item => item.path === file);
@@ -125,8 +144,8 @@ async function validateCurrent(store: Store, delivery: Delivery, journal: Delive
   }
   for (const change of delivery.changes) {
     const target = destination(delivery.target, change.path);
-    const ignored = await runProcess('git', ['-c', 'core.hooksPath=NUL', '-c', 'core.fsmonitor=false', 'check-ignore', '--no-index', '--', change.path], { cwd: delivery.target, timeoutMs: 30000 });
-    if (ignored.exitCode !== 1) throw new Error(`Ignored or unreviewable delivery path: ${change.path}`);
+    if(!generic) {const ignored = await gitProcess(delivery.target, ['check-ignore', '--no-index', '--', change.path], { allowedExitCodes:[0,1] });
+    if (ignored.exitCode !== 1) throw new Error(`Ignored or unreviewable delivery path: ${change.path}`);}
     const actual = existsSync(target) ? hash(readFileSync(target)) : null;
     if (actual !== change.before && !(allowed.has(change.path) && actual === change.after)) throw new Error(`Target content conflict: ${change.path}`);
   }
@@ -134,7 +153,32 @@ async function validateCurrent(store: Store, delivery: Delivery, journal: Delive
 export async function previewDelivery(store: Store, target: string, branch: string): Promise<{ id: string; digest: string; directory: string }> {
   const unlock = store.lock();
   try {
-    const run = store.load(), proofHash = await completionProof(store, run);
+    const run = store.load();
+
+    const proofHash = await completionProof(store, run);
+    if (run.config.projectMode === 'direct') {
+      target = realpathSync(target);
+      if (target !== run.workspace || branch !== 'direct') throw new Error('Direct delivery requires the current source directory and direct branch marker');
+      const baselineFile = JSON.parse(readFileSync(store.file('project-baseline.json'), 'utf8')) as { files: Record<string, string>; digest: string };
+      if (hash(JSON.stringify(baselineFile.files)) !== baselineFile.digest) throw new Error('Direct baseline hash mismatch');
+      const baseline: FileMap = {}, changes: Change[] = [];
+      for (const [file, bytes] of Object.entries(baselineFile.files)) baseline[file] = hash(Buffer.from(bytes, 'base64'));
+      const current = projectFiles(run.workspace);
+      for (const file of new Set([...Object.keys(baseline), ...current])) {
+        const output = path.resolve(run.workspace, file);
+        if (!existsSync(output)) throw new Error('Direct delivery deletions require explicit manual review');
+        const bytes = readFileSync(output), after = hash(bytes), before = baseline[file] ?? null;
+        if (before !== after) changes.push({ path: file, content: '', before, after });
+      }
+      const diff = await baselineDiff(store, run, 'project-baseline.json', new AbortController().signal) ?? '';
+      const delivery: Delivery = { kind: 'direct', version: 1, id: randomUUID(), runId: run.id, target, branch: 'direct', head: run.base, baseline, targetStatus: '', indexHash: hash('direct'), workspaceSnapshot: run.evidence!.snapshotDigest, rulesHash: run.evidence!.acceptanceRulesHash!, proofHash, diff, changes };
+      validate(deliverySchema, delivery);
+      const digest = hash(JSON.stringify(delivery)), dir = directory(store, delivery.id); mkdirSync(dir, { recursive: true });
+      atomicJson(path.join(dir, 'manifest.json'), delivery); writeFileSync(path.join(dir, 'diff.patch'), diff); writeFileSync(path.join(dir, 'preview.md'), render(delivery, digest));
+      const state: DeliveryState = { version: 1, id: delivery.id, digest, phase: 'preview', approval: null, written: [], intent: null, reason: '文件已经修改；等待最终成果确认' };
+      save(store, state); return { id: delivery.id, digest, directory: dir };
+    }
+    if(run.config.projectMode==='isolated')return previewProjectDelivery(store,run,target,proofHash);
     target = assertD(target);
     if (!branch.trim() || !run.config.allowedRepositories.some(repo => realpathSync(repo).toLowerCase() === target.toLowerCase())) throw new Error('Explicit branch and persisted allowed target required');
     await repositoryCheck(target, branch, run.base);
@@ -170,6 +214,27 @@ export async function approveDelivery(store: Store, id: string, digest: string, 
     state.approval = { digest, decision, time: new Date().toISOString() }; state.phase = 'approved'; save(store, state); return state;
   } finally { unlock(); }
 }
+async function previewProjectDelivery(store: Store,run: State,target: string,proofHash: string): Promise<{id:string;digest:string;directory:string}> {
+  target=realpathSync(target);
+  if(target!==realpathSync(run.source))throw new Error('Isolated project delivery must target original project');
+  const baseline=loadProject(store.file('project-baseline.json')), current=readProject(target), output=readProject(run.workspace);
+  if(current.digest!==baseline.digest)throw new Error('Project delivery conflict: source changed since run creation');
+  const changes: Change[]=[];
+  for(const name of new Set([...Object.keys(baseline.files),...Object.keys(output.files)])) {
+    if(baseline.files[name]===output.files[name])continue;
+    if(output.files[name]===undefined)throw new Error('Delivery deletions require manual recovery; automatic deletion is forbidden');
+    const bytes=Buffer.from(output.files[name]!,'base64'),content=bytes.toString('utf8');
+    if(bytes.includes(0)||!Buffer.from(content).equals(bytes))throw new Error('Only UTF-8 delivery files supported');
+    changes.push({path:name,content,before:baseline.files[name]===undefined?null:hash(Buffer.from(baseline.files[name]!,'base64')),after:hash(bytes)});
+  }
+  const delivery:Delivery={version:1,id:randomUUID(),runId:run.id,target,branch:'project-files',head:run.base,baseline:await fileMap(target,true),targetStatus:'',indexHash:hash('project-files'),workspaceSnapshot:run.evidence!.snapshotDigest,rulesHash:run.evidence!.acceptanceRulesHash!,proofHash,diff:run.evidence!.diff,changes};
+  validate(deliverySchema,delivery);
+  const digest=hash(JSON.stringify(delivery)),dir=directory(store,delivery.id);mkdirSync(dir,{recursive:true});
+  atomicJson(path.join(dir,'manifest.json'),delivery);writeFileSync(path.join(dir,'diff.patch'),delivery.diff);writeFileSync(path.join(dir,'preview.md'),render(delivery,digest));
+  const state:DeliveryState={version:1,id:delivery.id,digest,phase:'preview',approval:null,written:[],intent:null,reason:''};
+  save(store,state);load(store,delivery.id);await validateCurrent(store,delivery,state);
+  return {id:delivery.id,digest,directory:dir};
+}
 function targetLock(target: string, resume: boolean): () => void {
   const root = assertD(fileURLToPath(new URL('../../.delivery-locks/', import.meta.url))); mkdirSync(root, { recursive: true });
   const file = path.join(root, `${hash(target.toLowerCase())}.json`);
@@ -192,10 +257,22 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
     const loaded = load(store, id), delivery = loaded.delivery; journal = loaded.state;
     if (!journal.approval || journal.approval.digest !== journal.digest || !['approved', 'applying', 'applied'].includes(journal.phase)) throw new Error('Delivery has no valid explicit approval');
     if (journal.phase === 'applying' && !options.resume) throw new Error('Interrupted application requires explicit --resume');
-    release = targetLock(delivery.target, options.resume ?? false);
+    if (delivery.kind === 'direct') {
+      release = lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}});
+      await validateCurrent(store, delivery, journal);
+      if (journal.phase === 'applied') { store.audit('delivery-repeat-verified', { deliveryId: id, kind: 'direct', sourceWrites: 0 }); return journal; }
+      journal.phase = 'applying'; save(store, journal);
+      const run = store.load();
+      const evidence = await collectEvidence({ ...run, taskIndex: run.tasks.length - 1 }, new AbortController().signal, true);
+      atomicJson(path.join(directory(store, id), 'final-check.json'), evidence);
+      store.audit('delivery-independent-check', { deliveryId: id, kind: 'direct', ...evidence, sourceWrites: 0 });
+      if (!evidence.passed || evidence.snapshotDigest !== delivery.workspaceSnapshot || evidence.acceptanceRulesHash !== delivery.rulesHash) throw new Error('Direct delivery final independent verification failed');
+      journal.phase = 'applied'; journal.reason = '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
+    }
+    release = delivery.branch==='project-files' ? lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}}) : targetLock(delivery.target, options.resume ?? false);
     await validateCurrent(store, delivery, journal);
     if (journal.phase === 'applied') {
-      if (await fullDiff(delivery.target, delivery.head) !== delivery.diff) throw new Error('Applied target diff changed');
+      if (delivery.branch!=='project-files' && await fullDiff(delivery.target, delivery.head) !== delivery.diff) throw new Error('Applied target diff changed');
       store.audit('delivery-repeat-verified', { deliveryId: id }); return journal;
     }
     journal.phase = 'applying'; save(store, journal);
@@ -221,8 +298,12 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       journal.written.push(change.path); journal.intent = null; save(store, journal);
     }
     await validateCurrent(store, delivery, journal);
+    if(delivery.branch==='project-files') {
+      if(await snapshot(delivery.target,undefined,true)!==delivery.workspaceSnapshot)throw new Error('Project delivery final fingerprint mismatch');
+      journal.phase='applied';save(store,journal);return journal;
+    }
     const diff = await fullDiff(delivery.target, delivery.head);
-    const check = await runProcess('git', ['-c', 'core.hooksPath=NUL', '-c', 'core.fsmonitor=false', 'diff', '--no-ext-diff', '--no-textconv', '--check', delivery.head], { cwd: delivery.target, timeoutMs: 30000 });
+    const check = await gitDiffCheck(delivery.target,delivery.head);
     store.audit('delivery-final-check', { deliveryId: id, diff, diffHash: hash(diff), exitCode: check.exitCode, stdout: check.stdout, stderr: check.stderr });
     if (diff !== delivery.diff || check.exitCode !== 0 || await snapshot(delivery.target) !== delivery.workspaceSnapshot) throw new Error('Delivery final Git diff verification failed');
     journal.phase = 'applied'; save(store, journal); return journal;

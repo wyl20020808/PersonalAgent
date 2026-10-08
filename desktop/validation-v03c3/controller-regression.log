@@ -1,0 +1,804 @@
+
+> personal-agent-controller@0.1.0 test
+> npm run build && node --test dist/test/*.test.js
+
+
+> personal-agent-controller@0.1.0 build
+> tsc -p tsconfig.json && node dist/scripts/export-schemas.js
+
+TAP version 13
+# Subtest: atomic replacement retries transient Windows sharing failures without deleting the destination
+ok 1 - atomic replacement retries transient Windows sharing failures without deleting the destination
+  ---
+  duration_ms: 423.5471
+  type: 'test'
+  ...
+# Subtest: CC reservation persists before calls, survives recovery and refuses call nine
+ok 2 - CC reservation persists before calls, survives recovery and refuses call nine
+  ---
+  duration_ms: 182.7646
+  type: 'test'
+  ...
+# Subtest: legacy config remains valid; invalid CC limits rejected
+ok 3 - legacy config remains valid; invalid CC limits rejected
+  ---
+  duration_ms: 10.6226
+  type: 'test'
+  ...
+# Subtest: complete mock loop: multiple tasks, independent tests, isolated source, audit chain
+ok 4 - complete mock loop: multiple tasks, independent tests, isolated source, audit chain
+  ---
+  duration_ms: 9366.4733
+  type: 'test'
+  ...
+# Subtest: test failures trigger rework; Claude cannot override independent failures
+ok 5 - test failures trigger rework; Claude cannot override independent failures
+  ---
+  duration_ms: 15540.3925
+  type: 'test'
+  ...
+# Subtest: human pause and explicit resume persist sessions
+ok 6 - human pause and explicit resume persist sessions
+  ---
+  duration_ms: 12418.0539
+  type: 'test'
+  ...
+# Subtest: loop and rework bounds pause rather than claim success
+ok 7 - loop and rework bounds pause rather than claim success
+  ---
+  duration_ms: 9780.0265
+  type: 'test'
+  ...
+# Subtest: invalid persists failure and never alters source
+ok 8 - invalid persists failure and never alters source
+  ---
+  duration_ms: 2472.9405
+  type: 'test'
+  ...
+# Subtest: escape persists failure and never alters source
+ok 9 - escape persists failure and never alters source
+  ---
+  duration_ms: 2439.9279
+  type: 'test'
+  ...
+# Subtest: fail persists failure and never alters source
+ok 10 - fail persists failure and never alters source
+  ---
+  duration_ms: 2770.4964
+  type: 'test'
+  ...
+# Subtest: timeout persists failure and never alters source
+ok 11 - timeout persists failure and never alters source
+  ---
+  duration_ms: 2523.0604
+  type: 'test'
+  ...
+# Subtest: stop request interrupts operation and can explicitly recover
+ok 12 - stop request interrupts operation and can explicitly recover
+  ---
+  duration_ms: 7798.0577
+  type: 'test'
+  ...
+# Subtest: interrupted execution requires decision and rejects concurrent owner
+ok 13 - interrupted execution requires decision and rejects concurrent owner
+  ---
+  duration_ms: 6786.1502
+  type: 'test'
+  ...
+# Subtest: reject forbidden paths, duplicate targets, traversal and deletion payloads
+ok 14 - reject forbidden paths, duplicate targets, traversal and deletion payloads
+  ---
+  duration_ms: 1102.7492
+  type: 'test'
+  ...
+# Subtest: no change cannot pass
+ok 15 - no change cannot pass
+  ---
+  duration_ms: 4090.3572
+  type: 'test'
+  ...
+# Subtest: process runner captures nonzero exit and kills on timeout
+ok 16 - process runner captures nonzero exit and kills on timeout
+  ---
+  duration_ms: 1305.8195
+  type: 'test'
+  ...
+# Subtest: invalid persisted state is rejected
+ok 17 - invalid persisted state is rejected
+  ---
+  duration_ms: 1106.5332
+  type: 'test'
+  ...
+# Subtest: unallowed and dirty repositories rejected
+ok 18 - unallowed and dirty repositories rejected
+  ---
+  duration_ms: 1262.1085
+  type: 'test'
+  ...
+# Subtest: review schema failure cannot advance
+ok 19 - review schema failure cannot advance
+  ---
+  duration_ms: 4202.3782
+  type: 'test'
+  ...
+# Subtest: later task cannot pass using previous task diff
+ok 20 - later task cannot pass using previous task diff
+  ---
+  duration_ms: 7313.3601
+  type: 'test'
+  ...
+# Subtest: test mutating untracked content invalidates evidence
+ok 21 - test mutating untracked content invalidates evidence
+  ---
+  duration_ms: 3621.0449
+  type: 'test'
+  ...
+# Subtest: manual decision can raise loop limit
+ok 22 - manual decision can raise loop limit
+  ---
+  duration_ms: 7568.1973
+  type: 'test'
+  ...
+# Subtest: unsafe persisted workspace and broken state release lock
+ok 23 - unsafe persisted workspace and broken state release lock
+  ---
+  duration_ms: 1224.1767
+  type: 'test'
+  ...
+# Subtest: ignored agent output is rejected before application
+ok 24 - ignored agent output is rejected before application
+  ---
+  duration_ms: 2370.5222
+  type: 'test'
+  ...
+# Subtest: UTF-8 output survives byte boundaries
+ok 25 - UTF-8 output survives byte boundaries
+  ---
+  duration_ms: 268.2984
+  type: 'test'
+  ...
+# Subtest: planner can pause before any executor work
+ok 26 - planner can pause before any executor work
+  ---
+  duration_ms: 7447.089
+  type: 'test'
+  ...
+# Subtest: timeout kills descendant process on Windows
+ok 27 - timeout kills descendant process on Windows
+  ---
+  duration_ms: 2013.1385
+  type: 'test'
+  ...
+# Subtest: preview leaves target unchanged, approval alone does not apply, approved application verifies diff and bytes
+ok 28 - preview leaves target unchanged, approval alone does not apply, approved application verifies diff and bytes
+  ---
+  duration_ms: 18026.6632
+  type: 'test'
+  ...
+# Subtest: unapproved apply and wrong or empty approval never modify target
+ok 29 - unapproved apply and wrong or empty approval never modify target
+  ---
+  duration_ms: 8546.7771
+  type: 'test'
+  ...
+# Subtest: incomplete state and missing independent or supervisor proof cannot preview
+ok 30 - incomplete state and missing independent or supervisor proof cannot preview
+  ---
+  duration_ms: 5878.9208
+  type: 'test'
+  ...
+# Subtest: dirty target, unallowed target, wrong branch and detached HEAD fail preview
+ok 31 - dirty target, unallowed target, wrong branch and detached HEAD fail preview
+  ---
+  duration_ms: 8294.5329
+  type: 'test'
+  ...
+# Subtest: workspace replacement after approval invalidates without writing remaining files
+ok 32 - workspace replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 8989.3329
+  type: 'test'
+  ...
+# Subtest: rules replacement after approval invalidates without writing remaining files
+ok 33 - rules replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 9349.8705
+  type: 'test'
+  ...
+# Subtest: preview replacement after approval invalidates without writing remaining files
+ok 34 - preview replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 8458.0009
+  type: 'test'
+  ...
+# Subtest: manifest replacement after approval invalidates without writing remaining files
+ok 35 - manifest replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 8257.4248
+  type: 'test'
+  ...
+# Subtest: HEAD replacement after approval invalidates without writing remaining files
+ok 36 - HEAD replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 8757.0417
+  type: 'test'
+  ...
+# Subtest: branch replacement after approval invalidates without writing remaining files
+ok 37 - branch replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 9161.4407
+  type: 'test'
+  ...
+# Subtest: index replacement after approval invalidates without writing remaining files
+ok 38 - index replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 9387.9539
+  type: 'test'
+  ...
+# Subtest: content replacement after approval invalidates without writing remaining files
+ok 39 - content replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 9096.9671
+  type: 'test'
+  ...
+# Subtest: unrelated replacement after approval invalidates without writing remaining files
+ok 40 - unrelated replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 8401.7372
+  type: 'test'
+  ...
+# Subtest: ignored replacement after approval invalidates without writing remaining files
+ok 41 - ignored replacement after approval invalidates without writing remaining files
+  ---
+  duration_ms: 9007.7755
+  type: 'test'
+  ...
+# Subtest: change between preview and approval is rejected; status rechecks approved target
+ok 42 - change between preview and approval is rejected; status rechecks approved target
+  ---
+  duration_ms: 10127.1424
+  type: 'test'
+  ...
+# Subtest: repeat application verifies without rewriting, then external conflict is preserved
+ok 43 - repeat application verifies without rewriting, then external conflict is preserved
+  ---
+  duration_ms: 14263.1046
+  type: 'test'
+  ...
+# Subtest: process killed after first file write recovers durable intent, skips rewrite and finishes once
+ok 44 - process killed after first file write recovers durable intent, skips rewrite and finishes once
+  ---
+  duration_ms: 16841.5443
+  type: 'test'
+  ...
+# Subtest: interruption with external edit cannot recover or overwrite that file
+ok 45 - interruption with external edit cannot recover or overwrite that file
+  ---
+  duration_ms: 10811.7996
+  type: 'test'
+  ...
+# Subtest: safe path guards still reject protected targets and ignored collisions
+ok 46 - safe path guards still reject protected targets and ignored collisions
+  ---
+  duration_ms: 7394.2056
+  type: 'test'
+  ...
+# Subtest: CLI preview and explicit approval/apply route never instantiate real agents
+ok 47 - CLI preview and explicit approval/apply route never instantiate real agents
+  ---
+  duration_ms: 13263.9927
+  type: 'test'
+  ...
+# Subtest: hardlinked target cannot modify a file outside authorized repository
+ok 48 - hardlinked target cannot modify a file outside authorized repository
+  ---
+  duration_ms: 5667.8104
+  type: 'test'
+  ...
+# Subtest: UUID path fragments cannot disguise safety failures as HTTP authentication or budget errors
+ok 49 - UUID path fragments cannot disguise safety failures as HTTP authentication or budget errors
+  ---
+  duration_ms: 1.6561
+  type: 'test'
+  ...
+# Subtest: native options restore SDK full access without changing model or extensions
+ok 50 - native options restore SDK full access without changing model or extensions
+  ---
+  duration_ms: 2.3038
+  type: 'test'
+  ...
+# Subtest: SDK stream consumer allows failed test then repair and success within one turn (local fixture)
+ok 51 - SDK stream consumer allows failed test then repair and success within one turn (local fixture)
+  ---
+  duration_ms: 2065.8056
+  type: 'test'
+  ...
+# Subtest: native controller includes planning, executor and reviewer modifications and revalidates review
+ok 52 - native controller includes planning, executor and reviewer modifications and revalidates review
+  ---
+  duration_ms: 8568.7458
+  type: 'test'
+  ...
+# Subtest: native mode rejects old file proposal without duplicate application
+ok 53 - native mode rejects old file proposal without duplicate application
+  ---
+  duration_ms: 3336.5491
+  type: 'test'
+  ...
+# Subtest: interrupted native changes survive resume with same thread and task baseline
+ok 54 - interrupted native changes survive resume with same thread and task baseline
+  ---
+  duration_ms: 8940.1846
+  type: 'test'
+  ...
+# Subtest: durable native result recovers without executing or writing files again
+ok 55 - durable native result recovers without executing or writing files again
+  ---
+  duration_ms: 5711.9727
+  type: 'test'
+  ...
+# Subtest: Claude review repair cannot bypass remaining review budget or delivery
+ok 56 - Claude review repair cannot bypass remaining review budget or delivery
+  ---
+  duration_ms: 7355.3546
+  type: 'test'
+  ...
+# Subtest: native CLI inherits configuration and session with no turn/tool restrictions
+ok 57 - native CLI inherits configuration and session with no turn/tool restrictions
+  ---
+  duration_ms: 1347.0075
+  type: 'test'
+  ...
+# Subtest: Claude tool blocks and results are retained without hidden thinking
+ok 58 - Claude tool blocks and results are retained without hidden thinking
+  ---
+  duration_ms: 0.5245
+  type: 'test'
+  ...
+# Subtest: SDK MCP, web and file events stay visible, nonfatal tool errors do not end turn
+ok 59 - SDK MCP, web and file events stay visible, nonfatal tool errors do not end turn
+  ---
+  duration_ms: 1846.5651
+  type: 'test'
+  ...
+# Subtest: native SDK resume uses original thread and allows tools in proposal compatibility
+ok 60 - native SDK resume uses original thread and allows tools in proposal compatibility
+  ---
+  duration_ms: 5.4729
+  type: 'test'
+  ...
+# Subtest: process stdout ENOTCONN becomes rejected operation instead of uncaught Socket error
+ok 61 - process stdout ENOTCONN becomes rejected operation instead of uncaught Socket error
+  ---
+  duration_ms: 4.361
+  type: 'test'
+  ...
+# Subtest: process stderr ENOTCONN becomes rejected operation instead of uncaught Socket error
+ok 62 - process stderr ENOTCONN becomes rejected operation instead of uncaught Socket error
+  ---
+  duration_ms: 0.8077
+  type: 'test'
+  ...
+# Subtest: Windows excessive working directory is rejected before starting a process
+ok 63 - Windows excessive working directory is rejected before starting a process
+  ---
+  duration_ms: 0.2678
+  type: 'test'
+  ...
+# Subtest: direct native local fixture supports empty project without fake Git
+ok 64 - direct native local fixture supports empty project without fake Git
+  ---
+  duration_ms: 3247.2295
+  type: 'test'
+  ...
+# Subtest: direct native local fixture supports existing project without fake Git
+ok 65 - direct native local fixture supports existing project without fake Git
+  ---
+  duration_ms: 3314.7855
+  type: 'test'
+  ...
+# Subtest: direct native local fixture supports dirty project without fake Git
+ok 66 - direct native local fixture supports dirty project without fake Git
+  ---
+  duration_ms: 4929.2037
+  type: 'test'
+  ...
+# Subtest: isolated native local fixture supports empty project without fake Git
+ok 67 - isolated native local fixture supports empty project without fake Git
+  ---
+  duration_ms: 5170.7827
+  type: 'test'
+  ...
+# Subtest: isolated native local fixture supports existing project without fake Git
+ok 68 - isolated native local fixture supports existing project without fake Git
+  ---
+  duration_ms: 4671.9199
+  type: 'test'
+  ...
+# Subtest: isolated native local fixture supports dirty project without fake Git
+ok 69 - isolated native local fixture supports dirty project without fake Git
+  ---
+  duration_ms: 7279.5198
+  type: 'test'
+  ...
+# Subtest: direct authorization exact project and timestamp are required
+ok 70 - direct authorization exact project and timestamp are required
+  ---
+  duration_ms: 27.4458
+  type: 'test'
+  ...
+# Subtest: direct recovery refuses external changes and active different-run writer; explicit checkpoint restores original files
+ok 71 - direct recovery refuses external changes and active different-run writer; explicit checkpoint restores original files
+  ---
+  duration_ms: 2803.8613
+  type: 'test'
+  ...
+# Subtest: isolated delivery refuses source changes after creation
+ok 72 - isolated delivery refuses source changes after creation
+  ---
+  duration_ms: 3242.4352
+  type: 'test'
+  ...
+# Subtest: no tests does not produce completed or verified result
+ok 73 - no tests does not produce completed or verified result
+  ---
+  duration_ms: 746.2416
+  type: 'test'
+  ...
+# Subtest: empty file deletion remains visible in incremental evidence
+ok 74 - empty file deletion remains visible in incremental evidence
+  ---
+  duration_ms: 126.9908
+  type: 'test'
+  ...
+# Subtest: native Mock repeated run on same project has explicit unique local fixture evidence
+ok 75 - native Mock repeated run on same project has explicit unique local fixture evidence
+  ---
+  duration_ms: 4878.9314
+  type: 'test'
+  ...
+# Subtest: native reviewer cannot commit without triggering independent HEAD revalidation
+ok 76 - native reviewer cannot commit without triggering independent HEAD revalidation
+  ---
+  duration_ms: 4677.0944
+  type: 'test'
+  ...
+# Subtest: independent failure then bounded repair uses supervisor and preserves counters
+ok 77 - independent failure then bounded repair uses supervisor and preserves counters
+  ---
+  duration_ms: 9251.4763
+  type: 'test'
+  ...
+# Subtest: rework limit cannot be bypassed by repeated resume; explicit increase preserves totals
+ok 78 - rework limit cannot be bypassed by repeated resume; explicit increase preserves totals
+  ---
+  duration_ms: 12384.0389
+  type: 'test'
+  ...
+# Subtest: ASK_HUMAN stays paused; FAIL is terminal and cannot resubmit
+ok 79 - ASK_HUMAN stays paused; FAIL is terminal and cannot resubmit
+  ---
+  duration_ms: 7123.0073
+  type: 'test'
+  ...
+# Subtest: executor pauses, consumes attempt, requires explicit resume and keeps IDs
+ok 80 - executor pauses, consumes attempt, requires explicit resume and keeps IDs
+  ---
+  duration_ms: 5586.8526
+  type: 'test'
+  ...
+# Subtest: authentication pauses, consumes attempt, requires explicit resume and keeps IDs
+ok 81 - authentication pauses, consumes attempt, requires explicit resume and keeps IDs
+  ---
+  duration_ms: 5912.6026
+  type: 'test'
+  ...
+# Subtest: timeout pauses, consumes attempt, requires explicit resume and keeps IDs
+ok 82 - timeout pauses, consumes attempt, requires explicit resume and keeps IDs
+  ---
+  duration_ms: 5666.5939
+  type: 'test'
+  ...
+# Subtest: actual executor timeout aborts adapter and preserves bounded retry
+ok 83 - actual executor timeout aborts adapter and preserves bounded retry
+  ---
+  duration_ms: 2435.8941
+  type: 'test'
+  ...
+# Subtest: independent test process timeout resumes verification without executing or applying again
+ok 84 - independent test process timeout resumes verification without executing or applying again
+  ---
+  duration_ms: 7171.6424
+  type: 'test'
+  ...
+# Subtest: CC budget exhaustion blocks executor; increase keeps spent calls and does not re-plan
+ok 85 - CC budget exhaustion blocks executor; increase keeps spent calls and does not re-plan
+  ---
+  duration_ms: 4766.8885
+  type: 'test'
+  ...
+# Subtest: supervisor authentication failure consumes call and resumes same planning session
+ok 86 - supervisor authentication failure consumes call and resumes same planning session
+  ---
+  duration_ms: 4879.0631
+  type: 'test'
+  ...
+# Subtest: partial durable application rolls forward without resubmission or rewriting existing content
+ok 87 - partial durable application rolls forward without resubmission or rewriting existing content
+  ---
+  duration_ms: 2904.3848
+  type: 'test'
+  ...
+# Subtest: application conflict fails closed before another file is written
+ok 88 - application conflict fails closed before another file is written
+  ---
+  duration_ms: 1161.783
+  type: 'test'
+  ...
+# Subtest: durable review receipt resumes after simulated crash without another CC call
+ok 89 - durable review receipt resumes after simulated crash without another CC call
+  ---
+  duration_ms: 4671.5966
+  type: 'test'
+  ...
+# Subtest: malformed executor output stays fatal; diagnostics distinguish authentication and validation
+ok 90 - malformed executor output stays fatal; diagnostics distinguish authentication and validation
+  ---
+  duration_ms: 2289.3329
+  type: 'test'
+  ...
+# Subtest: supervisor review timeout resumes checks, keeps written files and bills both attempts
+ok 91 - supervisor review timeout resumes checks, keeps written files and bills both attempts
+  ---
+  duration_ms: 6448.5917
+  type: 'test'
+  ...
+# Subtest: real supervisor adapter classifies injected 401 JSON without launching CC
+ok 92 - real supervisor adapter classifies injected 401 JSON without launching CC
+  ---
+  duration_ms: 1609.9794
+  type: 'test'
+  ...
+# Subtest: real SDK adapter classifies injected worker failure without launching SDK
+ok 93 - real SDK adapter classifies injected worker failure without launching SDK
+  ---
+  duration_ms: 2531.7256
+  type: 'test'
+  ...
+# Subtest: repeated execution failure cannot evade per-task retry cap
+ok 94 - repeated execution failure cannot evade per-task retry cap
+  ---
+  duration_ms: 3070.5823
+  type: 'test'
+  ...
+# Subtest: read-only execution snapshot conflict rejects proposal before application
+ok 95 - read-only execution snapshot conflict rejects proposal before application
+  ---
+  duration_ms: 2484.0641
+  type: 'test'
+  ...
+# Subtest: recovery cannot weaken proposal size limits through a corrupted journal
+ok 96 - recovery cannot weaken proposal size limits through a corrupted journal
+  ---
+  duration_ms: 1156.0521
+  type: 'test'
+  ...
+# Subtest: forward dependencies are topologically ordered and trusted stage tests execute progressively
+ok 97 - forward dependencies are topologically ordered and trusted stage tests execute progressively
+  ---
+  duration_ms: 9331.4047
+  type: 'test'
+  ...
+# Subtest: invalid dependency graph missing fails before executor
+ok 98 - invalid dependency graph missing fails before executor
+  ---
+  duration_ms: 1829.6437
+  type: 'test'
+  ...
+# Subtest: invalid dependency graph cycle fails before executor
+ok 99 - invalid dependency graph cycle fails before executor
+  ---
+  duration_ms: 2143.2156
+  type: 'test'
+  ...
+# Subtest: invalid dependency graph self fails before executor
+ok 100 - invalid dependency graph self fails before executor
+  ---
+  duration_ms: 1930.8195
+  type: 'test'
+  ...
+# Subtest: invalid dependency graph duplicate fails before executor
+ok 101 - invalid dependency graph duplicate fails before executor
+  ---
+  duration_ms: 1964.6986
+  type: 'test'
+  ...
+# Subtest: duplicate dependsOn and unknown stage commands are rejected by schemas
+ok 102 - duplicate dependsOn and unknown stage commands are rejected by schemas
+  ---
+  duration_ms: 6.9018
+  type: 'test'
+  ...
+# Subtest: invalid stage and out of range configured test indexes fail before execute
+ok 103 - invalid stage and out of range configured test indexes fail before execute
+  ---
+  duration_ms: 1862.5171
+  type: 'test'
+  ...
+# Subtest: failed prerequisite never advances dependent task, even when supervisor says pass
+ok 104 - failed prerequisite never advances dependent task, even when supervisor says pass
+  ---
+  duration_ms: 5053.2356
+  type: 'test'
+  ...
+# Subtest: resume cannot skip an incomplete prerequisite through changed taskIndex
+ok 105 - resume cannot skip an incomplete prerequisite through changed taskIndex
+  ---
+  duration_ms: 1301.3371
+  type: 'test'
+  ...
+# Subtest: task and round diffs exclude prior tasks and retain full run evidence
+ok 106 - task and round diffs exclude prior tasks and retain full run evidence
+  ---
+  duration_ms: 7962.2088
+  type: 'test'
+  ...
+# Subtest: rework round diff shows previous-to-current while task diff keeps original baseline
+ok 107 - rework round diff shows previous-to-current while task diff keeps original baseline
+  ---
+  duration_ms: 11749.0968
+  type: 'test'
+  ...
+# Subtest: context truncation preserves all critical issues, exits and output and prevents pass
+ok 108 - context truncation preserves all critical issues, exits and output and prevents pass
+  ---
+  duration_ms: 4518.8934
+  type: 'test'
+  ...
+# Subtest: changed baseline hash fails closed rather than hide diff
+ok 109 - changed baseline hash fails closed rather than hide diff
+  ---
+  duration_ms: 3791.1693
+  type: 'test'
+  ...
+# Subtest: real review adapter sends compact context with full failed test evidence without spawning CC
+ok 110 - real review adapter sends compact context with full failed test evidence without spawning CC
+  ---
+  duration_ms: 1287.34
+  type: 'test'
+  ...
+# Subtest: global budget persists across new Runs and Store restart and blocks executor at exhaustion
+ok 111 - global budget persists across new Runs and Store restart and blocks executor at exhaustion
+  ---
+  duration_ms: 9141.3176
+  type: 'test'
+  ...
+# Subtest: global authorization cannot be enlarged, overwritten or silently recreated
+ok 112 - global authorization cannot be enlarged, overwritten or silently recreated
+  ---
+  duration_ms: 19.3918
+  type: 'test'
+  ...
+# Subtest: parallel process global reservations never exceed limit, restart retains exhaustion
+ok 113 - parallel process global reservations never exceed limit, restart retains exhaustion
+  ---
+  duration_ms: 1006.6347
+  type: 'test'
+  ...
+# Subtest: corrupt global ledger fails closed and preserves local call budget
+ok 114 - corrupt global ledger fails closed and preserves local call budget
+  ---
+  duration_ms: 1080.4784
+  type: 'test'
+  ...
+# Subtest: legacy configurations and states without dependencies or global authorization keep existing policy
+ok 115 - legacy configurations and states without dependencies or global authorization keep existing policy
+  ---
+  duration_ms: 3972.1036
+  type: 'test'
+  ...
+# Subtest: trusted task-to-stage mapping cannot be weakened or bypassed by planner
+ok 116 - trusted task-to-stage mapping cannot be weakened or bypassed by planner
+  ---
+  duration_ms: 7298.8609
+  type: 'test'
+  ...
+# Subtest: global lock abandoned by interrupted process fails closed without refund or reset
+ok 117 - global lock abandoned by interrupted process fails closed without refund or reset
+  ---
+  duration_ms: 6580.4846
+  type: 'test'
+  ...
+# Subtest: measured multi-task review cost drops while complete independent evidence remains
+ok 118 - measured multi-task review cost drops while complete independent evidence remains
+  ---
+  duration_ms: 7740.2647
+  type: 'test'
+  ...
+# Subtest: Claude public stream retains text and rejects hidden thinking/signature
+ok 119 - Claude public stream retains text and rejects hidden thinking/signature
+  ---
+  duration_ms: 0.8778
+  type: 'test'
+  ...
+# Subtest: Codex public events expose actual items without treating proposals as passed tests
+ok 120 - Codex public events expose actual items without treating proposals as passed tests
+  ---
+  duration_ms: 0.3949
+  type: 'test'
+  ...
+# Subtest: activity restart deduplicates stable keys and persists source/task/loop
+ok 121 - activity restart deduplicates stable keys and persists source/task/loop
+  ---
+  duration_ms: 1494.3659
+  type: 'test'
+  ...
+# Subtest: native activities retain all steps, bound individual text and reject invalid worker activity
+ok 122 - native activities retain all steps, bound individual text and reject invalid worker activity
+  ---
+  duration_ms: 2110.1945
+  type: 'test'
+  ...
+# Subtest: stream-json final envelope preserves AJV contract and native CLI flags
+ok 123 - stream-json final envelope preserves AJV contract and native CLI flags
+  ---
+  duration_ms: 1520.6938
+  type: 'test'
+  ...
+# Subtest: malformed, duplicate and missing structured stream finals never pass
+ok 124 - malformed, duplicate and missing structured stream finals never pass
+  ---
+  duration_ms: 4411.8846
+  type: 'test'
+  ...
+# Subtest: old JSON config and old single envelope remain compatible
+ok 125 - old JSON config and old single envelope remain compatible
+  ---
+  duration_ms: 1496.6225
+  type: 'test'
+  ...
+# Subtest: trusted external screenshots retain hash, source, dimensions and correlation
+ok 126 - trusted external screenshots retain hash, source, dimensions and correlation
+  ---
+  duration_ms: 1596.7707
+  type: 'test'
+  ...
+# Subtest: agent workspace, external path, malformed PNG and oversized dimensions rejected
+ok 127 - agent workspace, external path, malformed PNG and oversized dimensions rejected
+  ---
+  duration_ms: 1552.6345
+  type: 'test'
+  ...
+# Subtest: screenshot replacement invalidates frozen metadata
+ok 128 - screenshot replacement invalidates frozen metadata
+  ---
+  duration_ms: 1383.8325
+  type: 'test'
+  ...
+# Subtest: Windows junction escapes cannot become trusted screenshots
+ok 129 - Windows junction escapes cannot become trusted screenshots
+  ---
+  duration_ms: 1401.9916
+  type: 'test'
+  ...
+# Subtest: injected Codex worker activity preserves thread and validated proposal without applying edits
+ok 130 - injected Codex worker activity preserves thread and validated proposal without applying edits
+  ---
+  duration_ms: 1479.9893
+  type: 'test'
+  ...
+# Subtest: invalid Codex activity or unexpected worker protocol is rejected without writes
+ok 131 - invalid Codex activity or unexpected worker protocol is rejected without writes
+  ---
+  duration_ms: 2728.599
+  type: 'test'
+  ...
+1..131
+# tests 131
+# suites 0
+# pass 131
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 208329.8341

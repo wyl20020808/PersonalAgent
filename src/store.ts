@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { configSchema, taskSchema, validate, type Config, type Task } from './schema.js';
+import { configSchema, taskSchema, normalizeConfig, validate, type Config, type Task } from './schema.js';
 import type { Screenshot } from './screenshots.js';
 import type { ProcessResult } from './process.js';
 import { failureKinds, type Failure } from './failure.js';
@@ -62,8 +62,8 @@ export class Store {
     this.dir = path.join(assertD(runtime), 'runs', id); mkdirSync(this.dir, { recursive: true });
   }
   file(name: string) { return path.join(this.dir, name); }
-  save(state: State) { state.updatedAt = new Date().toISOString(); validate(stateSchema, state); atomicJson(this.file('state.json'), state); }
-  load(): State { return validate<State>(stateSchema, JSON.parse(readFileSync(this.file('state.json'), 'utf8'))); }
+  save(state: State) { state.config = normalizeConfig(state.config); state.updatedAt = new Date().toISOString(); validate(stateSchema, state); atomicJson(this.file('state.json'), state); }
+  load(): State { const state = JSON.parse(readFileSync(this.file('state.json'), 'utf8')); state.config = validate<Config>(configSchema, state.config); return validate<State>(stateSchema, state); }
   audit(event: string, data: unknown = {}): void {
     const file = this.file('audit.jsonl');
     const previous = existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').at(-1) : undefined;

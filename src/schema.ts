@@ -17,10 +17,11 @@ export const configSchema = object({
   timeoutMs: { type: 'integer', minimum: 100, maximum: 3600000 },
   maxLoops: { type: 'integer', minimum: 1, maximum: 100 },
   maxReworks: { type: 'integer', minimum: 0, maximum: 20 },
-  tests: { type: 'array', minItems: 1, maxItems: 20, items: object({ executable: text, args: { type: 'array', items: { type: 'string' }, maxItems: 50 } }) },
+  tests: { type: 'array', minItems: 0, maxItems: 20, items: object({ executable: text, args: { type: 'array', items: { type: 'string' }, maxItems: 50 } }) },
   mockScenario: { type: 'string', enum: ['pass', 'rework', 'human', 'fail', 'timeout', 'invalid', 'escape', 'nochange'] }
 });
 Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'proposal'] }, claudeStreaming: { type: 'boolean' }, maxClaudeCalls: { type: 'integer', minimum: 1, maximum: 100 }, minTasks: { type: 'integer', minimum: 1, maximum: 20 } });
+Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
@@ -30,6 +31,9 @@ export interface Edits { summary: string; changes: { path: string; content: stri
 export interface NativeResult { mode: 'native'; summary: string }
 export type ExecutionResult = Edits | NativeResult;
 export interface Config {
+  projectMode?: 'direct' | 'isolated';
+  workspaceMode?: 'direct' | 'isolated'; // Deprecated input alias; never persisted in new Runs.
+  directAuthorization?: { projectPath: string; acknowledgedAt: string };
   executionMode?: 'native' | 'proposal';
   maxClaudeCalls?: number; minTasks?: number; claudeStreaming?: boolean;
   acceptanceStages?: Record<string, number[]>; globalBudget?: { file: string; limit: number };
@@ -39,8 +43,13 @@ export interface Config {
   tests: { executable: string; args: string[] }[];
   mockScenario: 'pass' | 'rework' | 'human' | 'fail' | 'timeout' | 'invalid' | 'escape' | 'nochange';
 }
+export function normalizeConfig(config: Config): Config {
+  if (config.projectMode && config.workspaceMode && config.projectMode !== config.workspaceMode) throw new Error('Conflicting projectMode and workspaceMode');
+  const { workspaceMode, ...canonical } = config;
+  return { ...canonical, ...(config.projectMode || workspaceMode ? { projectMode: config.projectMode ?? workspaceMode } : {}) };
+}
 export function validate<T>(schema: object, value: unknown): T {
   const check = ajv.compile(schema);
   if (!check(value)) throw new Error(`JSON Schema validation failed: ${ajv.errorsText(check.errors)}`);
-  return value as T;
+  return (schema === configSchema ? normalizeConfig(value as Config) : value) as T;
 }

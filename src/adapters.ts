@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Config, Edits, ExecutionResult, Plan, Review } from './schema.js';
 import type { State, Store } from './store.js';
+import { applyEdits } from './workspace.js';
 
 export interface Agents {
   readonly executionMode?: 'native' | 'proposal';
@@ -10,12 +11,13 @@ export interface Agents {
   review(state: State, store: Store, signal: AbortSignal): Promise<Review>;
 }
 export class MockAgents implements Agents {
+  get executionMode(): 'native' | 'proposal' {return this.config.executionMode ?? 'proposal';}
   constructor(readonly config: Config) {}
   async plan(state: State): Promise<Plan> {
     state.claudeSessionId ??= 'mock-claude-session';
     return { humanDecision: null, tasks: [{ id: 'hello', instruction: 'Create hello.txt containing hello', acceptance: ['hello.txt must contain hello followed by a newline', 'Independent tests pass'] }, { id: 'done', instruction: 'Create done.txt containing done', acceptance: ['done.txt must contain done followed by a newline'] }] };
   }
-  async execute(state: State, store: Store, signal: AbortSignal): Promise<Edits> {
+  async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
     state.codexThreadId ??= 'mock-codex-thread'; store.save(state);
     if (this.config.mockScenario === 'timeout') await delay(this.config.timeoutMs * 2, undefined, { signal });
     if (this.config.mockScenario === 'fail') throw new Error('Mock executor failed');
@@ -25,7 +27,14 @@ export class MockAgents implements Agents {
     const task = state.tasks[state.taskIndex]!;
     const content = this.config.mockScenario === 'rework' && state.reworks === 0 ? 'incorrect\n' : `${task.id}\n`;
     writeFileSync(store.file('mock-executor.json'), JSON.stringify({ task: task.id }));
-    return { summary: task.instruction, changes: [{ path: `${task.id}.txt`, content }] };
+    const edits={ summary: task.instruction, changes: [{ path: `${task.id}.txt`, content }] };
+    if(this.executionMode==='native') {
+      applyEdits(state.workspace,edits);
+      applyEdits(state.workspace,{summary:'Explicit local Mock run marker',changes:[{path:`mock-result-${state.id}.txt`,content:`PersonalAgent 本地 Mock 夹具运行标记；任务 ${task.id}；不代表真实 Agent 或项目功能验收。\n`}]});
+      store.audit('agent-activity',{agent:'codex',kind:'file',title:'Mock native file write',text:`${task.id}.txt (local Mock; no paid Agent)`});
+      return {mode:'native',summary:`Mock native fixture: ${task.instruction}`};
+    }
+    return edits;
   }
   async review(state: State): Promise<Review> {
     if (this.config.mockScenario === 'human' && !state.feedback) return { verdict: 'human', reason: 'Need user decision' };

@@ -1,7 +1,8 @@
-export const failureKinds = ['executor', 'supervisor', 'timeout', 'authentication', 'budget', 'validation', 'safety', 'rejected', 'interrupted', 'unknown'] as const;
+export const failureKinds = ['executor', 'supervisor', 'timeout', 'authentication', 'budget', 'validation', 'safety', 'git', 'git-integrity', 'rejected', 'interrupted', 'unknown'] as const;
 export type FailureKind = typeof failureKinds[number];
 export interface Failure { kind: FailureKind; stage: string; message: string; recoverable: boolean }
 export class FlowError extends Error {
+  runId?: string;
   constructor(readonly kind: FailureKind, message: string) { super(message); }
 }
 export function classifyFailure(error: unknown, stage: string): Failure {

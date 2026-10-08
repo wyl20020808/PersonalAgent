@@ -40,7 +40,7 @@ function agents(): Agents {
 }
 
 test('native options restore SDK full access without changing model or extensions', () => {
-  assert.deepEqual(nativeThreadOptions('D:/fixture'), { workingDirectory: 'D:/fixture', sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' });
+  assert.deepEqual(nativeThreadOptions('D:/fixture'), { workingDirectory: 'D:/fixture', skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' });
   for (const key of ['CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY']) assert.equal(nativeAgentEnv()[key], process.env[key]);
   assert.equal('model' in nativeThreadOptions('D:/fixture'), false);
 });

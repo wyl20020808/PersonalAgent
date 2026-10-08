@@ -1,0 +1,571 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f-]{36}$"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "workspace": {
+      "type": "string"
+    },
+    "base": {
+      "type": "string"
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "allowedRepositories": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          }
+        },
+        "runtimeDir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "mock",
+            "real"
+          ]
+        },
+        "claudeExecutable": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 3600000
+        },
+        "maxLoops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "maxReworks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "tests": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "executable": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100000
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 50
+              }
+            },
+            "required": [
+              "executable",
+              "args"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "mockScenario": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "rework",
+            "human",
+            "fail",
+            "timeout",
+            "invalid",
+            "escape",
+            "nochange"
+          ]
+        },
+        "executionMode": {
+          "enum": [
+            "native",
+            "proposal"
+          ]
+        },
+        "claudeStreaming": {
+          "type": "boolean"
+        },
+        "maxClaudeCalls": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "minTasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "projectMode": {
+          "enum": [
+            "direct",
+            "isolated"
+          ]
+        },
+        "workspaceMode": {
+          "enum": [
+            "direct",
+            "isolated"
+          ]
+        },
+        "directAuthorization": {
+          "type": "object",
+          "properties": {
+            "projectPath": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100000
+            },
+            "acknowledgedAt": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "projectPath",
+            "acknowledgedAt"
+          ],
+          "additionalProperties": false
+        },
+        "acceptanceStages": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 20,
+          "propertyNames": {
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 19
+            }
+          }
+        },
+        "globalBudget": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100000
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000
+            }
+          },
+          "required": [
+            "file",
+            "limit"
+          ],
+          "additionalProperties": false
+        },
+        "taskStages": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 20,
+          "propertyNames": {
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          }
+        }
+      },
+      "required": [
+        "allowedRepositories",
+        "runtimeDir",
+        "mode",
+        "claudeExecutable",
+        "timeoutMs",
+        "maxLoops",
+        "maxReworks",
+        "tests",
+        "mockScenario"
+      ],
+      "additionalProperties": false
+    },
+    "phase": {
+      "enum": [
+        "planning",
+        "execute",
+        "executing",
+        "applying",
+        "verify",
+        "review",
+        "paused",
+        "stopped",
+        "failed",
+        "completed"
+      ]
+    },
+    "nextPhase": {
+      "enum": [
+        "planning",
+        "execute",
+        "executing",
+        "applying",
+        "verify",
+        "review",
+        "paused",
+        "stopped",
+        "failed",
+        "completed"
+      ]
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "acceptance": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100000
+            },
+            "minItems": 1,
+            "maxItems": 30
+          },
+          "dependsOn": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+            }
+          },
+          "acceptanceStage": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          }
+        },
+        "required": [
+          "id",
+          "instruction",
+          "acceptance"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "taskIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "loops": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reworks": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "claudeSessionId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "codexThreadId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "feedback": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    },
+    "beforeExecution": {
+      "type": "string"
+    },
+    "executorExitCode": {
+      "type": "integer"
+    },
+    "evidence": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "screenshots": {
+              "type": "array",
+              "maxItems": 240,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "path",
+                  "source",
+                  "width",
+                  "height",
+                  "hash",
+                  "time",
+                  "runId",
+                  "taskId",
+                  "loop",
+                  "testIndex",
+                  "name"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hash": {
+                    "type": "string"
+                  },
+                  "time": {
+                    "type": "string"
+                  },
+                  "runId": {
+                    "type": "string"
+                  },
+                  "taskId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "loop": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "testIndex": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "diff": {
+              "type": "string"
+            },
+            "acceptanceRulesHash": {
+              "type": "string"
+            },
+            "taskDiff": {
+              "type": "string"
+            },
+            "roundDiff": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "head": {
+              "type": "string"
+            },
+            "snapshotDigest": {
+              "type": "string"
+            },
+            "tests": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "exitCode": {
+                    "type": "integer"
+                  },
+                  "stdout": {
+                    "type": "string"
+                  },
+                  "stderr": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "exitCode",
+                  "stdout",
+                  "stderr"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "executorExitCode": {
+              "type": "integer"
+            },
+            "passed": {
+              "type": "boolean"
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "diff",
+            "status",
+            "head",
+            "snapshotDigest",
+            "tests",
+            "executorExitCode",
+            "passed",
+            "issues"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "nativeExecution": {
+      "type": "boolean"
+    },
+    "completedTaskIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "claudeCalls": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "totalReworks": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reworkPending": {
+      "type": "boolean"
+    },
+    "failure": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "executor",
+                "supervisor",
+                "timeout",
+                "authentication",
+                "budget",
+                "validation",
+                "safety",
+                "git",
+                "git-integrity",
+                "rejected",
+                "interrupted",
+                "unknown"
+              ]
+            },
+            "stage": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "recoverable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "stage",
+            "message",
+            "recoverable"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "id",
+    "goal",
+    "source",
+    "workspace",
+    "base",
+    "config",
+    "phase",
+    "nextPhase",
+    "tasks",
+    "taskIndex",
+    "loops",
+    "reworks",
+    "claudeSessionId",
+    "codexThreadId",
+    "feedback",
+    "reason",
+    "updatedAt",
+    "beforeExecution",
+    "executorExitCode",
+    "evidence"
+  ],
+  "additionalProperties": false
+}

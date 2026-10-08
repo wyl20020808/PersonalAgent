@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 
 export interface ProcessResult { exitCode: number; stdout: string; stderr: string }
 export async function terminateTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
     await new Promise<void>(resolve => {
-      const child = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+      const child = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
       child.on('error', () => resolve()); child.on('close', () => resolve());
     });
   } else { try { process.kill(-pid, 'SIGKILL'); } catch { /* Already exited. */ } }
@@ -13,10 +14,11 @@ export function runProcess(executable: string, args: string[], options: {
   cwd: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs: number; input?: string;
   onLine?: (line: string) => void;
   streamOutput?: boolean;
-}): Promise<ProcessResult> {
+}, spawnChild: typeof spawn = spawn): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) return reject(new Error('Stopped'));
-    const child = spawn(executable, args, { cwd: options.cwd, env: options.env, windowsHide: true, shell: false, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+    if(process.platform==='win32' && path.resolve(options.cwd).length>=260)return reject(new Error('Windows process working directory exceeds supported 259-character limit; choose a shorter project or runtime path'));
+    const child = spawnChild(executable, args, { cwd: options.cwd, env: options.env, windowsHide: true, shell: false, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '', pending = '', failure: Error | undefined, terminating = false, termination: Promise<void> | undefined;
     const kill = (error: Error) => {
       failure ??= error;
@@ -26,6 +28,7 @@ export function runProcess(executable: string, args: string[], options: {
     const abort = () => kill(new Error('Stopped'));
     options.signal?.addEventListener('abort', abort, { once: true });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+    child.stdout.on('error', kill); child.stderr.on('error', kill);
     child.stdout.on('data', (chunk: string) => {
       if (failure) return;
       stdout += chunk; pending += chunk;

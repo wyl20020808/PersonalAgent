@@ -8,3 +8,4 @@ dist/
 snake-validation/node_modules/
 .desktop-data/
 desktop/out/
+.v3c3/

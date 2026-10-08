@@ -1,0 +1,4 @@
+
+> personalagent-desktop@0.3.0 check
+> tsc --noEmit
+

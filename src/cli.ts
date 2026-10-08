@@ -7,20 +7,24 @@ import { createRun, drive } from './controller.js';
 import { MockAgents } from './adapters.js';
 import { RealAgents } from './real-agents.js';
 import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from './delivery.js';
+import { acceptManual } from './manual-acceptance.js';
+import { restoreProject } from './project-files.js';
 
 const help = `PersonalAgent CLI MVP
   start --config FILE --repo D:\\REPO --goal "GOAL"
   resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--max-loops N] [--max-reworks N] [--max-claude-calls N]
   status --config FILE --id UUID
   stop --config FILE --id UUID
+  manual-accept --config FILE --id UUID --approval SHA256 --decision "OBSERVATIONS"
+  project-restore --config FILE --id UUID --checkpoint recovery-UUID.json --decision "EXPLICIT RESTORE"
   delivery-preview --config FILE --id RUN_UUID --repo D:\\TARGET --branch BRANCH
   delivery-approve --config FILE --id RUN_UUID --delivery UUID --approval SHA256 --decision "EXPLICIT APPROVAL"
   delivery-apply --config FILE --id RUN_UUID --delivery UUID [--resume]
   delivery-status --config FILE --id RUN_UUID --delivery UUID
-All mutable directories must be on D:. Real agents require authentication.
+Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
   if (values.help || !command) { console.log(help); }
   else {
@@ -31,10 +35,11 @@ try {
       if (!values.repo || !values.goal) throw new Error('--repo and --goal are required');
       store = await createRun(config, values.repo, values.goal); console.log(`Run ID: ${store.id}`);
     } else {
-      if (!['resume', 'status', 'stop', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
+      if (!['resume', 'status', 'stop', 'manual-accept', 'project-restore', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
       if (!values.id) throw new Error('--id is required'); store = new Store(config.runtimeDir, values.id);
     }
-    if (command.startsWith('delivery-')) {
+    if(command==='manual-accept'){console.log(JSON.stringify(await acceptManual(store,values.approval??'',values.decision??''),null,2));}
+    else if (command.startsWith('delivery-')) {
       if (command === 'delivery-preview') {
         if (!values.repo || !values.branch) throw new Error('--repo and --branch required for delivery preview');
         console.log(JSON.stringify(await previewDelivery(store, values.repo, values.branch), null, 2));
@@ -47,6 +52,7 @@ try {
         console.log(JSON.stringify(result, null, 2));
       }
     }
+    else if (command === 'project-restore') {restoreProject(store,values.checkpoint ?? '',values.decision ?? '');console.log('Project restored to initial snapshot.');}
     else if (command === 'status') console.log(JSON.stringify(store.load(), null, 2));
     else if (command === 'stop') { store.load(); writeFileSync(store.file('stop.request'), 'stop'); console.log('Stop requested; active process will terminate.'); }
     else {

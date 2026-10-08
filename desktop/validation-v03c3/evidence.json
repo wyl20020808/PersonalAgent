@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-08",
+  "controller": {
+    "passed": 131,
+    "failed": 0
+  },
+  "gui": {
+    "passed": 31,
+    "failed": 0
+  },
+  "electron": {
+    "passed": 11,
+    "failed": 0
+  },
+  "realAgentCalls": 0,
+  "artifacts": [
+    {
+      "name": "00-project-create.png",
+      "sha256": "e6594aae0807c55e62a71b9c3f94790a8d9694db6409fceeabc5260b0995c73f"
+    },
+    {
+      "name": "01-create-and-authorization.png",
+      "sha256": "319dbee3ad7940ad3c53cc4b19549b38888c9722bc2094dcdab1ea03404f9ace"
+    },
+    {
+      "name": "02-empty-direct-completed.png",
+      "sha256": "b3d1ee88a05e040f6f37da49ca04b5361ea65f4e89cea479fa919d048ad22b77"
+    },
+    {
+      "name": "03-existing-direct-completed.png",
+      "sha256": "bb70c020c9f4528994b9f537a68108e4dd9c1cd3d2d3511daace8a9c12293410"
+    },
+    {
+      "name": "04-dirty-git-completed.png",
+      "sha256": "aec45b83529f15a469c21411cdcedcf00a01a777148573fb7820c0a11b3b6f96"
+    },
+    {
+      "name": "05-isolated-applied.png",
+      "sha256": "d626913c53c0a0d03262a8245d918b6b5d831f15962ac91c0ea01bfe31dfecfd"
+    },
+    {
+      "name": "05-isolated-completed.png",
+      "sha256": "6903d95c950466d76ffb75e507bb9f95cf47feb99bdc674daeb848fafc241a6e"
+    },
+    {
+      "name": "06-restarted-recent-project.png",
+      "sha256": "957a31a07f67e8fc3c980ac93027e8f1f13e6c741ef952f75d5fe4b4817503a3"
+    },
+    {
+      "name": "07-layout-1280.png",
+      "sha256": "5d5abfed9b15d937e3cfd2fb525603a27d1c34cb68e60ef084357159e02b5824"
+    },
+    {
+      "name": "08-other-drive-completed.png",
+      "sha256": "553e8694aa92d2b3eb741ba8febf5289f6d88c4905b86cb5a8df6bcb9cb48087"
+    },
+    {
+      "name": "09-legacy-group-note.png",
+      "sha256": "fa247b53d04324ca94716142feba92e9c7be8c22e812170737d772fc5fde986d"
+    },
+    {
+      "name": "10-legacy-trusted-image.png",
+      "sha256": "7ce569b676ac68a835c0057131d90faa8eaacee194974f3f6c5a78e58ce1be63"
+    },
+    {
+      "name": "11-legacy-formal-resume.png",
+      "sha256": "5b8b920f7af6c5cf0f1dbc7f3e0fdd152326fe1d8a83161fa1d34a86f6ad2265"
+    },
+    {
+      "name": "controller-regression.log",
+      "sha256": "2462f93eb8bdf70847fd5f76e0c60ca47dcf4b4049d13071fedbaeda1a29a111"
+    },
+    {
+      "name": "desktop-build.log",
+      "sha256": "37f605b868000260b92f8effe071d146abf69c835c820f93133de6de064fdc20"
+    },
+    {
+      "name": "desktop-check.log",
+      "sha256": "251967e1ffe993066a799528c7ba0a6fa324d8e5529c84e452a0296ba490971e"
+    },
+    {
+      "name": "gui-regression.log",
+      "sha256": "beb31949d5a27510165731f73cf775d8a0ba8f5e5de542012b8eb7b983b893a8"
+    }
+  ]
+}

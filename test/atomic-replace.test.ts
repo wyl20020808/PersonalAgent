@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {replaceAtomic} from '../src/store.js';
 
 test('atomic replacement retries transient Windows sharing failures without deleting the destination',()=>{
- const dir=path.join('D:/PersonalAgent/.validation','atomic-replace-'+randomUUID());fs.mkdirSync(dir,{recursive:true});
+ const dir=path.join(path.resolve('.validation'),'atomic-replace-'+randomUUID());fs.mkdirSync(dir,{recursive:true});
  const target=path.join(dir,'state.json'),temp=target+'.tmp';fs.writeFileSync(target,'original');fs.writeFileSync(temp,'next');
  let attempts=0;
  replaceAtomic(temp,target,(source,destination)=>{

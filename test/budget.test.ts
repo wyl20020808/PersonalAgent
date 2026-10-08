@@ -8,7 +8,7 @@ import path from 'node:path';
 import { configSchema, validate } from '../src/schema.js';
 
 function fixture() {
-  const config = { allowedRepositories: ['D:/PersonalAgent'], runtimeDir: path.resolve('.validation/budget-tests'), mode: 'real' as const, claudeExecutable: 'claude', timeoutMs: 1000, maxLoops: 4, maxReworks: 1, maxClaudeCalls: 8, tests: [{ executable: process.execPath, args: [] }], mockScenario: 'pass' as const };
+  const config = { allowedRepositories: [process.cwd()], runtimeDir: path.resolve('.validation/budget-tests'), mode: 'real' as const, claudeExecutable: 'claude', timeoutMs: 1000, maxLoops: 4, maxReworks: 1, maxClaudeCalls: 8, tests: [{ executable: process.execPath, args: [] }], mockScenario: 'pass' as const };
   const store = new Store(config.runtimeDir, randomUUID());
   const state: State = { version: 1, id: store.id, goal: 'budget', source: config.allowedRepositories[0]!, workspace: store.file('workspace'), base: '', config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: 'test-session', codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
   return { store, state };

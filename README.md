@@ -32,7 +32,7 @@ node .\dist\src\cli.js --help
 
 参考 `config.example.json` 创建自己的配置，建议放在 D 盘并命名为 `config.local.json`。`allowedRepositories` 是用户明确允许的源仓库根目录列表；目录必须是有提交记录的干净 Git 仓库，不能含符号链接或子模块。不要把游戏工程加入列表。
 
-`tests` 必须至少有一条。测试程序和参数只能来自用户配置，Agent 输出不会被作为命令执行。Windows 下使用原生 `.exe`，不要配置 `.cmd` 或 `.ps1` 包装器；例如用 `node.exe` 执行固定的验收脚本。强烈建议把验收脚本放在目标仓库之外，让 Agent 无法修改验收标准。目标仓库中的项目测试可以作为额外检查。
+`tests` 可以为空：允许开发，但逐任务进入人工验收，不能自动声称测试通过或据此交付。统一模式契约见 `PROJECT_EXECUTION_CONTRACT.md`，验收证据见 `V03C_UNIFIED_VALIDATION.md`。测试程序和参数只能来自用户配置，Agent 输出不会被作为命令执行。Windows 下使用原生 `.exe`，不要配置 `.cmd` 或 `.ps1` 包装器；例如用 `node.exe` 执行固定的验收脚本。强烈建议把验收脚本放在目标仓库之外，让 Agent 无法修改验收标准。目标仓库中的项目测试可以作为额外检查。
 
 配置中主要字段：
 
