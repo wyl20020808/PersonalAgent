@@ -16,6 +16,8 @@ V1.1 发布作为独立里程碑，已由另一获授权会话完成 main 快进
 
 详细日志与截图保存在 `D:\PersonalAgent-validation\dual-instance-runtime-v1`；失败现场也保留。验证仅操作明确创建的隔离项目、数据和进程。原用户应用未结束，原数据未迁移、覆盖或清理。
 
+dev 整合后的首次实窗验证功能检查通过，但 Playwright 页面截图等待超时；验证脚本改用 Electron 自身的 capturePage 后，dev 构建与 feature 构建的实际双实例复测全部通过。该修复仅影响验证工具，保留原截图失败日志。
+
 这些结果属于开发执行方的自主专项验证和正式 Controller/Mock 流程检查，不冒充新的 Controller 独立全量验收或付费 Agent 验收。用户本次指令已明确授权验证通过后的本地提交、dev 整合及 main 发布；没有远程推送授权。
 
 ## 运行约束

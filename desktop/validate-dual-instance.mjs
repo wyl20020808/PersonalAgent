@@ -40,7 +40,7 @@ try{
  await Promise.all([mock(main.page,'main'),mock(dev.page,'dev')]);
  for(const [id,other,page] of [['main','dev',main.page],['dev','main',dev.page]]){const list=await call(page,{operation:'sessions'});assert.ok(list.some(s=>s.id===instances[id].sessionId));assert.ok(!list.some(s=>s.id===instances[other].sessionId));const overview=await call(page,{operation:'overview'});assert.ok(!overview.runs.some(r=>r.id===instances[other].runId));}
  checks.push('sessions and runs do not cross instances; independent projects run concurrently');
- for(const [id,page] of [['main',main.page],['dev',dev.page]])await page.screenshot({path:path.join(directory,id+'.png')});
+ for(const [id,app] of [['main',main.app],['dev',dev.app]]){const png=await app.evaluate(async({BrowserWindow})=>{const window=BrowserWindow.getAllWindows()[0];window.show();return (await window.webContents.capturePage()).toPNG().toString('base64');});assert.ok(png.length>100);fs.writeFileSync(path.join(directory,id+'.png'),Buffer.from(png,'base64'));}
  await main.app.close();apps.splice(apps.indexOf(main.app),1);assert.equal((await call(dev.page,{operation:'sessionDetail',sessionId:instances.dev.sessionId})).session.id,instances.dev.sessionId);assert.equal(await dev.app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isVisible()),true);checks.push('normal MAIN exit leaves DEV window and IPC usable');
  await dev.app.close();apps.splice(apps.indexOf(dev.app),1);checks.push('both test instances exit normally; separate window states saved');
  for(const [f,hash] of Object.entries(before))assert.equal(digest(f),hash);checks.push('original MAIN profiles, sessions and user actions hashes unchanged');
