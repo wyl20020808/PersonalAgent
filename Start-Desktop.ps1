@@ -10,5 +10,7 @@ New-Item -ItemType Directory -Path $desktopTemp -Force | Out-Null
 $env:TEMP = $desktopTemp
 $env:TMP = $desktopTemp
 if (-not (Test-Path -LiteralPath (Join-Path $desktopRoot 'out/main.js'))) { throw '请先运行 npm --prefix desktop run build' }
-& node (Join-Path $desktopRoot 'node_modules/electron/cli.js') $desktopRoot
+$electronBinary = Join-Path $desktopRoot 'node_modules/electron/dist/electron.exe'
+if (-not (Test-Path -LiteralPath $electronBinary)) { throw 'Electron binary is missing; install desktop dependencies before launching' }
+& $electronBinary $desktopRoot
 exit $LASTEXITCODE
