@@ -2,6 +2,8 @@
 
 遵循 [统一 Agent 工作规则](AGENT_WORK_RULES.md)。
 
+所有参与 PersonalAgent 开发、执行、规划和审查的 Agent，必须读取并遵守 [持续实战改进与问题反馈规则 V1](problems/README.md)。
+
 ## 项目分支与自我迭代治理规则
 
 所有参与 PersonalAgent 开发的 Agent，在执行分支操作、修改源码、创建 Worktree、集成或发布前，必须主动读取并遵循 [PersonalAgent 开发治理规则 V1](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md) 全文；不能只读取本摘要或依赖 Markdown 超链接自动加载。首次参与任务时应先读取，续接任务时确认规则版本是否变化。
