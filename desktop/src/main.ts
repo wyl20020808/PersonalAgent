@@ -32,36 +32,24 @@ if(locked)app.whenReady().then(async()=>{
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
   const r=validateRequest(raw);
   try{
-   if(r.operation==='authorizeSessionBudget'){
-    const {session}=service.sessions.detail(r.sessionId!);
-    if(session.settings.mode==='real'&&!r.realAcknowledged)throw Error('需明确勾选追加真实预算授权');
-    const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权具体追加额度'],defaultId:0,cancelId:0,message:'仅追加后续轮次的累计预算，不重置消耗',detail:`项目：${session.projectPath}\nCC 累计上限：${session.settings.maxClaudeCalls} → ${r.maxClaudeCalls}；Codex 累计上限：${session.settings.maxLoops} → ${r.maxLoops}\n已使用 CC ${session.budget.claudeUsed}，Codex ${session.budget.loopsUsed}。\n${r.decision}\n不恢复暂停 Run、不批准交付。`});if(answer.response!==1)throw Error('用户取消追加预算授权');
-   }
    if(r.operation==='sendSession'||r.operation==='processSessionMessage'){
     const {session,runs}=service.sessions.detail(r.sessionId!),last=runs.at(-1);
     const projectActive=service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)));
     const text=r.text??session.messages.find(m=>m.id===r.messageId)?.text??'';
     const starts=!projectActive&&(!last||last.phase==='completed')&&!/^(好[的]?|继续|可以|ok|yes|批准|同意)[。！!\s]*$/i.test(text);
     if(starts){
-     if(session.settings.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改会话项目目录',detail:session.projectPath+'\n会话始终绑定此项目；快照、预算及每轮审计独立保留。'});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
-     if(session.settings.mode==='real'){
-      if(!r.realAcknowledged)throw Error('需明确勾选本轮真实额度消耗确认');
-      const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权本轮真实执行'],defaultId:0,cancelId:0,message:'真实 Agent 调用将消耗剩余会话预算',detail:`项目：${session.projectPath}\n累计剩余：CC ${session.budget.claudeRemaining} 次，Codex ${session.budget.loopsRemaining} 次；不重置历史消耗。\n${text}\n独立验收：${session.selectedTests.join('、')||'无，需人工验收'}\n不包含交付批准，不改变本机模型。`});if(answer.response!==1)throw Error('用户取消真实执行授权');
-     }
+     if(session.settings.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改会话项目目录',detail:session.projectPath+'\n会话始终绑定此项目；快照、用量及每轮审计独立保留。'});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
     }
    }
    if(r.operation==='chooseProject'){const picked=await dialog.showOpenDialog(window,{title:'选择项目文件夹',properties:['openDirectory','createDirectory']});return picked.canceled?null:service.inspectProject(picked.filePaths[0]!);}
    if(r.operation==='startProject'){
     const project=service.inspectProject(r.projectPath!);
     if(r.projectMode==='direct'&&!project.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改所选项目目录',detail:`项目：${project.path}\n文件修改即刻保存在此目录；内部快照位于 PersonalAgent 的 D 盘运行目录。原生 Shell 可访问其他目录，项目规则不是技术隔离。\nMock 仅生成 hello.txt/done.txt 和每次 Run 的 mock-result 标记；真实模式使用本机 Agent 工具。`});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
-    service.validateProjectStart({...r,realAcknowledged:r.mode==='real'?true:r.realAcknowledged});
-    if(r.mode==='real'){if(!r.realAcknowledged)throw Error('需明确勾选真实额度消耗确认');const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权本次真实执行'],defaultId:0,cancelId:0,message:'真实 Agent 调用将消耗额度',detail:`项目：${project.path}\nCC ${r.maxClaudeCalls} 次；Codex ${r.maxLoops} 次；返工 ${r.maxReworks} 次。\n${r.goal}\n本次授权独立验收命令：${(r.selectedTests??[]).join('、')||'无，需人工验收'}。本机模型默认值生效。未配置可信测试时，不会宣称测试通过。Agent 可运行项目命令。`});if(answer.response!==1)throw Error('用户取消真实执行授权');}
+    service.validateProjectStart(r);
    }
    if(r.operation==='importProfile'){const pick=r.file?{canceled:false,filePaths:[r.file]}:await dialog.showOpenDialog(window,{title:'导入可信 Controller 配置（D 盘）',defaultPath:root,properties:['openFile'],filters:[{name:'Controller JSON',extensions:['json']}]});if(pick.canceled)return service.overview();assertD(pick.filePaths[0]!);const confirm=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','信任并导入'],defaultId:0,cancelId:0,message:'确认信任此本地配置？',detail:`配置文件：${pick.filePaths[0]}\n配置中的授权仓库和验收命令将在主进程执行。仅导入你编写或核验过的配置；不会导入或显示原始认证凭据。`});if(confirm.response!==1)return service.overview();return service.register(pick.filePaths[0]!);}
    if(r.operation==='start')service.validateStart(r);
-   if(r.operation==='start'&&service.config(r.profileId!).config.mode==='real'){if(!r.realAcknowledged)throw Error('需明确勾选真实额度消耗确认');const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权本次真实执行'],defaultId:0,cancelId:0,message:'真实 Claude Code / Codex 调用将消耗额度',detail:`目标仓库：${r.repository}\nCC 上限 ${r.maxClaudeCalls} 次；Codex 上限 ${r.maxLoops} 次；每任务返工 ${r.maxReworks} 次。\n${r.goal}\n\n全局预算仍生效，交付审批不包含在本次授权中。`});if(approval.response!==1)throw Error('用户取消真实执行授权');}
    if(r.operation==='resume')service.validateResume(r);
-   if(r.operation==='resume'&&service.store(r.profileId!,r.runId!).load().config.mode==='real'){const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','恢复本次 Run'],defaultId:0,cancelId:0,message:'恢复可能继续消耗已授权额度',detail:'原有计数、会话和预算保留，不自动扩大上限。\n'+r.decision});if(approval.response!==1)throw Error('用户取消恢复');}
    if(r.operation==='contextDecide'){const run=service.store(r.profileId!,r.runId!).load();const request=service.publicRun(run,r.profileId!).contextConfirmations?.find(item=>item.id===r.requestId&&item.requestHash===r.digest);if(!request)throw Error('文档确认请求已变化');const answer=await dialog.showMessageBox(window,{type:'question',buttons:['取消',r.cancel?'取消该确认请求':'明确执行文档决策'],defaultId:0,cancelId:0,message:'正式契约/决策确认；不批准成果交付',detail:`项目：${request.projectId}
 工作区：${request.workspace}
 文件：${request.relative}
@@ -85,7 +73,7 @@ ${request.replacement?'替代方案：'+request.replacement.relative+'\n'+reques
   rendererRecoveries++;
   setTimeout(()=>{if(!window.isDestroyed())void window.loadURL('personalagent://app/index.html').catch(error=>fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),error:redact(String(error))})+'\n'));},1000);
  });
- window.on('close',event=>{if(service.children.size&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和预算会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
+ window.on('close',event=>{if(service.children.size&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和用量会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
  app.on('second-instance',()=>{if(window.isMinimized())window.restore();window.focus();});
 });
 app.on('window-all-closed',()=>app.quit());

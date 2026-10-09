@@ -5,28 +5,18 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createRun, drive as controllerDrive } from '../src/controller.js';
-import { initializeGlobalBudget } from '../src/global-budget.js';
 import { Store, type State } from '../src/store.js';
 import { git, snapshot } from '../src/workspace.js';
 import { prepareApplication } from '../src/application.js';
-import { reserveClaudeCall } from '../src/budget.js';
+import { recordClaudeCall } from '../src/agent-usage.js';
 import { FlowError, classifyFailure } from '../src/failure.js';
 import type { Agents } from '../src/adapters.js';
 import type { Config, Review } from '../src/schema.js';
 import { RealAgents } from '../src/real-agents.js';
 
 const root = path.resolve('.validation', `v02a-${randomUUID()}`); mkdirSync(root, { recursive: true });
-// Synthetic real-mode adapters never call paid services. They still exercise
-// the production shared-budget gate with durable, isolated test authorization.
-async function drive(store:Store,agents:Agents,decision?:string,signal?:AbortSignal,limits?:Parameters<typeof controllerDrive>[4]) {
-  const file=store.file('test-shared-policy.json');
-  if(!existsSync(file)){
-    const claude={file:store.file('test-shared-claude.json'),limit:100},codex={file:store.file('test-shared-codex.json'),limit:100};
-    initializeGlobalBudget(claude.file,claude.limit);initializeGlobalBudget(codex.file,codex.limit);
-    writeFileSync(file,JSON.stringify({version:1,claude,codex}),{flag:'wx'});
-  }
-  return controllerDrive(store,agents,decision,signal,limits,file);
-}
+// Local injected adapters exercise real mode without authorization or paid calls.
+const drive = controllerDrive;
 async function fixture(label: string, options: Partial<Config> = {}) {
   const dir = path.join(root, label); mkdirSync(dir);
   const repo = path.join(dir, 'source'); mkdirSync(repo); await git(repo, ['init']);
@@ -41,11 +31,11 @@ async function fixture(label: string, options: Partial<Config> = {}) {
   let executions = 0, reviews = 0;
   const agents: Agents = {
     async plan(state, storage) {
-      state.claudeSessionId ??= 'fake-cc-session'; reserveClaudeCall(state, storage, 'plan');
+      state.claudeSessionId ??= 'fake-cc-session'; recordClaudeCall(state, storage, 'plan');
       return { humanDecision: null, tasks: [{ id: 'result', instruction: 'Produce result.txt', acceptance: ['Fixed external script passes'] }] };
     },
     async execute(state, storage) { executions++; state.codexThreadId ??= 'fake-sdk-thread'; storage.save(state); return { summary: 'Produce result', changes: [{ path: 'result.txt', content: 'ok\n' }] }; },
-    async review(state, storage) { reviews++; reserveClaudeCall(state, storage, 'review'); return { verdict: state.evidence?.passed ? 'pass' : 'rework', reason: state.evidence?.passed ? 'Evidence passed' : 'Repair independent failure' }; }
+    async review(state, storage) { reviews++; recordClaudeCall(state, storage, 'review'); return { verdict: state.evidence?.passed ? 'pass' : 'rework', reason: state.evidence?.passed ? 'Evidence passed' : 'Repair independent failure' }; }
   };
   return { store, agents, repo, control, config, executions: () => executions, reviews: () => reviews };
 }
@@ -68,7 +58,7 @@ test('rework limit cannot be bypassed by repeated resume; explicit increase pres
 });
 test('ASK_HUMAN stays paused; FAIL is terminal and cannot resubmit', async () => {
   const f = await fixture('human-then-fail');
-  f.agents.review = async (state, storage): Promise<Review> => { reserveClaudeCall(state, storage, 'review'); return { verdict: state.feedback ? 'fail' : 'human', reason: 'User choice required' }; };
+  f.agents.review = async (state, storage): Promise<Review> => { recordClaudeCall(state, storage, 'review'); return { verdict: state.feedback ? 'fail' : 'human', reason: 'User choice required' }; };
   const paused = await drive(f.store, f.agents); assert.equal(paused.phase, 'paused');
   assert.equal((await drive(f.store, f.agents)).claudeCalls, 2);
   const rejected = await drive(f.store, f.agents, 'Reject this objective'); assert.equal(rejected.phase, 'failed'); assert.equal(rejected.failure?.kind, 'rejected');
@@ -94,12 +84,13 @@ test('independent test process timeout resumes verification without executing or
   writeFileSync(f.control, JSON.stringify({ hang: false }));
   const recovered = await drive(f.store, f.agents, 'External test hang corrected'); assert.equal(recovered.phase, 'completed'); assert.equal(recovered.loops, 1); assert.equal(f.executions(), 1); assert.equal(statSync(file).mtimeMs, mtime);
 });
-test('CC budget exhaustion blocks executor; increase keeps spent calls and does not re-plan', async () => {
+test('historical CC limit never blocks execution or review; counters remain durable', async () => {
   const f = await fixture('cc-budget', { maxClaudeCalls: 1 });
-  const paused = await drive(f.store, f.agents); assert.equal(paused.phase, 'paused'); assert.equal(paused.failure?.kind, 'budget'); assert.equal(paused.claudeCalls, 1); assert.equal(paused.loops, 0); assert.equal(paused.nextPhase, 'execute');
-  assert.equal((await drive(f.store, f.agents, 'Retry')).claudeCalls, 1); assert.equal(f.executions(), 0);
-  const done = await drive(f.store, f.agents, 'Authorize one review call', undefined, { maxClaudeCalls: 2 }); assert.equal(done.phase, 'completed'); assert.equal(done.claudeCalls, 2); assert.equal(done.loops, 1);
+  const done = await drive(f.store, f.agents);
+  assert.equal(done.phase, 'completed'); assert.equal(done.claudeCalls, 2); assert.equal(done.loops, 1);
+  assert.equal(f.executions(), 1); assert.equal(new Store(f.config.runtimeDir, f.store.id).load().config.maxClaudeCalls, 1);
 });
+
 test('supervisor authentication failure consumes call and resumes same planning session', async () => {
   const f = await fixture('cc-auth'); const plan = f.agents.plan;
   f.agents.plan = async (state, storage) => { await plan(state, storage, new AbortController().signal); throw new FlowError('authentication', '401 OAuth token expired'); };
@@ -133,7 +124,7 @@ test('malformed executor output stays fatal; diagnostics distinguish authenticat
 });
 test('supervisor review timeout resumes checks, keeps written files and bills both attempts', async () => {
   const f = await fixture('review-timeout', { timeoutMs: 250 }); const review = f.agents.review;
-  f.agents.review = async (state, storage, signal) => { reserveClaudeCall(state, storage, 'review'); await delay(10000, undefined, { signal }); throw new Error('unreachable'); };
+  f.agents.review = async (state, storage, signal) => { recordClaudeCall(state, storage, 'review'); await delay(10000, undefined, { signal }); throw new Error('unreachable'); };
   const paused = await drive(f.store, f.agents); assert.equal(paused.phase, 'paused'); assert.equal(paused.failure?.kind, 'timeout'); assert.equal(paused.claudeCalls, 2);
   const mtime = statSync(path.join(paused.workspace, 'result.txt')).mtimeMs;
   f.agents.review = review;

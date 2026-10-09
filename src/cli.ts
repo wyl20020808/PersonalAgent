@@ -20,7 +20,7 @@ const help = `PersonalAgent CLI MVP
   context-request --config FILE --id UUID --document RELATIVE_PATH --action accepted|rejected|superseded
   context-decide --config FILE --id UUID --request UUID --approval SHA256 --decision "EXPLICIT DOCUMENT DECISION" [--cancel]
   context-pending --config FILE --id UUID
-  resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--max-loops N] [--max-reworks N] [--max-claude-calls N]
+  resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--max-loops N] [--max-reworks N]
   status --config FILE --id UUID
   stop --config FILE --id UUID
   manual-accept --config FILE --id UUID --approval SHA256 --decision "OBSERVATIONS"
@@ -32,7 +32,7 @@ const help = `PersonalAgent CLI MVP
 Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
   if (values.help || !command) { console.log(help); }
   else if (command === 'context-stamp') {
@@ -81,7 +81,7 @@ try {
       const storedConfig = store.load().config;
       const agents = storedConfig.mode === 'mock' ? new MockAgents(storedConfig) : new RealAgents(storedConfig);
       const cancellation = new AbortController(); process.once('SIGINT', () => cancellation.abort()); process.once('SIGTERM', () => cancellation.abort());
-      const state = await drive(store, agents, values.decision, cancellation.signal, { maxLoops: values['max-loops'] === undefined ? undefined : Number(values['max-loops']), maxReworks: values['max-reworks'] === undefined ? undefined : Number(values['max-reworks']), maxClaudeCalls: values['max-claude-calls'] === undefined ? undefined : Number(values['max-claude-calls']) });
+      const state = await drive(store, agents, values.decision, cancellation.signal, { maxLoops: values['max-loops'] === undefined ? undefined : Number(values['max-loops']), maxReworks: values['max-reworks'] === undefined ? undefined : Number(values['max-reworks']) });
       console.log(JSON.stringify({ id: state.id, phase: state.phase, reason: state.reason, loops: state.loops, workspace: state.workspace, stateFile: store.file('state.json') }, null, 2));
       process.exitCode = state.phase === 'completed' ? 0 : state.phase === 'paused' ? 2 : state.phase === 'stopped' ? 130 : 1;
     }

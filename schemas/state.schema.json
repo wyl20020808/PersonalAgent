@@ -530,6 +530,10 @@
       "type": "integer",
       "minimum": 0
     },
+    "reviewRepairs": {
+      "type": "integer",
+      "minimum": 0
+    },
     "totalReworks": {
       "type": "integer",
       "minimum": 0

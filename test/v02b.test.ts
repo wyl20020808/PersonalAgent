@@ -9,8 +9,7 @@ import { Store, type Evidence } from '../src/store.js';
 import { git } from '../src/workspace.js';
 import { orderTasks } from '../src/dependencies.js';
 import { reviewEvidence } from '../src/incremental.js';
-import { initializeGlobalBudget, reserveGlobalBudget } from '../src/global-budget.js';
-import { reserveClaudeCall } from '../src/budget.js';
+import { recordClaudeCall } from '../src/agent-usage.js';
 import { runProcess } from '../src/process.js';
 import { configSchema, taskSchema, validate, type Config, type Task } from '../src/schema.js';
 import type { Agents } from '../src/adapters.js';
@@ -28,9 +27,9 @@ async function fixture(label: string, options: Partial<Config> = {}) {
   const config: Config = { mode: 'mock', runtimeDir: path.join(dir, 'runtime'), allowedRepositories: [repo], claudeExecutable: 'NEVER-SPAWN-CLAUDE', claudeStreaming: false, timeoutMs: 5000, maxLoops: 6, maxReworks: 1, tests: [{ executable: process.execPath, args: [a] }, { executable: process.execPath, args: [b] }], acceptanceStages: { first: [0], final: [0, 1] }, mockScenario: 'pass', ...options };
   const store = await createRun(config, repo, label); const executed: string[] = [];
   const agents: Agents = {
-    async plan(state, storage) { state.claudeSessionId = 'mock-session'; if (state.config.mode === 'real') reserveClaudeCall(state, storage, 'plan'); return { humanDecision: null, tasks: [{ ...task('b', ['a']), acceptanceStage: 'final' }, { ...task('a'), acceptanceStage: 'first' }] }; },
+    async plan(state, storage) { state.claudeSessionId = 'mock-session'; if (state.config.mode === 'real') recordClaudeCall(state, storage, 'plan'); return { humanDecision: null, tasks: [{ ...task('b', ['a']), acceptanceStage: 'final' }, { ...task('a'), acceptanceStage: 'first' }] }; },
     async execute(state, storage) { const id = state.tasks[state.taskIndex]!.id; executed.push(id); state.codexThreadId = 'mock-thread'; storage.save(state); return { summary: id, changes: [{ path: `${id}.txt`, content: `${id}\n` }] }; },
-    async review(state, storage) { if (state.config.mode === 'real') reserveClaudeCall(state, storage, 'review'); return { verdict: state.evidence?.passed ? 'pass' : 'rework', reason: 'Independent evidence' }; }
+    async review(state, storage) { if (state.config.mode === 'real') recordClaudeCall(state, storage, 'review'); return { verdict: state.evidence?.passed ? 'pass' : 'rework', reason: 'Independent evidence' }; }
   };
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ source: repo, state: store.file('state.json'), audit: store.file('audit.jsonl'), tests: [a, b] }, null, 2));
   return { dir, config, store, agents, executed, repo };
@@ -116,34 +115,21 @@ test('real review adapter sends compact context with full failed test evidence w
   assert.equal(sent.evidence.diff, undefined); assert.equal(sent.evidence.roundDiff, 'current'); assert.deepEqual(sent.evidence.tests, state.evidence.tests); assert.deepEqual(sent.evidence.issues, state.evidence.issues); assert.ok(payload.length < JSON.stringify(state.evidence).length / 10);
   writeFileSync(path.join(f.dir, 'cost-comparison.json'), JSON.stringify({ fullEvidenceBytes: Buffer.byteLength(JSON.stringify(state.evidence)), actualReviewPromptBytes: Buffer.byteLength(payload), simulated: true }, null, 2));
 });
-test('global budget persists across new Runs and Store restart and blocks executor at exhaustion', async () => {
-  const file = path.join(root, 'shared-budget.json'); initializeGlobalBudget(file, 3);
-  const first = await fixture('global-first', { mode: 'real', globalBudget: { file, limit: 3 } }); assert.equal((await drive(first.store, first.agents)).phase, 'completed');
-  const second = await fixture('global-second', { mode: 'real', globalBudget: { file, limit: 3 } });
-  const blocked = await drive(second.store, second.agents); assert.equal(blocked.phase, 'paused'); assert.equal(blocked.failure?.kind, 'budget'); assert.equal(blocked.loops, 0);
-  assert.equal((await drive(new Store(second.config.runtimeDir, second.store.id), second.agents, 'Retry')).loops, 0); assert.equal(JSON.parse(readFileSync(file, 'utf8')).used, 3);
+for (const condition of ['missing','corrupt','exhausted','locked'] as const) test(`historical ${condition} ledger never gates new real Runs or mutates history`, async () => {
+  const file = path.join(root, `legacy-${condition}.json`);
+  const bytes = condition === 'corrupt' ? 'broken legacy JSON' : JSON.stringify({version:1,limit:1,used:1,reservations:[{runId:'old',call:1,role:'plan',time:'old'}]});
+  if(condition !== 'missing') writeFileSync(file, bytes);
+  if(condition === 'locked') writeFileSync(file+'.lock','stranded');
+  for(const suffix of ['first','second']) {
+    const f = await fixture(`global-${condition}-${suffix}`, {mode:'real',maxClaudeCalls:1,globalBudget:{file,limit:1}});
+    const state = await drive(new Store(f.config.runtimeDir,f.store.id),f.agents);
+    assert.equal(state.phase,'completed'); assert.equal(state.claudeCalls,3); assert.equal(state.loops,2);
+    assert.deepEqual(state.config.globalBudget,{file,limit:1});
+  }
+  if(condition === 'missing') assert.equal(existsSync(file),false); else assert.equal(readFileSync(file,'utf8'),bytes);
+  if(condition === 'locked') assert.equal(readFileSync(file+'.lock','utf8'),'stranded');
 });
-test('global authorization cannot be enlarged, overwritten or silently recreated', () => {
-  const file = path.join(root, 'immutable-budget.json'); initializeGlobalBudget(file, 1);
-  assert.throws(() => initializeGlobalBudget(file, 9), /EEXIST/); assert.throws(() => reserveGlobalBudget(file, 9, 'run', 1, 'plan'), /mismatch/);
-  assert.throws(() => reserveGlobalBudget(path.join(root, 'missing-budget.json'), 1, 'run', 1, 'plan'), /explicit initialization/);
-  assert.equal(JSON.parse(readFileSync(file, 'utf8')).used, 0);
-});
-test('parallel process global reservations never exceed limit, restart retains exhaustion', async () => {
-  const file = path.join(root, 'concurrent-budget.json'); initializeGlobalBudget(file, 5);
-  const worker = path.join(root, 'budget-worker.mjs');
-  writeFileSync(worker, `import {reserveGlobalBudget} from ${JSON.stringify(pathToFileURL(path.resolve('dist/src/global-budget.js')).href)};try{reserveGlobalBudget(process.argv[2],5,process.argv[3],1,'plan');console.log('reserved');}catch(e){console.log(e.message);process.exitCode=2;}`);
-  const results = await Promise.all(Array.from({ length: 12 }, (_, i) => runProcess(process.execPath, [worker, file, String(i)], { cwd: root, timeoutMs: 15000 })));
-  assert.equal(results.filter(r => r.exitCode === 0).length, 5); assert.equal(results.filter(r => r.exitCode === 2).length, 7);
-  for (const result of results.filter(r => r.exitCode === 2)) assert.match(result.stdout, /Global Claude call limit reached/);
-  const ledger = JSON.parse(readFileSync(file, 'utf8')); assert.equal(ledger.used, 5); assert.equal(ledger.reservations.length, 5);
-  assert.equal((await runProcess(process.execPath, [worker, file, 'restart'], { cwd: root, timeoutMs: 15000 })).exitCode, 2);
-  writeFileSync(path.join(root, 'concurrent-results.json'), JSON.stringify(results, null, 2));
-});
-test('corrupt global ledger fails closed and preserves local call budget', async () => {
-  const file = path.join(root, 'corrupt-budget.json'); initializeGlobalBudget(file, 5); const ledger = JSON.parse(readFileSync(file, 'utf8')); ledger.used = 0.5; writeFileSync(file, JSON.stringify(ledger));
-  const f = await fixture('global-corrupt', { mode: 'real', globalBudget: { file, limit: 5 } }); const state = await drive(f.store, f.agents); assert.equal(state.phase, 'failed'); assert.equal(state.loops, 0); assert.equal(state.claudeCalls, 0);
-});
+
 test('legacy configurations and states without dependencies or global authorization keep existing policy', async () => {
   const f = await fixture('legacy'); const config = { ...f.config }; delete config.acceptanceStages; config.tests = [config.tests[0]!]; validate(configSchema, config);
   const state = f.store.load(); state.config = config; delete state.completedTaskIds; state.tasks = [task('a')]; state.phase = 'execute'; f.store.save(state);
@@ -155,12 +141,8 @@ test('trusted task-to-stage mapping cannot be weakened or bypassed by planner', 
   assert.throws(() => orderTasks([{ ...task('b'), acceptanceStage: 'first' }], f.config), /conflicts/);
   assert.throws(() => orderTasks([task('unmapped')], f.config), /conflicts/);
 });
-test('global lock abandoned by interrupted process fails closed without refund or reset', async () => {
-  const file = path.join(root, 'locked-budget.json'); initializeGlobalBudget(file, 2); reserveGlobalBudget(file, 2, 'prior', 1, 'plan');
-  writeFileSync(`${file}.lock`, JSON.stringify({ pid: 2147483647 }));
-  const f = await fixture('global-lock', { mode: 'real', globalBudget: { file, limit: 2 } });
-  const state = await drive(f.store, f.agents); assert.equal(state.phase, 'paused'); assert.equal(state.failure?.kind, 'budget'); assert.equal(state.loops, 0); assert.equal(state.claudeCalls, 1); assert.equal(JSON.parse(readFileSync(file, 'utf8')).used, 1);
-});
+
+
 test('measured multi-task review cost drops while complete independent evidence remains', async () => {
   const f = await fixture('measured-cost'); const execute = f.agents.execute;
   f.agents.execute = async (...args) => { const edits = await execute(...args); assert.ok('changes' in edits); if (args[0].taskIndex === 0) edits.changes[0]!.content = `${'a'.repeat(999)}\n`.repeat(30); return edits; };

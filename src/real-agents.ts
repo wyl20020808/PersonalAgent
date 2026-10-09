@@ -6,7 +6,7 @@ import { runProcess } from './process.js';
 import { editSchema, nativeResultSchema, planSchema, reviewSchema, validate, type Config, type ExecutionResult, type Plan, type Review } from './schema.js';
 import type { State, Store } from './store.js';
 import type { Agents } from './adapters.js';
-import { reserveClaudeCall } from './budget.js';
+import { recordClaudeCall } from './agent-usage.js';
 import { FlowError, classifyFailure } from './failure.js';
 import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { reviewEvidence } from './incremental.js';
@@ -24,7 +24,7 @@ export class RealAgents implements Agents {
     const resumed = !!state.claudeSessionId;
     if (state.claudeSessionId) args.push('--resume', state.claudeSessionId);
     else { state.claudeSessionId = crypto.randomUUID(); store.save(state); args.push('--session-id', state.claudeSessionId); }
-    const call = reserveClaudeCall(state, store, role);
+    const call = recordClaudeCall(state, store, role);
     const observation = new CallObservation(state, store, role, prompt, context, resumed);
     let completed = false;
     try {

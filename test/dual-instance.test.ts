@@ -4,22 +4,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { initializeGlobalBudget, reserveGlobalBudget } from '../src/global-budget.js';
-import { readSharedBudget, reserveSharedCall } from '../src/shared-budget.js';
 import { instanceData, claimInstanceData } from '../src/instance-runtime.js';
 import { lockProject } from '../src/project-files.js';
 import type { State, Store } from '../src/store.js';
 import { createRun, drive } from '../src/controller.js';
+import { MockAgents } from '../src/adapters.js';
 
 const fixture=()=>{const dir=path.resolve('.validation/dual-instance',randomUUID());fs.mkdirSync(dir,{recursive:true});return dir;};
-test('formal Controller refuses a paid operation before invoking any injected Agent when shared authorization is missing',async()=>{
+for(const id of ['main','dev']) test(`${id} real-mode Run reaches injected adapter without policy; authentication still reported`,async()=>{
  const dir=fixture(),source=path.join(dir,'project');fs.mkdirSync(source);fs.writeFileSync(path.join(source,'user.txt'),'unchanged');
- const store=await createRun({mode:'real',projectMode:'direct',executionMode:'native',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},allowedRepositories:[source],runtimeDir:path.join(dir,'runtime'),claudeExecutable:'NEVER-PAID',timeoutMs:30000,maxLoops:2,maxReworks:1,maxClaudeCalls:5,tests:[],mockScenario:'pass'},source,'shared gate only');
- let calls=0;const rejected=async()=>{calls++;throw Error('Agent must not be called');};
- const state=await drive(store,{executionMode:'native',plan:rejected,execute:rejected,review:rejected},undefined,undefined,undefined,path.join(dir,'missing-policy.json'));
- assert.equal(calls,0);assert.equal(state.phase,'paused');assert.equal(state.failure?.kind,'budget');assert.equal(state.claudeCalls,0);assert.equal(state.loops,0);assert.equal(fs.readFileSync(path.join(source,'user.txt'),'utf8'),'unchanged');
+ const store=await createRun({mode:'real',projectMode:'direct',executionMode:'native',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},allowedRepositories:[source],runtimeDir:path.join(dir,id),claudeExecutable:'NEVER-PAID',timeoutMs:30000,maxLoops:2,maxReworks:1,tests:[],mockScenario:'pass'},source,'local adapter injection');
+ let calls=0;const rejected=async()=>{calls++;throw Error('401 OAuth token expired');};
+ const state=await drive(store,{executionMode:'native',plan:rejected,execute:rejected,review:rejected});
+ assert.equal(calls,1);assert.equal(state.phase,'paused');assert.equal(state.failure?.kind,'authentication');assert.equal(state.loops,0);assert.equal(fs.readFileSync(path.join(source,'user.txt'),'utf8'),'unchanged');
+ assert.equal(fs.existsSync(path.join(dir,'global-budget-policy.json')),false);
 });
-const ledger=(dir:string,name:string,limit:number)=>{const file=path.join(dir,name+'.json');initializeGlobalBudget(file,limit);return {file,limit};};
 function worker(code:string,instanceId:string){
   const child=spawn(process.execPath,['--input-type=module','-e',code],{env:{...process.env,PERSONALAGENT_INSTANCE:instanceId},windowsHide:true,stdio:['pipe','pipe','pipe']});
   let out='',err='';const ready=new Promise<void>((resolve,reject)=>{child.stdout!.on('data',c=>{out+=c;if(out.includes('READY'))resolve();});child.once('error',reject);});
@@ -34,31 +33,13 @@ test('independent MAIN/DEV claims preserve legacy data and reject shared data',(
     process.env.PERSONAL_AGENT_DESKTOP_DATA='D:/PersonalAgent/.desktop-data';assert.throws(()=>instanceData('D:/PersonalAgent'),/historical MAIN/);
   }finally{if(old===undefined)delete process.env.PERSONALAGENT_INSTANCE;else process.env.PERSONALAGENT_INSTANCE=old;if(override===undefined)delete process.env.PERSONAL_AGENT_DESKTOP_DATA;else process.env.PERSONAL_AGENT_DESKTOP_DATA=override;}
 });
-test('shared paid authorization fails closed for missing, corrupt, exhausted and stranded ledgers',()=>{
-  const dir=fixture(),file=path.join(dir,'policy.json'),claude=ledger(dir,'claude',1),codex=ledger(dir,'codex',1);
-  assert.throws(()=>readSharedBudget(file),/refused/);fs.writeFileSync(file,JSON.stringify({version:1,claude,codex}));
-  const state={id:randomUUID(),loops:1,claudeCalls:0,config:{mode:'real'}} as State,store={audit:()=>{}} as unknown as Store;
-  reserveSharedCall(state,store,'claude','plan',file);assert.throws(()=>reserveSharedCall(state,store,'claude','review',file),/limit reached/);
-  fs.writeFileSync(codex.file,'broken');assert.throws(()=>reserveSharedCall(state,store,'codex','execute',file),/invalid JSON/);assert.equal(fs.readFileSync(codex.file,'utf8'),'broken');
-  const busy=ledger(dir,'busy',1);fs.writeFileSync(busy.file+'.lock','stranded');assert.throws(()=>reserveGlobalBudget(busy.file,1,state.id,1,'execute'),/safely paused/);assert.equal(JSON.parse(fs.readFileSync(busy.file,'utf8')).used,0);
-});
-test('an existing authorized CC global ledger is linked without double charging or clearing prior reservations',()=>{
- const dir=fixture(),file=path.join(dir,'policy.json'),claude=ledger(dir,'claude',3),codex=ledger(dir,'codex',2);
- reserveGlobalBudget(claude.file,3,'old',1,'plan');fs.writeFileSync(file,JSON.stringify({version:1,claude,codex}));
- const state={id:'new',loops:0,claudeCalls:0,config:{mode:'real',globalBudget:claude}} as State;let event='';
- reserveSharedCall(state,{audit:(name:string)=>{event=name;}} as unknown as Store,'claude','plan',file);
- assert.equal(event,'shared-agent-budget-linked');assert.equal(JSON.parse(fs.readFileSync(claude.file,'utf8')).used,1);
- reserveGlobalBudget(claude.file,3,state.id,1,'plan');assert.equal(JSON.parse(fs.readFileSync(claude.file,'utf8')).used,2);
-});
-test('barrier synchronized MAIN/DEV processes share both CC and Codex caps and preserve history',{timeout:30000},async()=>{
-  const dir=fixture(),file=path.join(dir,'policy.json'),claude=ledger(dir,'claude',7),codex=ledger(dir,'codex',5),start=path.join(dir,'start');
-  reserveGlobalBudget(claude.file,7,'historical-run',1,'plan');fs.writeFileSync(file,JSON.stringify({version:1,claude,codex}));
-  const module=new URL('../src/shared-budget.js',import.meta.url).href;
-  const code=`import fs from 'node:fs';import {reserveSharedCall} from ${JSON.stringify(module)};console.log('READY');while(!fs.existsSync(${JSON.stringify(start)}))await new Promise(r=>setTimeout(r,10));let accepted={claude:0,codex:0};for(let i=1;i<=6;i++)for(const agent of ['claude','codex'])try{reserveSharedCall({id:process.env.PERSONALAGENT_INSTANCE+'-'+process.pid,loops:i,claudeCalls:i-1,config:{mode:'real'}},{audit:()=>{}},agent,agent==='claude'?'review':'execute',${JSON.stringify(file)});accepted[agent]++;}catch(error){if(!error.message.includes('limit reached'))throw error;}console.log(JSON.stringify(accepted));`;
-  const workers=Array.from({length:6},(_,i)=>worker(code,i%2?'dev':'main'));
-  try{await Promise.all(workers.map(w=>w.ready));fs.writeFileSync(start,'go');const outputs=await Promise.all(workers.map(w=>w.done));let cc=0,cx=0;for(const out of outputs){const n=JSON.parse(out.trim().split('\n').at(-1)!);cc+=n.claude;cx+=n.codex;}assert.equal(cc,6);assert.equal(cx,5);
-    const history=JSON.parse(fs.readFileSync(claude.file,'utf8'));assert.equal(history.used,7);assert.equal(history.reservations[0].runId,'historical-run');assert.equal(JSON.parse(fs.readFileSync(codex.file,'utf8')).used,5);
-  }finally{for(const w of workers)if(w.child.exitCode===null)w.child.kill();}
+test('barrier synchronized MAIN/DEV Mock processes execute different projects without shared policy',{timeout:30000},async()=>{
+ const dir=fixture(),start=path.join(dir,'start');
+ const controller=new URL('../src/controller.js',import.meta.url).href,adapters=new URL('../src/adapters.js',import.meta.url).href;
+ const code=`import fs from 'node:fs';import path from 'node:path';import {createRun,drive} from ${JSON.stringify(controller)};import {MockAgents} from ${JSON.stringify(adapters)};const id=process.env.PERSONALAGENT_INSTANCE,source=path.join(${JSON.stringify(dir)},id);fs.mkdirSync(source);const config={mode:'mock',projectMode:'direct',executionMode:'native',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},allowedRepositories:[source],runtimeDir:path.join(${JSON.stringify(dir)},id+'-runtime'),claudeExecutable:'NEVER-PAID',timeoutMs:10000,maxLoops:4,maxReworks:1,tests:[{executable:process.execPath,args:['-e',"require('node:assert/strict').equal(require('fs').readFileSync(process.env.PERSONAL_AGENT_TASK_ID+'.txt','utf8'),process.env.PERSONAL_AGENT_TASK_ID+String.fromCharCode(10))"]}],mockScenario:'pass'};const store=await createRun(config,source,'local Mock');console.log('READY');while(!fs.existsSync(${JSON.stringify(start)}))await new Promise(r=>setTimeout(r,10));const state=await drive(store,new MockAgents(config));console.log(JSON.stringify({phase:state.phase,loops:state.loops,source:state.source}));`;
+ const workers=['main','dev'].map(id=>worker(code,id));
+ try{await Promise.all(workers.map(w=>w.ready));fs.writeFileSync(start,'go');const outputs=await Promise.all(workers.map(w=>w.done));for(const out of outputs){const state=JSON.parse(out.trim().split('\n').at(-1)!);assert.equal(state.phase,'completed',JSON.stringify(state));assert.equal(state.loops,2);assert.equal(fs.readFileSync(path.join(state.source,'done.txt'),'utf8'),'done\n');}assert.equal(fs.existsSync(path.join(dir,'global-budget-policy.json')),false);}
+ finally{for(const w of workers)if(w.child.exitCode===null)w.child.kill();}
 });
 test('cross process same canonical project writes rejected, different projects and reads coexist',{timeout:15000},async()=>{
   const dir=fixture(),a=path.join(dir,'a'),b=path.join(dir,'b');fs.mkdirSync(a);fs.mkdirSync(b);fs.writeFileSync(path.join(a,'old.txt'),'old');

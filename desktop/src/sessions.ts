@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {atomicJson} from '../../dist/src/store.js';
-import {initializeGlobalBudget} from '../../dist/src/global-budget.js';
 import {redact} from '../../dist/src/telemetry.js';
 import type {DesktopService} from './service.js';
 import type {Conversation,Request,Run} from './types.js';
@@ -48,31 +47,6 @@ export class SessionStore {
  detail(id:string){const session=this.public(this.get(id));return {session,runs:session.runs.map(r=>this.run(r))};}
  rename(id:string,title:string){const session=this.get(id),release=this.acquire(session);try{session.title=title.trim();if(!session.title)throw Error('会话名称不能为空');session.manualTitle=true;session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);}finally{release();}}
  edit(r:Request,cancel=false){const session=this.get(r.sessionId!),release=this.acquire(session);try{const message=session.messages.find(m=>m.id===r.messageId);if(!message||!['pending','failed'].includes(message.status))throw Error('仅可修改或取消尚未生效的需求');if(cancel)message.status='cancelled';else{message.text=r.text!.trim();if(!message.text)throw Error('消息不能为空');message.error=undefined;message.status='pending';}session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);}finally{release();}}
- authorizeBudget(r:Request){
-  const session=this.get(r.sessionId!),release=this.acquire(session);
-  try{
-   if(session.legacy)throw Error('历史会话不可追加预算');
-   if(!r.decision?.trim())throw Error('追加预算需要明确决定');
-   if(session.settings.mode==='real'&&!r.realAcknowledged)throw Error('追加真实预算需要明确付费授权');
-   const runs=session.runs.map(ref=>this.run(ref));
-   if(runs.some(run=>run.active||run.phase!=='completed'))throw Error('请先处理原 Run 的正式决策；追加仅授权后续轮次');
-   if(r.maxClaudeCalls!<session.settings.maxClaudeCalls||r.maxLoops!<session.settings.maxLoops||(r.maxClaudeCalls===session.settings.maxClaudeCalls&&r.maxLoops===session.settings.maxLoops))throw Error('新累计上限须明确增加；已有消耗不重置');
-   const before=this.public(session),settings={...session.settings,maxClaudeCalls:r.maxClaudeCalls!,maxLoops:r.maxLoops!};
-   if(session.profileId){
-    this.service.writable(session.profileId);
-    const {entry,config}=this.service.config(session.profileId),remaining=settings.maxClaudeCalls-before.budget.claudeUsed;
-    if(remaining<1)throw Error('CC 累计预算已耗尽，请同时明确追加 CC 额度');
-    // New authorization tranche; historical ledgers and per-run configs remain immutable evidence.
-    const file=path.join(this.service.data,'session-budget-'+session.id+'-'+randomUUID()+'.json');initializeGlobalBudget(file,remaining);
-    const next={...config,maxClaudeCalls:remaining,maxLoops:settings.maxLoops-before.budget.loopsUsed,globalBudget:{file,limit:remaining}};
-    if(next.maxLoops<1)throw Error('Codex 累计预算已耗尽，请同时明确追加执行额度');
-    atomicJson(entry.file,next);this.service.register(entry.file);
-   }
-   session.settings=settings;session.updatedAt=new Date().toISOString();this.update(session);
-   fs.appendFileSync(path.join(this.service.data,'user-actions.jsonl'),JSON.stringify({time:session.updatedAt,operation:'authorizeSessionBudget',sessionId:session.id,previous:before.settings,settings,used:before.budget,decision:redact(r.decision),explicitRealAuthorization:r.realAcknowledged===true})+'\n',{flush:true});
-   return this.public(session);
-  }finally{release();}
- }
  async send(r:Request,process=false){
   const session=this.get(r.sessionId!);
   const release=this.acquire(session);
@@ -80,7 +54,7 @@ export class SessionStore {
   try{return await this.sendLocked(r,process);}finally{this.inFlight.delete(session.id);release();}
  }
  private async sendLocked(r:Request,process:boolean){
-  const session=this.get(r.sessionId!);if(session.legacy)throw Error('历史会话只供回放；请新建会话并明确授权项目与预算');
+  const session=this.get(r.sessionId!);if(session.legacy)throw Error('历史会话只供回放；请新建会话并明确授权项目');
   let message=session.messages.find(m=>m.id===r.messageId);
   if(!process&&message){if(message.text!==r.text!.trim())throw Error('Message ID reused with different content');return this.public(session);}
   if(process&&(!message||!['pending','failed'].includes(message.status)))throw Error('需求已处理或已取消');
@@ -91,9 +65,6 @@ export class SessionStore {
   if(projectRuns.some(run=>run.active||active.includes(run.phase))||last&&last.phase!=='completed'){message.status='pending';this.update(session);return this.public(session);}
   if(acknowledgement.test(message.text)){message.status='recorded';this.update(session);return this.public(session);}
   try{
-   if(session.settings.mode==='real'&&!r.realAcknowledged)throw Error('真实调用需明确确认本轮额度；普通聊天不构成授权');
-   const budget=this.public(session).budget;
-   if(budget.claudeRemaining<1||budget.loopsRemaining<1)throw Error('会话累计预算已耗尽；需正式追加授权，不会自动重置');
    if(last?.projectMode==='isolated'){
     const deliveries=await this.service.deliveries(last.profileId,last.id);
     if(!deliveries.some(d=>d.phase==='applied'))throw Error('前轮隔离成果尚未正式应用；请先完成具体交付审批与应用');
@@ -104,14 +75,12 @@ export class SessionStore {
    message.status='starting';this.update(session);
    const linked=(run:Run)=>{session.profileId=run.profileId;session.runs.push({id:run.id,profileId:run.profileId});message!.runId=run.id;message!.status='executed';session.directAuthorized=true;this.update(session);this.service.store(run.profileId,run.id).audit('desktop-session-link',{sessionId:session.id,messageId:message!.id});};
    if(!session.profileId){
-    const file=path.join(this.service.data,'session-budget-'+session.id+'-'+session.settings.maxClaudeCalls+'.json');
-    if(!fs.existsSync(file))initializeGlobalBudget(file,session.settings.maxClaudeCalls);
-    await this.service.startProject({operation:'startProject',projectPath:session.projectPath,goal,...session.settings,maxClaudeCalls:budget.claudeRemaining,maxLoops:budget.loopsRemaining,selectedTests:session.selectedTests,directAcknowledged:r.directAcknowledged===true||session.directAuthorized,realAcknowledged:r.realAcknowledged}, {file,limit:session.settings.maxClaudeCalls},linked);
+    await this.service.startProject({operation:'startProject',projectPath:session.projectPath,goal,...session.settings,maxLoops:session.settings.maxLoops,selectedTests:session.selectedTests,directAcknowledged:r.directAcknowledged===true||session.directAuthorized,realAcknowledged:r.realAcknowledged},linked);
    }else{
     // Revalidate immutable, hashed config and project identity before launching another run.
     const {config}=this.service.config(session.profileId);
     if(config.mode!==session.settings.mode||config.projectMode!==session.settings.projectMode||config.allowedRepositories.length!==1||config.allowedRepositories[0].toLowerCase()!==session.projectPath.toLowerCase())throw Error('会话项目授权已改变，拒绝启动');
-    await this.service.start({operation:'start',profileId:session.profileId,repository:session.projectPath,goal,maxClaudeCalls:budget.claudeRemaining,maxLoops:budget.loopsRemaining,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
+    await this.service.start({operation:'start',profileId:session.profileId,repository:session.projectPath,goal,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
    }
   }catch(error){if(!message.runId){message.status='failed';message.error=(error as Error).message;this.update(session);}throw error;}
   return this.public(session);

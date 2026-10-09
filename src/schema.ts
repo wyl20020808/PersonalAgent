@@ -38,6 +38,7 @@ export interface Config {
   workspaceMode?: 'direct' | 'isolated'; // Deprecated input alias; never persisted in new Runs.
   directAuthorization?: { projectPath: string; acknowledgedAt: string };
   executionMode?: 'native' | 'proposal';
+  // Legacy paid-budget metadata, accepted for history; never an execution gate.
   maxClaudeCalls?: number; minTasks?: number; claudeStreaming?: boolean;
   acceptanceStages?: Record<string, number[]>; globalBudget?: { file: string; limit: number };
   taskStages?: Record<string, string>;

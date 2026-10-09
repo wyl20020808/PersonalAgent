@@ -29,28 +29,14 @@ MAIN 原有外部配置、历史 Run、预算和审计仍在原处，没有迁�
 
 产品仅使用 Electron IPC 与自定义 `personalagent://` 协议，没有 HTTP 监听端口；因此无需固定端口分配。验证工具的调试管道不作为产品服务。
 
-## 共享预算与写入保护
+## 真实调用与写入保护
 
 跨实例项目锁继续使用 `D:\PersonalAgent-data\project-locks`，按项目真实绝对路径规范化并忽略 Windows 大小写。直接开发、隔离工作区执行、正式文档写入、人工验收和 Delivery 应用均受对应工作区/目标锁保护。读取历史或不同项目可以并存。异常锁、无法判定存活状态或竞争失败时拒绝写入；不自动绕过锁。此机制用于遵守正式 Controller 流程，不是操作系统权限沙箱。
 
-两实例以及正式 CLI 的真实 Agent 调用共同读取固定授权文件：
+2026-10-09 按用户明确决定移除内部付费预算保护。MAIN、DEV 和 CLI 可直接使用已配置的真实 Agent，无需共享预算授权文件或余额预约。原有预算文件保留在磁盘上，但不参与新 Run 的运行许可判断；历史字段和用量仍可读取。服务商认证、限流和订阅额度耗尽正常报告。
 
-`D:\PersonalAgent-data\global-budget-policy.json`
-
-格式如下，路径和额度必须由用户明确授权后设置；**本次没有授权新付费额度，也没有自动创建此文件或新账本**：
-
-```json
-{
-  "version": 1,
-  "claude": {"file": "D:/已授权共享目录/已有-cc-budget.json", "limit": 10},
-  "codex": {"file": "D:/已授权共享目录/已有-codex-budget.json", "limit": 8}
-}
-```
-
-这里的数字仅为格式示例，不构成额度授权。应引用核对过已有消耗的持久化账本；若新授权需要新账本，必须先明确其额度、历史消耗与适用授权范围。不得以新建空账本替代尚未耗尽的原授权。账本沿用现有 version 1 格式和初始化工具，CC 的 plan/review 与 Codex 的 execute 各预约一次。更新使用跨进程排他文件锁、fsync 与原子替换；失败或中断的预约不退回，恢复不重置。共享额度与原有 Run、Session、globalBudget 限额同时生效，不能通过新建会话扩大共同上限。
-
-缺少授权文件、缺少/损坏账本、额度耗尽、授权上限不匹配、锁竞争或遗留锁均拒绝新增付费调用。旧账本和历史审计保留。Mock 不使用该共享付费额度，可直接使用双实例。共享授权策略或账本的人工变更应在两实例停机后按新授权核对，不自动扩大预算。
+执行轮数、返工次数、审查修复循环、超时与交付审批继续生效。今后预算若重新设计，应作为独立可选功能；本次不实现。
 
 ## 验证
 
-`test/dual-instance.test.ts` 检查数据误用、6 个同步 MAIN/DEV 子进程的 CC/Codex 并发额度、历史预约保留、异常账本、遗留锁和跨进程项目写入冲突。`desktop/validate-dual-instance.mjs` 使用隔离测试数据和真实 Electron 窗口、正式 IPC/Mock Controller，检查同时启动、独立 Session/Run、历史读取和单实例退出。没有调用真实模型。
+`test/dual-instance.test.ts` 检查数据误用、无预授权的真实模式本地注入、同步 MAIN/DEV Mock 子进程、数据隔离和跨进程项目写入冲突。`desktop/validate-dual-instance.mjs` 使用隔离测试数据和真实 Electron 窗口、正式 IPC/Mock Controller，检查同时启动、独立 Session/Run、历史读取和单实例退出。没有调用真实模型。

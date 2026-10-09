@@ -10,7 +10,7 @@ import { nativeThreadOptions, runCodexTurn } from '../src/native-agent.js';
 import { runProcess } from '../src/process.js';
 import { activityRecorder, claudePublicEvents, codexPublicEvent } from '../src/telemetry.js';
 import { RealAgents } from '../src/real-agents.js';
-import { reserveClaudeCall } from '../src/budget.js';
+import { recordClaudeCall } from '../src/agent-usage.js';
 import { atomicJson } from '../src/store.js';
 import { FlowError } from '../src/failure.js';
 import type { Agents } from '../src/adapters.js';
@@ -33,9 +33,9 @@ const audit = (file: string): any[] => fs.readFileSync(file, 'utf8').trim().spli
 function agents(): Agents {
   return {
     executionMode: 'native',
-    async plan(state, store) { reserveClaudeCall(state, store, 'plan'); fs.writeFileSync(path.join(state.workspace, 'plan-note.txt'), '规划阶段实际修改\n'); return { humanDecision: null, tasks: [{ id: 'native', instruction: '修复并验证', acceptance: ['独立验收通过'] }] }; },
+    async plan(state, store) { recordClaudeCall(state, store, 'plan'); fs.writeFileSync(path.join(state.workspace, 'plan-note.txt'), '规划阶段实际修改\n'); return { humanDecision: null, tasks: [{ id: 'native', instruction: '修复并验证', acceptance: ['独立验收通过'] }] }; },
     async execute(state, store) { state.codexThreadId ??= 'fixture-thread'; store.save(state); fs.writeFileSync(path.join(state.workspace, 'result.txt'), 'fixed\n'); return { mode: 'native', summary: '本地原生适配器夹具已修改 result.txt' }; },
-    async review(state, store) { reserveClaudeCall(state, store, 'review'); fs.writeFileSync(path.join(state.workspace, 'seed.txt'), 'reviewed\n'); return { verdict: 'pass', reason: '本地审查夹具已修复 seed.txt；等待 Controller 独立验收' }; }
+    async review(state, store) { recordClaudeCall(state, store, 'review'); fs.writeFileSync(path.join(state.workspace, 'seed.txt'), 'reviewed\n'); return { verdict: 'pass', reason: '本地审查夹具已修复 seed.txt；等待 Controller 独立验收' }; }
   };
 }
 
@@ -43,6 +43,40 @@ test('native options restore SDK full access without changing model or extension
   assert.deepEqual(nativeThreadOptions('D:/fixture'), { workingDirectory: 'D:/fixture', skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' });
   for (const key of ['CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY']) assert.equal(nativeAgentEnv()[key], process.env[key]);
   assert.equal('model' in nativeThreadOptions('D:/fixture'), false);
+});
+
+test('real adapters complete Plan Execute Review without authorization; usage and audit remain readable', async () => {
+  const f = await fixture('no-paid-gate', {maxClaudeCalls:1,claudeStreaming:false,executionMode:'native',globalBudget:{file:path.join(root,'missing-history.json'),limit:1}});
+  let cc=0,codex=0;
+  const adapter = new RealAgents(f.config, async (program,_args,options) => {
+    if(program===f.config.claudeExecutable){
+      cc++;
+      const output=cc===1?{humanDecision:null,tasks:[{id:'native',instruction:'local injected task',acceptance:['independent fixture passes']}]}:{verdict:'pass',reason:'local injected review'};
+      return {exitCode:0,stdout:JSON.stringify({session_id:'local-cc',structured_output:output,usage:{input_tokens:10,output_tokens:5}}),stderr:''};
+    }
+    codex++;
+    fs.writeFileSync(path.join(f.store.load().workspace,'result.txt'),'fixed\n');
+    fs.writeFileSync(path.join(f.store.load().workspace,'seed.txt'),'reviewed\n');
+    options.onLine?.(JSON.stringify({type:'thread',id:'local-codex'}));
+    options.onLine?.(JSON.stringify({type:'observation',data:{type:'turn.completed',usage:{input_tokens:12,output_tokens:6,cached_input_tokens:0}}}));
+    options.onLine?.(JSON.stringify({type:'result',data:{mode:'native',summary:'local injected result'}}));
+    return {exitCode:0,stdout:'',stderr:''};
+  });
+  const state=await drive(f.store,adapter);
+  assert.equal(state.phase,'completed');assert.equal(cc,2);assert.equal(codex,1);assert.equal(state.claudeCalls,2);assert.equal(state.codexThreadId,'local-codex');assert.equal(state.claudeSessionId,'local-cc');
+  assert.equal(fs.existsSync(f.config.globalBudget!.file),false);
+  const {runUsage}=await import('../src/call-observation.js');
+  const usage=runUsage(f.store);assert.equal(usage.calls.length,3);assert.ok(usage.calls.some(call=>call.agent==='codex'&&call.inputTokens===12));
+  assert.ok(audit(f.store.file('audit.jsonl')).some(event=>event.event==='agent-finish'));
+});
+
+for(const agent of ['claude','codex'] as const) for(const [message,kind] of [['401 OAuth token expired','authentication'],['HTTP 429 Too Many Requests','budget'],['usage limit exceeded','budget']] as const) test(`${agent} provider ${kind} remains reported without local authorization`,async()=>{
+  const f=await fixture(`provider-${agent}-${message.slice(0,3)}`,{maxClaudeCalls:1,claudeStreaming:false});
+  const state=f.store.load();state.tasks=[{id:'native',instruction:'local injected task',acceptance:['local fixture']}];f.store.save(state);
+  let calls=0;
+  const adapter=new RealAgents(f.config,async()=>{calls++;return {exitCode:1,stdout:JSON.stringify({is_error:true,result:message}),stderr:message};});
+  await assert.rejects(agent==='claude'?adapter.plan(state,f.store,new AbortController().signal):adapter.execute(state,f.store,new AbortController().signal),(error:unknown)=>error instanceof FlowError&&error.kind===kind&&error.message.includes(message));
+  assert.equal(calls,1);
 });
 
 test('SDK stream consumer allows failed test then repair and success within one turn (local fixture)', async () => {
@@ -114,10 +148,16 @@ test('durable native result recovers without executing or writing files again', 
   const done = await drive(f.store, a); assert.equal(done.phase, 'completed'); assert.equal(done.loops, 1); assert.equal(fs.statSync(file).mtimeMs, mtime);
 });
 
-test('Claude review repair cannot bypass remaining review budget or delivery', async () => {
-  const f = await fixture('review-budget', { maxClaudeCalls: 2 }); const state = await drive(f.store, agents());
-  assert.equal(state.phase, 'paused'); assert.equal(state.claudeCalls, 2); assert.equal(state.nextPhase, 'verify');
-  assert.equal(state.evidence?.passed, true); assert.equal(state.taskIndex, 0); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
+test('Claude review repair finishes beyond historical call limit after independent verification', async () => {
+  const f = await fixture('review-budget', { maxClaudeCalls: 1 }); const state = await drive(f.store, agents());
+  assert.equal(state.phase, 'completed'); assert.equal(state.claudeCalls, 3); assert.equal(state.reworks, 0);
+  assert.equal(state.evidence?.passed, true); assert.equal(state.taskIndex, 1); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
+});
+test('repeated CC review modifications are bounded by repair control across recovery', async () => {
+  const f = await fixture('review-repair-loop', {maxClaudeCalls:1,maxReworks:1}), adapter=agents();
+  adapter.review=async(state,store)=>{recordClaudeCall(state,store,'review');fs.writeFileSync(path.join(state.workspace,'review-note.txt'),String(state.claudeCalls));return {verdict:'pass',reason:'local changing fixture'};};
+  const state=await drive(f.store,adapter);assert.equal(state.phase,'paused');assert.equal(state.reason,'Review repair limit reached');assert.equal(state.claudeCalls,3);assert.equal(state.reviewRepairs,1);assert.equal(state.nextPhase,'verify');
+  assert.equal((await drive(f.store,adapter)).claudeCalls,3);
 });
 
 test('native CLI inherits configuration and session with no turn/tool restrictions', async () => {

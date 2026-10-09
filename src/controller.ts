@@ -6,10 +6,8 @@ import { configSchema, editSchema, nativeResultSchema, planSchema, reviewSchema,
 import { Store, atomicJson, type Evidence, type Phase, type State } from './store.js';
 import { collectEvidence, prepare, snapshot, git, workspaceHead, workspaceStatus } from './workspace.js';
 import { lockProject, readProject } from './project-files.js';
-import { reserveSharedCall, sharedBudgetPolicy } from './shared-budget.js';
 import type { Agents } from './adapters.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
-import { assertClaudeBudget } from './budget.js';
 import { classifyFailure, FlowError } from './failure.js';
 import { journalFile, prepareApplication, recoverApplication } from './application.js';
 import { orderTasks, assertPrerequisites } from './dependencies.js';
@@ -47,7 +45,7 @@ export async function createRun(config: Config, source: string, goal: string, op
   if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
   state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal }); return store;
 }
-export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; maxClaudeCalls?: number }, policyFile = sharedBudgetPolicy): Promise<State> {
+export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number }): Promise<State> {
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
   try {
     state = store.load();
@@ -69,7 +67,6 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
     await captureBaseline(store, state, baseline, stop.signal);
     store.audit('agent-start', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops });
-    reserveSharedCall(state, store, agent, role, policyFile);
     try { return await timed(operation); }
     finally {
       // Processes have exited (or been killed) before recording their real diff.
@@ -135,7 +132,6 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         orderTasks(state.tasks, state.config);
         assertPrerequisites(state.tasks, state.taskIndex, state.completedTaskIds ?? (state.tasks.some(task => task.dependsOn?.length) ? [] : state.tasks.slice(0, state.taskIndex).map(task => task.id)));
       }
-      if (state.config.mode === 'real' && ['planning', 'execute'].includes(state.phase)) assertClaudeBudget(state);
       if (state.phase === 'planning') {
         state.nextPhase = 'planning'; store.save(state);
         assertPlanningContext(state, store);
@@ -235,7 +231,16 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
             for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
           }
           else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
-          else { state.nextPhase = 'verify'; checkpoint('verify', 'Claude 修改后重新独立验收和审查'); }
+          else {
+            state.nextPhase = 'verify';
+            // Review edits also need a bounded repair cycle, independent of paid usage.
+            if ((state.reviewRepairs ?? 0) >= Math.max(1, state.config.maxReworks)) {
+              state.evidence = await checkedEvidence();
+              store.audit('independent-check', state.evidence);
+              checkpoint('paused', 'Review repair limit reached');
+            }
+            else { state.reviewRepairs = (state.reviewRepairs ?? 0) + 1; checkpoint('verify', 'Claude 修改后重新独立验收和审查'); }
+          }
           continue;
         }
         if (review.verdict === 'human') {
@@ -256,7 +261,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           if ((reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) { state.nextPhase = 'verify'; checkpoint('paused', 'Review context omitted diff; human inspection required'); continue; }
           state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
           if (!state.completedTaskIds.includes(state.tasks[state.taskIndex]!.id)) state.completedTaskIds.push(state.tasks[state.taskIndex]!.id);
-          state.taskIndex++; state.reworks = 0; state.reworkPending = false; state.failure = null; state.feedback = '';
+          state.taskIndex++; state.reworks = 0; state.reviewRepairs = 0; state.reworkPending = false; state.failure = null; state.feedback = '';
           checkpoint(state.taskIndex >= state.tasks.length ? 'completed' : 'execute');
         } else {
           state.feedback = `${review.reason}\n${state.evidence?.issues.join('\n') ?? 'No evidence'}`;

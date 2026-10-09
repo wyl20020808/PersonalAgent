@@ -35,11 +35,11 @@ test('document decision IPC schema rejects extra approval fields and unsupported
  const request={operation:'contextDecide',profileId:randomUUID(),runId:randomUUID(),requestId:randomUUID(),digest:'a'.repeat(64),decision:'Mock'};
  assert.equal(validateRequest(request).operation,'contextDecide');assert.throws(()=>validateRequest({...request,contextAction:'superseded'}),/JSON Schema/);assert.throws(()=>validateRequest({...request,deliveryApproved:true}),/JSON Schema/);
 });
-test('ordinary project detection reads scripts without executing them and requires explicit direct/paid authorization',()=>{
+test('ordinary project detection reads scripts without executing them and requires direct permission without paid authorization',()=>{
  const project=path.join(data,'ordinary');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'package.json'),JSON.stringify({scripts:{test:'throw never execute',build:'throw never execute'}}));
  const info=service.inspectProject(project);assert.equal(info.git,false);assert.equal(info.kind,'Node.js');assert.deepEqual(info.testCommands,['npm run test']);assert.equal(info.settings.projectMode,'direct');assert.equal(info.settings.mode,'mock');assert.equal(info.directAuthorized,false);
  assert.throws(()=>service.inspectProject('relative'),/绝对/);assert.throws(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock'}),/明确授权/);
- assert.throws(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'isolated',mode:'real'}),/付费/);
+ assert.doesNotThrow(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'isolated',mode:'real'}));
  assert.equal(service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock',directAcknowledged:true}).path,fs.realpathSync(project));
 });
 test('Mock refuses preexisting user marker contents before config creation or Agent launch',async()=>{
@@ -77,8 +77,8 @@ test('create isolated Mock profile without touching delivered games',async()=>{a
 test('trusted upper limits and repository whitelist cannot be expanded by GUI',async()=>{
  const request={operation:'start' as const,profileId,repository:target,goal:'Mock flow',maxClaudeCalls:5,maxLoops:4,maxReworks:1};
  await assert.rejects(service.dispatch({...request,repository:'D:/OpenWorld'}),/authorized/);
- await assert.rejects(service.dispatch({...request,maxLoops:5}),/预算超出可信配置/);
- await assert.rejects(service.dispatch({...request,maxClaudeCalls:6}),/预算超出可信配置/);
+ await assert.rejects(service.dispatch({...request,maxLoops:5}),/流程限制超出可信配置/);
+ assert.doesNotThrow(()=>service.validateStart({...request,maxClaudeCalls:6}));
 });
 test('native CLI executes full Mock cycle, returns actual tests and durable session IDs',async()=>{const r=await service.dispatch({operation:'start',profileId,repository:target,goal:'GUI integration: create verified markers',maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;runId=r.id;const done=await wait('completed');assert.equal(done.loops,2);assert.equal(done.claudeCalls,0);assert.equal(done.evidence?.passed,true);assert.ok(done.claudeSessionId&&done.codexThreadId);assert.equal(fs.existsSync(path.join(target,'hello.txt')),false);assert.ok(service.detail(profileId,runId).auditVerified);});
 test('application without explicit approval is rejected and target remains clean',async()=>{const d=await service.dispatch({operation:'preview',profileId,runId,target,branch:'desktop-delivery'}) as any;await assert.rejects(service.dispatch({operation:'apply',profileId,runId,deliveryId:d.id}),/approv/i);assert.equal(await git(target,['status','--porcelain']),'');});
@@ -86,7 +86,14 @@ test('separate digest-bound approval and apply safely deliver only generated mar
 test('changed registered configuration is refused rather than silently trusted',()=>{const entry=service.registry().profiles[0]!;const original=fs.readFileSync(entry.file);fs.writeFileSync(entry.file,Buffer.concat([original,Buffer.from('\n')]));assert.throws(()=>service.config(profileId),/配置已改变/);fs.writeFileSync(entry.file,original);});
 test('read-only historic profiles cannot start, stop, resume or approve',async()=>{const entry=service.registry().profiles[0]!;service.register(entry.file,true);await assert.rejects(service.dispatch({operation:'stop',profileId,runId}),/只读/);await assert.rejects(service.dispatch({operation:'start',profileId,repository:target,goal:'do not run',maxClaudeCalls:5,maxLoops:4,maxReworks:1}),/只读/);service.register(entry.file,false);});
 test('preferences persist across service restarts',async()=>{await service.dispatch({operation:'preferences',reducedMotion:true});const restarted=new DesktopService(root,data,process.execPath);assert.equal(restarted.overview().reducedMotion,true);assert.equal(restarted.overview().runs[0]?.id,runId);});
-test('real mode refuses missing explicit consumption acknowledgement without calling services',async()=>{const entry=service.registry().profiles[0]!;const config=JSON.parse(fs.readFileSync(entry.file,'utf8'));config.mode='real';const file=path.join(data,'real.config.json');fs.writeFileSync(file,JSON.stringify(config));service.register(file);const p=service.overview().profiles.find(p=>p.mode==='real')!;await assert.rejects(service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'must never run',maxClaudeCalls:5,maxLoops:4,maxReworks:1}),/authorization/);});
+test('real mode creates Run without paid acknowledgement or ledger (launch locally intercepted)',async()=>{
+ const entry=service.registry().profiles[0]!,config=JSON.parse(fs.readFileSync(entry.file,'utf8'));config.mode='real';config.projectMode='direct';config.directAuthorization={projectPath:target,acknowledgedAt:new Date().toISOString()};config.globalBudget={file:path.join(data,'missing-legacy-ledger.json'),limit:1};
+ const file=path.join(data,'real.config.json');fs.writeFileSync(file,JSON.stringify(config));service.register(file);const p=service.overview().profiles.find(p=>p.mode==='real')!;
+ const launch=service.launch;let calls=0;service.launch=()=>{calls++;};
+ try{const run=await service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'local interception only'}) as any;assert.equal(run.phase,'planning');assert.equal(calls,1);assert.equal(service.detail(p.id,run.id).auditVerified,true);assert.equal(fs.existsSync(config.globalBudget.file),false);}
+ finally{service.launch=launch;}
+});
+
 test('audit tampering blocks UI detail instead of displaying forged evidence',()=>{const store=service.store(profileId,runId),file=store.file('audit.jsonl'),original=fs.readFileSync(file);fs.appendFileSync(file,'{"hash":"fake","previousHash":"bad"}\n');assert.throws(()=>service.detail(profileId,runId),/integrity/);fs.writeFileSync(file,original);});
 test('concurrent delivery polling is serialized without bypassing Controller locks',async()=>{
  const results=await Promise.all(Array.from({length:6},()=>service.deliveries(profileId,runId)));
