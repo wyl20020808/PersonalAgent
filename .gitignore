@@ -9,3 +9,9 @@ snake-validation/node_modules/
 .desktop-data/
 desktop/out/
 .v3c3/
+.v03e-tests/
+desktop/validation-v03e/*/data/
+desktop/validation-v03e/*/tmp/
+desktop/validation-v03e/*/ReadableProject/
+desktop/validation-v03e/*/AnotherProject/
+desktop/validation-v03e/*-data/

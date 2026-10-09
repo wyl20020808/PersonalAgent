@@ -26,6 +26,24 @@ if(locked)app.whenReady().then(async()=>{
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
   const r=validateRequest(raw);
   try{
+   if(r.operation==='authorizeSessionBudget'){
+    const {session}=service.sessions.detail(r.sessionId!);
+    if(session.settings.mode==='real'&&!r.realAcknowledged)throw Error('需明确勾选追加真实预算授权');
+    const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权具体追加额度'],defaultId:0,cancelId:0,message:'仅追加后续轮次的累计预算，不重置消耗',detail:`项目：${session.projectPath}\nCC 累计上限：${session.settings.maxClaudeCalls} → ${r.maxClaudeCalls}；Codex 累计上限：${session.settings.maxLoops} → ${r.maxLoops}\n已使用 CC ${session.budget.claudeUsed}，Codex ${session.budget.loopsUsed}。\n${r.decision}\n不恢复暂停 Run、不批准交付。`});if(answer.response!==1)throw Error('用户取消追加预算授权');
+   }
+   if(r.operation==='sendSession'||r.operation==='processSessionMessage'){
+    const {session,runs}=service.sessions.detail(r.sessionId!),last=runs.at(-1);
+    const projectActive=service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)));
+    const text=r.text??session.messages.find(m=>m.id===r.messageId)?.text??'';
+    const starts=!projectActive&&(!last||last.phase==='completed')&&!/^(好[的]?|继续|可以|ok|yes|批准|同意)[。！!\s]*$/i.test(text);
+    if(starts){
+     if(session.settings.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改会话项目目录',detail:session.projectPath+'\n会话始终绑定此项目；快照、预算及每轮审计独立保留。'});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
+     if(session.settings.mode==='real'){
+      if(!r.realAcknowledged)throw Error('需明确勾选本轮真实额度消耗确认');
+      const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权本轮真实执行'],defaultId:0,cancelId:0,message:'真实 Agent 调用将消耗剩余会话预算',detail:`项目：${session.projectPath}\n累计剩余：CC ${session.budget.claudeRemaining} 次，Codex ${session.budget.loopsRemaining} 次；不重置历史消耗。\n${text}\n独立验收：${session.selectedTests.join('、')||'无，需人工验收'}\n不包含交付批准，不改变本机模型。`});if(answer.response!==1)throw Error('用户取消真实执行授权');
+     }
+    }
+   }
    if(r.operation==='chooseProject'){const picked=await dialog.showOpenDialog(window,{title:'选择项目文件夹',properties:['openDirectory','createDirectory']});return picked.canceled?null:service.inspectProject(picked.filePaths[0]!);}
    if(r.operation==='startProject'){
     const project=service.inspectProject(r.projectPath!);
@@ -45,6 +63,13 @@ if(locked)app.whenReady().then(async()=>{
   }catch(error){throw Error(redact((error as Error).message));}
  });
  await window.loadURL('personalagent://app/index.html');
+ let rendererRecoveries=0;
+ window.webContents.on('render-process-gone',(_event,details)=>{
+  fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),...details})+'\n');
+  if(quitting||details.reason==='clean-exit'||rendererRecoveries>=2)return;
+  rendererRecoveries++;
+  setTimeout(()=>{if(!window.isDestroyed())void window.loadURL('personalagent://app/index.html').catch(error=>fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),error:redact(String(error))})+'\n'));},1000);
+ });
  window.on('close',event=>{if(service.children.size&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和预算会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
  app.on('second-instance',()=>{if(window.isMinimized())window.restore();window.focus();});
 });
