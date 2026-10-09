@@ -6,6 +6,7 @@ export const onboardingDocumentPath = (name: string): boolean => new RegExp(`^${
 
 export function assertOnboardingScope(state: State, store: Store): void {
   if (state.purpose !== 'context-onboarding') return;
+  if (state.snapshotPolicy === 'none') throw new FlowError('safety', '无快照 Run 不提供建档隔离副本范围保证；请在授权 direct 开发中按需维护 Project Context。');
   if (state.config.projectMode !== 'isolated' || state.workspace === state.source) throw new FlowError('safety', '建档 Run 必须使用 isolated 工作副本');
   const before = loadProject(store.file('project-baseline.json')), after = readProject(state.workspace);
   for (const name of new Set([...Object.keys(before.files), ...Object.keys(after.files)])) {

@@ -1,21 +1,22 @@
+import { contextObservation, gitChangedPaths, observationScope } from './project-observation.js';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicJson, type State, type Store } from './store.js';
-import { readProject, projectFileHash, type ProjectSnapshot } from './project-files.js';
+import { projectFileHash, type ProjectSnapshot } from './project-files.js';
 import { belongsToModule, contextRoot, contextHash, contextPath, parseContextDocument, loadProjectContext, type ProjectContext, type ModuleDocument } from './project-context.js';
 import type { Review } from './schema.js';
 import { verifyConfirmation } from './context-trust.js';
 import { FlowError } from './failure.js';
 
 export function assertPlanningContext(state: State, store: Store): void {
-  if (state.purpose === 'context-onboarding') return;
+  if (state.purpose === 'context-onboarding' || state.snapshotPolicy === 'none') return;
   const file = store.file('context/planning-baseline.json');
   if (!existsSync(file) && !loadProjectContext(state.workspace, state.projectContextEnabled === true).enabled) return;
-  if (!existsSync(file)) { mkdirSync(store.file('context'), { recursive: true }); atomicJson(file, readProject(state.workspace)); }
+  if (!existsSync(file)) { mkdirSync(store.file('context'), { recursive: true }); atomicJson(file, contextObservation(state)); }
   const baseline = JSON.parse(readFileSync(file, 'utf8')) as ProjectSnapshot;
   if (contextHash(JSON.stringify(baseline.files)) !== baseline.digest) throw new FlowError('safety', '规划基线摘要损坏');
-  const current = readProject(state.workspace);
+  const current = contextObservation(state);
   const paths = [...new Set([...Object.keys(baseline.files), ...Object.keys(current.files)])].sort().filter(relative => !relative.startsWith(`${contextRoot}/`) && projectFileHash(baseline,relative) !== projectFileHash(current,relative));
   if (paths.length) {
     store.audit('context-planning-change', { baseline: file, before: baseline.digest, after: current.digest, paths });
@@ -25,7 +26,7 @@ export function assertPlanningContext(state: State, store: Store): void {
 
 export interface ContextBaseline { taskId: string; moduleIds: string[]; context: ProjectContext; snapshot: ProjectSnapshot; digest: string }
 export interface ContextReport {
-  taskId: string; baselineDigest: string; sourceSnapshot: string; snapshot: string;
+  verificationScope?: string; taskId: string; baselineDigest: string; sourceSnapshot: string; snapshot: string;
   declaredModules: string[]; actualModules: string[]; expandedModules: string[];
   changes: { path: string; kind: 'added' | 'modified' | 'deleted'; modules: string[] }[];
   renames: { oldPath: string; newPath: string }[]; knowledgeChanges: string[];
@@ -43,7 +44,7 @@ export function freezeTaskContext(state: State, store: Store): void {
   if (!context.enabled) return;
   const task = state.tasks[state.taskIndex]!;
   if (!task.moduleIds?.length || task.moduleIds.some(id => !context.modules.some(doc => doc.metadata.id === id))) throw Error('任务必须声明有效且非空 moduleIds');
-  const payload = { taskId: task.id, moduleIds: [...task.moduleIds], context, snapshot: readProject(state.workspace) };
+  const payload = { taskId: task.id, moduleIds: [...task.moduleIds], context, snapshot: contextObservation(state) };
   mkdirSync(store.file('context'), { recursive: true });
   const baseline = { ...payload, digest: contextHash(JSON.stringify(payload)) };
   atomicJson(store.file(baselineName(state)), baseline); store.audit('context-task-frozen', { taskId: task.id, digest: baseline.digest, snapshot: baseline.snapshot.digest, moduleIds: task.moduleIds });
@@ -57,19 +58,20 @@ export function taskContextBaseline(state: State, store: Store): ContextBaseline
 const fileHash = projectFileHash;
 export function checkTaskContext(state: State, store: Store): ContextReport | undefined {
   const baseline = taskContextBaseline(state, store); if (!baseline) return undefined;
-  const current = readProject(state.workspace), before = baseline.snapshot;
+  const current = contextObservation(state, baseline.context), before = baseline.snapshot;
+  const gitPaths = state.snapshotPolicy === 'none' ? gitChangedPaths(state.workspace) : [];
   const changes: ContextReport['changes'] = [], knowledgeChanges: string[] = [], actual = new Set<string>();
-  for (const file of [...new Set([...Object.keys(before.files), ...Object.keys(current.files)])].sort()) {
-    if (fileHash(before,file) === fileHash(current,file)) continue;
+  for (const file of [...new Set([...Object.keys(before.files), ...Object.keys(current.files), ...gitPaths])].sort()) {
+    if (!gitPaths.includes(file) && fileHash(before,file) === fileHash(current,file)) continue;
     if (file.startsWith(`${contextRoot}/`)) { knowledgeChanges.push(file); continue; }
     const modules = baseline.context.modules.filter(doc => belongsToModule(doc, file)).map(doc => doc.metadata.id);
     modules.forEach(id => actual.add(id));
-    changes.push({ path: file, kind: before.files[file] === undefined ? 'added' : current.files[file] === undefined ? 'deleted' : 'modified', modules });
+    changes.push({ path: file, kind: gitPaths.includes(file) ? existsSync(path.join(state.workspace, file)) ? 'modified' : 'deleted' : before.files[file] === undefined ? 'added' : current.files[file] === undefined ? 'deleted' : 'modified', modules });
   }
   // Exact-byte renames are supplemental evidence; both paths always remain in changes.
   const available = changes.filter(entry => entry.kind === 'added');
   const renames = changes.filter(entry => entry.kind === 'deleted').flatMap(entry => {
-    const index = available.findIndex(added => fileHash(current,added.path) === fileHash(before,entry.path));
+    const index = available.findIndex(added => fileHash(before,entry.path) !== null && fileHash(current,added.path) === fileHash(before,entry.path));
     return index < 0 ? [] : [{ oldPath: entry.path, newPath: available.splice(index, 1)[0]!.path }];
   });
   const findings: ContextReport['findings'] = []; let live: ProjectContext | undefined;
@@ -108,7 +110,7 @@ export function checkTaskContext(state: State, store: Store): ContextReport | un
     });
   };
   const reportPath = store.file(`context/task-${state.taskIndex}-check-${state.loops}-${randomUUID()}.json`);
-  const report: ContextReport = { taskId: baseline.taskId, baselineDigest: baseline.digest, sourceSnapshot: before.digest, snapshot: current.digest, declaredModules: baseline.moduleIds, actualModules: [...actual].sort(), expandedModules: [...actual].filter(id => !baseline.moduleIds.includes(id)).sort(), changes, renames, knowledgeChanges, unmappedPaths: changes.filter(entry => !entry.modules.length).map(entry => ({ path: entry.path, reason: '任务开始时模块路径映射无匹配；可能为新职责或未建档文件，需要 CC 判断' })), findings, affectedModules: [...affected].sort().map(id => {
+  const report: ContextReport = { ...(state.snapshotPolicy === 'none' ? { verificationScope: observationScope } : {}), taskId: baseline.taskId, baselineDigest: baseline.digest, sourceSnapshot: before.digest, snapshot: current.digest, declaredModules: baseline.moduleIds, actualModules: [...actual].sort(), expandedModules: [...actual].filter(id => !baseline.moduleIds.includes(id)).sort(), changes, renames, knowledgeChanges, unmappedPaths: changes.filter(entry => !entry.modules.length).map(entry => ({ path: entry.path, reason: '任务开始时模块路径映射无匹配；可能为新职责或未建档文件，需要 CC 判断' })), findings, affectedModules: [...affected].sort().map(id => {
     const module = (live?.modules ?? []).find(doc => doc.metadata.id === id) ?? baseline.context.modules.find(doc => doc.metadata.id === id)!;
     return { moduleId: id, documentPath: module.relative, documentUpdated: fileHash(before,module.relative) !== fileHash(current,module.relative), checkedFiles: Object.keys(hashModules.find(entry => entry.metadata.id === id)?.metadata.checked_files ?? module.metadata.checked_files) };
   }), contracts: related('contracts'), decisions: related('decisions'), relatedModules: baseline.context.modules.filter(doc => selected.has(doc.metadata.id)).map(doc => ({ moduleId: doc.metadata.id, documentPath: doc.relative })), reportPath };

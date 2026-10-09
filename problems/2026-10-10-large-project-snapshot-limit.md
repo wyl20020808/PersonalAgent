@@ -1,7 +1,7 @@
 # 大型项目快照固定上限阻断开发
 
 - 归属：PersonalAgent，项目准备、快照、轮次基线与变更验收。
-- 状态：已解决固定上限阻断，已正式合入本机 DEV；待真实大型项目使用验证。未进行真实付费 Agent 或 OpenWorld 大型项目端到端验收。
+- 状态：强制 Snapshot 机制已由用户正式决定取消；取消实现已在独立 fix 分支完成，等待合入 dev。原性能修复已在 dev，以下原记录作为历史证据保留。未调用真实付费 Agent，也未对 OpenWorld 做全项目快照或端到端验收。
 - 现象：用户反馈真实项目出现 `Project snapshot limit exceeded (100 MiB / 20000 files)`，无法开始正常开发。
 - 影响：Unreal Engine 源项目和资源目录即使只修改少量源码，也被项目总容量或文件数量阻断。
 
@@ -32,3 +32,19 @@
 DEV 核心 TypeScript 与正式 Desktop 构建通过。首次真实大型项目使用仍应选择正确项目根，并预留独有内容备份和 isolated 工作区空间；完整内容检查存在全项目读取开销。下一步在 DEV 正常使用时核验真实大型项目；本次不对 OpenWorld 做完整快照或资源修改测试，不推送或发布 MAIN。验证与启动证据目录：`D:\PersonalAgent-data\large-project-snapshot-dev-v1\2026-10-09T16-47-42-781Z`。
 
 正式 `Start-DEV.ps1` 已恢复窗口，启动 stderr 为空。profiles、sessions 和原失败 Run 状态的 SHA-256 保持不变；旧的缺少 state.json 的历史目录仍显示不可用，未删除、修补或自动重跑。最终 DEV 桌面专项再次 9/9 通过。启动正常不代表真实大型项目端到端验收完成。
+
+## 2026-10-10：取消强制机制
+
+用户正式决定不再优化强制 Snapshot，而是取消其开发前置地位。独立 Codex Desktop 从最新 dev `86a5f91` 创建 `fix/remove-mandatory-project-snapshot-v1`；旧 `fix/large-project-snapshot-v1` 已包含在基线中，没有重复合并或覆盖。
+
+新 Run 不创建 project-baseline、snapshot-objects、每轮内容基线或 Direct recovery 快照；不全量哈希、备份项目，不每轮 fsck。Direct 在已授权的项目目录使用原生工具，Git/非 Git 均可执行 Plan/Execute/Review。Project Context 只读取自己的文档和显式 checked_files；Session、Run、工具审计、配置测试、人工验收、契约确认和成果审批保留。历史 Run 和快照兼容代码保留，仅用于既有数据，不迁移或清理。
+
+### 仍有的限制（暂缓）
+
+- 没有全项目恢复备份，不再提供自动 project-restore；恢复执行保留当前文件，重跑配置测试和审查，不能证明非 Git 未观测文件在中断后未变化。
+- Git Diff 仅辅助审查并含任务前已有修改；未跟踪、忽略文件、非 Git 和二进制内容不构成完整变化报告。超出 Git 输出限额时只提供摘要并注明内容未验证。不提供精确任务/轮次差异，也不复用新 Run 的 Review 回执。
+- Clean Git isolated 仍可克隆；非 Git/Dirty Git 自动复制及独立建档隔离入口暂不可用。现有 Project Context 可在授权 Direct 中维护；不能静默改用 Direct。
+- 无快照 isolated 成果不提供自动 Apply；用户审查后手动集成。Direct Delivery 仍显式审批，只确认已有成果，不重复写入文件；空 changes 表示没有完整清单，不表示没有修改。
+- Git 克隆会执行 Git 的检出规则，可能使 checked_files 显示既有行尾差异，应按实际工作区核对；不保证复制原目录全部字节。
+
+验证结果见 `docs/REMOVE_MANDATORY_PROJECT_SNAPSHOT_V1_VALIDATION.md`。这次不创建新的备份、缓存、监听或版本数据库。当前授权只提交独立 fix 分支，不合入 dev/main、不 push。下一步等待用户批准合入 dev，再实际使用验证。

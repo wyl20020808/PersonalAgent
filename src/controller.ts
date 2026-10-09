@@ -4,8 +4,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { configSchema, editSchema, nativeResultSchema, planSchema, reviewSchema, validate, type Config, type Edits, type Plan, type Review } from './schema.js';
 import { Store, atomicJson, type Evidence, type Phase, type State } from './store.js';
-import { collectEvidence, prepare, snapshot, git, workspaceHead, workspaceStatus } from './workspace.js';
-import { lockProject, readProject, captureProject, projectCategory } from './project-files.js';
+import { collectEvidence, prepare, observeWorkspace, git, workspaceHead, workspaceStatus } from './workspace.js';
+import { lockProject, captureProject } from './project-files.js';
+import { observationScope, contextObservation, gitObservation } from './project-observation.js';
 import type { Agents } from './adapters.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
 import { classifyFailure, FlowError } from './failure.js';
@@ -20,8 +21,8 @@ import { decisionIdentity, assertDecisionState } from './decision-agent.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
-  if (options.purpose === 'context-onboarding') config = { ...config, projectMode: 'isolated', executionMode: 'native' };
-  if (!config.projectMode && !existsSync(path.join(source,'.git'))) config = {...config, projectMode:'isolated'};
+  if (options.purpose === 'context-onboarding') throw new Error('Project Context onboarding isolation is unavailable without a content baseline. Maintain documents in authorized direct development.');
+  if (!config.projectMode && !existsSync(path.join(source,'.git'))) config = {...config, projectMode:'direct'};
   if (config.projectMode === 'direct' && config.executionMode === 'proposal') throw new Error('Direct project mode requires native execution'); if (!goal.trim()) throw new Error('Goal is required');
   if (config.projectMode === 'direct') config = {...config,executionMode:'native'};
   if(config.mode==='mock' && config.projectMode && !options.purpose) for(const marker of ['hello','done']) { const file=path.join(source,marker+'.txt'); if(existsSync(file) && readFileSync(file,'utf8')!==marker+'\n') throw new Error('Mock 标记文件已存在且内容不同，拒绝覆盖'); }
@@ -35,6 +36,7 @@ export async function createRun(config: Config, source: string, goal: string, op
     {
       const failure=classifyFailure(error,'prepare');
       const failed:State={version:1,id:store.id,goal,source:realpathSync(source),workspace:config.projectMode==='direct'?realpathSync(source):isolated,base:'',config,phase:'failed',nextPhase:'planning',tasks:[],taskIndex:0,loops:0,reworks:0,totalReworks:0,claudeCalls:0,completedTaskIds:[],reworkPending:false,claudeSessionId:null,codexThreadId:null,feedback:'',reason:failure.message,failure,evidence:null,executorExitCode:-1,updatedAt:'',beforeExecution:''};
+      failed.snapshotPolicy = 'none';
       failed.decisionAgent = decisionIdentity(config);
       store.save(failed);store.audit('transition',{phase:'failed',reason:failed.reason,loops:0,reworks:0});store.audit('error',failure);
       if (error instanceof FlowError) error.runId=store.id;
@@ -44,15 +46,12 @@ export async function createRun(config: Config, source: string, goal: string, op
   } finally { releasePreparation(); }
   const workspace = config.projectMode === 'direct' ? realpathSync(source) : isolated;
   const state: State = { version: 1, id: store.id, goal, source: realpathSync(source), workspace, base, config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: null, codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
+  state.snapshotPolicy = 'none';
   state.decisionAgent = decisionIdentity(config);
   if (options.purpose) state.purpose = options.purpose;
   if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
   state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal });
-  if (config.projectMode) {
-    const manifest = readProject(workspace), categories: Record<string, number> = {};
-    for (const name of Object.keys(manifest.files)) { const category = projectCategory(name); categories[category] = (categories[category] ?? 0) + 1; }
-    store.audit('snapshot-coverage', { format: 2, fileCount: Object.keys(manifest.files).length, categories, excluded: ['.git', 'node_modules'], generatedFilesIncluded: true, fingerprint: manifest.digest, backup: 'snapshot-objects' });
-  }
+  store.audit('project-observation-policy', { policy: 'none', coverage: observationScope });
   return store;
 }
 export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number }): Promise<State> {
@@ -73,17 +72,17 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
   async function agentOperation<T>(agent: 'claude' | 'codex', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
-    if(existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
-    const started = Date.now(), before = await snapshot(state.workspace, stop.signal,!!state.config.projectMode);
+    if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
+    const started = Date.now(), before = await observeWorkspace(state, stop.signal);
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
     await captureBaseline(store, state, baseline, stop.signal);
     store.audit('agent-start', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops });
     try { return await timed(operation); }
     finally {
       // Processes have exited (or been killed) before recording their real diff.
-      const after = await snapshot(state.workspace, undefined,!!state.config.projectMode);
-      const diff = await baselineDiff(store, state, baseline, new AbortController().signal);
-      store.audit('agent-finish', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops, durationMs: Date.now() - started, before, after, changed: before !== after, diff, status: await workspaceStatus(state) });
+      const after = await observeWorkspace(state, undefined);
+      const diff = state.snapshotPolicy === 'none' ? (await gitObservation(state.workspace)).diff : await baselineDiff(store, state, baseline, new AbortController().signal);
+      store.audit('agent-finish', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops, durationMs: Date.now() - started, before, after, changed: state.snapshotPolicy === 'none' && !existsSync(path.join(state.workspace,'.git')) ? null : before !== after, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, diff, status: await workspaceStatus(state) });
       assertOnboardingScope(state, store);
       if (role === 'plan') assertPlanningContext(state, store);
     }
@@ -98,7 +97,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     const contextReport = checkTaskContext(state, store);
     const evidence = await collectEvidence(state, stop.signal, state.nativeExecution === true && state.taskIndex === state.tasks.length - 1);
     if (contextReport) {
-      if (readProject(state.workspace).digest !== contextReport.snapshot) throw new FlowError('safety', '模块检查后工作区变化；必须重新检查和独立验收');
+      if (contextObservation(state, taskContextBaseline(state, store)?.context).digest !== contextReport.snapshot) throw new FlowError('safety', '模块检查后工作区变化；必须重新检查和独立验收');
       evidence.contextReport = contextReport;
     }
     return evidence;
@@ -114,9 +113,9 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     if (state.phase === 'executing' && state.nativeExecution && existsSync(store.file(`native-result-${state.loops}.json`))) {
       const saved = JSON.parse(readFileSync(store.file(`native-result-${state.loops}.json`), 'utf8'));
       validate(nativeResultSchema, saved.result);
-      if (saved.snapshot !== await snapshot(state.workspace, stop.signal,!!state.config.projectMode) || saved.head !== await workspaceHead(state,stop.signal)) throw new FlowError('safety', 'Native result workspace changed during recovery');
+      if (state.snapshotPolicy !== 'none' && (saved.snapshot !== await observeWorkspace(state, stop.signal) || saved.head !== await workspaceHead(state,stop.signal))) throw new FlowError('safety', 'Native result workspace changed during recovery');
       state.executorExitCode = 0; state.nextPhase = 'verify'; checkpoint('verify');
-      store.audit('native-result-recovered', { loop: state.loops });
+      store.audit('native-result-recovered', { loop: state.loops, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, note: '重新运行当前配置测试和审查；未恢复或覆盖项目文件' });
     }
     if (state.phase === 'executing' && !state.nativeExecution && existsSync(journalFile(store, state))) checkpoint('applying');
     if (['paused', 'executing', 'stopped', 'failed'].includes(state.phase)) {
@@ -162,13 +161,13 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.tasks = orderTasks(plan.tasks, state.config); state.completedTaskIds = []; store.audit('plan', { ...plan, tasks: state.tasks }); checkpoint('execute');
       } else if (state.phase === 'execute') {
         // Infrastructure must be healthy before charging a rework or execution attempt.
-        if(existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
+        if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
         if (state.loops >= state.config.maxLoops) { state.nextPhase = 'execute'; checkpoint('paused', 'Loop limit reached'); break; }
         if (state.reworkPending) {
           if (state.reworks >= state.config.maxReworks) { state.nextPhase = 'execute'; checkpoint('paused', 'Rework limit reached'); break; }
           state.reworks++; state.totalReworks = (state.totalReworks ?? 0) + 1; state.reworkPending = false;
         }
-        state.beforeExecution = await snapshot(state.workspace, stop.signal,!!state.config.projectMode);
+        state.beforeExecution = await observeWorkspace(state, stop.signal);
         freezeTaskContext(state, store);
         await captureBaseline(store, state, `task-${state.taskIndex}-baseline.json`, stop.signal);
         await captureBaseline(store, state, `round-${state.loops + 1}-baseline.json`, stop.signal);
@@ -179,7 +178,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         if ('mode' in result && result.mode === 'native') {
           validate(nativeResultSchema, result);
           if (!state.nativeExecution) throw new FlowError('safety', 'Unexpected native result in proposal mode');
-          atomicJson(store.file(`native-result-${state.loops}.json`), { result, snapshot: await snapshot(state.workspace, stop.signal,!!state.config.projectMode), head: await workspaceHead(state,stop.signal) });
+          atomicJson(store.file(`native-result-${state.loops}.json`), { result, snapshot: await observeWorkspace(state, stop.signal), head: await workspaceHead(state,stop.signal) });
           state.executorExitCode = 0; state.nextPhase = 'verify';
           store.audit('native-result', { ...result, loop: state.loops }); checkpoint('verify'); continue;
         }
@@ -189,7 +188,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           const ignored = await gitProcess(state.workspace, ['check-ignore', '--no-index', '--', change.path], { signal: stop.signal, timeoutMs: state.config.timeoutMs, allowedExitCodes:[0,1] });
           if (ignored.exitCode === 0) throw new Error(`Ignored edit target cannot be reviewed: ${change.path}`);
         }
-        if (await snapshot(state.workspace, stop.signal,!!state.config.projectMode) !== state.beforeExecution) throw new FlowError('safety', 'Workspace changed during read-only execution');
+        if (await observeWorkspace(state, stop.signal) !== state.beforeExecution) throw new FlowError('safety', 'Workspace changed during read-only execution');
         prepareApplication(store, state, edits); state.executorExitCode = 0; state.nextPhase = 'applying'; checkpoint('applying');
       } else if (state.phase === 'applying') {
         const edits = recoverApplication(store, state);
@@ -208,7 +207,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         store.audit('independent-check', state.evidence); checkpoint('review');
       } else if (state.phase === 'review') {
         state.nextPhase = 'verify'; store.save(state);
-        if (!state.evidence || await snapshot(state.workspace, stop.signal,!!state.config.projectMode) !== state.evidence.snapshotDigest || await workspaceHead(state,stop.signal) !== state.evidence.head) {
+        if (!state.evidence || await observeWorkspace(state, stop.signal) !== state.evidence.snapshotDigest || await workspaceHead(state,stop.signal) !== state.evidence.head) {
           if (state.nativeExecution) {
             state.failure = classifyFailure(new FlowError('interrupted', '审查快照已变化；保留原生修改，恢复后重新独立验收'), 'review');
             store.audit('review-snapshot-interrupted', { loop: state.loops }); checkpoint('paused', state.failure.message); continue;
@@ -219,7 +218,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         const key = createHash('sha256').update(JSON.stringify({ ...context, contextReport: state.evidence.contextReport })).digest('hex');
         const receipt = store.file(`review-${state.loops}-${key}.json`);
         let review: Review;
-        if (existsSync(receipt)) {
+        if (state.snapshotPolicy !== 'none' && existsSync(receipt)) {
           const saved = JSON.parse(readFileSync(receipt, 'utf8')) as { context: typeof context; review: Review };
           if (JSON.stringify(saved.context) !== JSON.stringify(context)) throw new FlowError('safety', 'Review receipt context mismatch');
           review = validate<Review>(reviewSchema, saved.review); store.audit('review-recovered', { receipt });
@@ -228,8 +227,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           atomicJson(receipt, { context, review });
         }
         store.audit('review', review);
-        if (await snapshot(state.workspace, stop.signal,!!state.config.projectMode) !== state.evidence.snapshotDigest || await workspaceHead(state,stop.signal) !== state.evidence.head) {
-          store.audit('review-modified-workspace', { verdict: review.verdict, reason: review.reason, before: state.evidence.snapshotDigest, after: await snapshot(state.workspace, stop.signal,!!state.config.projectMode) });
+        if (await observeWorkspace(state, stop.signal) !== state.evidence.snapshotDigest || await workspaceHead(state,stop.signal) !== state.evidence.head) {
+          store.audit('review-modified-workspace', { verdict: review.verdict, reason: review.reason, before: state.evidence.snapshotDigest, after: await observeWorkspace(state, stop.signal) });
           if (review.verdict === 'human') {
             // Human cards must show evidence for the actual post-review files,
             // even when further Agent work waits for the user's decision.
@@ -293,7 +292,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       if (!state.nativeExecution && existsSync(journalFile(store, state))) state.nextPhase = 'applying';
       else {
         state.nextPhase = 'execute'; state.reworkPending = true;
-        store.audit('execution-interrupted', { native: state.nativeExecution ?? false, before: state.beforeExecution, after: await snapshot(state.workspace, undefined,!!state.config.projectMode), note: '保留已有修改；续接同一 Thread，不重新应用文件提案' });
+        store.audit('execution-interrupted', { native: state.nativeExecution ?? false, before: state.beforeExecution, after: await observeWorkspace(state, undefined), note: '保留已有修改；续接同一 Thread，不重新应用文件提案' });
       }
     } else if (['planning', 'execute', 'applying', 'verify', 'review'].includes(stage)) state.nextPhase = stage === 'review' ? 'verify' : stage;
     if (stop.signal.aborted) state.failure = classifyFailure(new FlowError('interrupted', 'Stopped'), stage);
@@ -301,7 +300,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     store.audit('error', state.failure);
   } finally {
     try {
-      if(state.config.projectMode === 'direct') {
+      if(state.config.projectMode === 'direct' && state.snapshotPolicy !== 'none') {
         const checkpoint=`recovery-${randomUUID()}.json`;
         atomicJson(store.file(checkpoint),captureProject(state.workspace,store.file('snapshot-objects')));
         store.audit('direct-checkpoint',{checkpoint,phase:state.phase,note:'Changes already exist in selected project; do not apply a delivery'});

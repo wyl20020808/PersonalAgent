@@ -16,7 +16,7 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    else if(e.event==='planning-human-decision'){role=decisionRole;title='需要补充目标';text=d.humanDecision;kind='review';status='human';}
    else if(e.event==='agent-activity'){role=d.agent==='claude'?decisionRole:d.agent;title=d.title;text=d.text;kind=d.kind;details={protocol:d.source,fullTextHash:d.fullTextHash};status=activityStatus(d);}
    else if(e.event==='agent-start'){role=d.agent==='claude'?decisionRole:d.agent;title=d.agent==='codex'?'Codex 正在执行':decisionName+' 正在执行';text=`阶段：${d.role}`;kind='dispatch';status='running';}
-   else if(e.event==='agent-finish'){role=d.agent==='claude'?decisionRole:d.agent;title='Agent 实际文件变更';text=`耗时 ${d.durationMs} ms；${d.changed?'有文件修改':'无文件修改'}`;kind='changes';details={diff:redact(d.diff??''),protocol:'Controller Git snapshot'};}
+   else if(e.event==='agent-finish'){role=d.agent==='claude'?decisionRole:d.agent;title='Agent 实际文件变更';text=`耗时 ${d.durationMs} ms；${d.changed===null?'文件变更未自动验证':d.changed?'观测到文件修改':'未观测到文件修改'}${d.verificationScope?'\n'+d.verificationScope:''}`;kind='changes';details={diff:redact(d.diff??''),protocol:d.verificationScope?'Controller limited Git observation':'Controller Git snapshot'};}
    else if(e.event==='native-result'){role='codex';title='原生开发结果';text=d.summary;kind='output';}
    else if(e.event==='review-modified-workspace'){role='controller';title=decisionName+' 修改后需重新独立验收';text=d.reason;kind='tests';status='pending';}
    else if(e.event==='execution-interrupted'){title='原生执行中断，已有修改已保留';text=d.note;kind='warning';}

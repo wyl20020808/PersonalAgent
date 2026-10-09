@@ -403,6 +403,9 @@
         {
           "type": "object",
           "properties": {
+            "verificationScope": {
+              "type": "string"
+            },
             "contextReport": {
               "type": "object",
               "required": [
@@ -563,6 +566,9 @@
           "additionalProperties": false
         }
       ]
+    },
+    "snapshotPolicy": {
+      "const": "none"
     },
     "purpose": {
       "const": "context-onboarding"

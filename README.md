@@ -1,5 +1,16 @@
 # PersonalAgent：Windows 本地双 Agent 控制器
 
+## 当前开发流程：不再强制 Project Snapshot（2026-10-10）
+
+选择项目目录并确认 Direct 写入授权后，CC Plan、Codex Execute、CC Review 使用原生工具按需读取、开发和测试。新 Run 不做全项目内容备份、全量哈希、轮次快照或每轮 Git fsck；项目容量和文件数量不再触发 Snapshot 启动限制。Git 与非 Git 均支持 Direct。Project Context 模块、契约、checked_files、Session/Run、工具调用审计和人工确认保留。
+
+Git Diff 只辅助审查，包含已有未提交修改；未跟踪、忽略、非 Git 文件、二进制及超长 Diff 的内容未完整验证。配置测试通过不表示完整变更验证。无 Git 项目依靠原生工具与配置测试开发，Controller 明确显示未验证范围。
+
+Clean Git 的显式 isolated 仍可克隆开发；非 Git/Dirty Git 的自动隔离复制与自动建档隔离入口暂不可用，请显式授权 Direct。无快照 isolated 不提供自动 Apply；Direct Delivery 仅确认已有成果，不再次写入项目。全项目恢复不可用；执行恢复续接已有 Session/Thread，保留文件并重新测试和审查。历史 Run/快照保持可读、不迁移、不清理。下文涉及全项目快照、完整文件清单、自动恢复/Apply 和旧 Review 回执复用的历史说明只适用于旧 Run。
+
+详情见 [问题记录](problems/2026-10-10-large-project-snapshot-limit.md) 和 [本次验证](docs/REMOVE_MANDATORY_PROJECT_SNAPSHOT_V1_VALIDATION.md)。
+
+
 第一阶段 CLI MVP：Claude Code 负责规划和审查，官方 `@openai/codex-sdk` 负责实现任务。Controller 独立检查 Git Diff、执行退出码和用户配置的验收测试，失败则返工，需要人工决策则暂停。
 
 项目位于 `D:\PersonalAgent`。Controller 使用 Node.js 22、TypeScript、Ajv 和文件系统持久化；V0.3A 增加 Electron + React 桌面控制台，默认 Light 白色主题。没有数据库、ORCH、OCR、MCP 服务或 LangGraph，桌面端复用现有 Controller。
