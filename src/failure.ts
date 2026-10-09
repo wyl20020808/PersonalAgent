@@ -13,7 +13,7 @@ export function classifyFailure(error: unknown, stage: string): Failure {
     else if (/quota.*exceed|usage limit|rate.?limit|\b429\b/i.test(message)) kind = 'budget';
     else if (/Timeout|timed out/i.test(message)) kind = 'timeout';
     else if (/JSON Schema|invalid JSON|Duplicate task|Plan must|fewer tasks/i.test(message)) kind = 'validation';
-    else if (/unsafe|protected|escape|symlink|junction|Duplicate edit|Ignored edit|Workspace changed|Tests modified|Git HEAD|Deletion detected|journal|read-only.*modification/i.test(message)) kind = 'safety';
+    else if (/unsafe|protected|escape|symlink|junction|Duplicate edit|Ignored edit|Workspace changed|Tests modified|Git HEAD|Deletion detected|journal|read-only.*modification|coverage incomplete|snapshot.*(?:limit|fingerprint)|backup directory outside Run/i.test(message)) kind = 'safety';
     else if (/Mock executor failed|Codex.*exited/i.test(message)) kind = 'executor';
   }
   return { kind, stage, message, recoverable: ['executor', 'supervisor', 'timeout', 'authentication', 'budget', 'interrupted'].includes(kind) };

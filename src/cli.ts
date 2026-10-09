@@ -9,12 +9,13 @@ import { RealAgents } from './real-agents.js';
 import { discoverOpencodeModels } from './opencode-decision-agent.js';
 import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from './delivery.js';
 import { acceptManual } from './manual-acceptance.js';
-import { restoreProject } from './project-files.js';
+import { restoreProject, inspectProject } from './project-files.js';
 import { loadProjectContext, stampContext } from './project-context.js';
 import { prepareContextConfirmation, decideContextConfirmation, pendingContextConfirmations, type ConfirmationAction } from './context-confirmation.js';
 
 const help = `PersonalAgent CLI MVP
   start --config FILE --repo D:\\REPO --goal "GOAL"
+  project-scan --repo DIRECTORY [--scan-max-files N] [--scan-max-manifest-bytes N] (read-only metadata diagnosis)
   decision-models [--executable PATH] [--workspace DIRECTORY]
   context-start --config FILE --repo D:\\REPO --goal "ONBOARDING GOAL"
   context-check --workspace D:\\REPO
@@ -34,9 +35,13 @@ const help = `PersonalAgent CLI MVP
 Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { executable: {type:'string'}, document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'scan-max-files': {type:'string'}, 'scan-max-manifest-bytes': {type:'string'}, executable: {type:'string'}, document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
   if (values.help || !command) { console.log(help); }
+  else if (command === 'project-scan') {
+    if (!values.repo) throw new Error('--repo is required');
+    console.log(JSON.stringify(inspectProject(path.resolve(values.repo), { maxFiles: values['scan-max-files'] === undefined ? undefined : Number(values['scan-max-files']), maxManifestBytes: values['scan-max-manifest-bytes'] === undefined ? undefined : Number(values['scan-max-manifest-bytes']) }), null, 2));
+  }
   else if (command === 'decision-models') {
     console.log(JSON.stringify(await discoverOpencodeModels(values.executable, values.workspace),null,2));
   }

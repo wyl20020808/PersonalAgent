@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { runProcess } from './process.js';
 import { assertD, atomicJson, Store, type Evidence, type State } from './store.js';
-import { assertProjectRuntime, copyProject, fileStatus, projectFiles, readProject, loadProject } from './project-files.js';
+import { assertProjectRuntime, copyProject, fileStatus, projectFiles, readProject, loadProject, captureProject, updateFileHash } from './project-files.js';
 import { baselineDiff } from './incremental.js';
 import type { Config, Edits } from './schema.js';
 import { collectScreenshots } from './screenshots.js';
@@ -38,7 +38,9 @@ export async function prepare(source: string, workspace: string, config: Config)
     const baseline=config.projectMode==='direct' ? sourceBaseline : copyProject(root,assertD(workspace),hasGit);
     if(baseline.digest!==sourceBaseline.digest)throw new Error('Project changed during preparation');
     if(hasGit)atomicJson(path.join(path.dirname(workspace),'project-git.json'),{head:await projectGitHead(config.projectMode==='direct'?root:workspace)});
-    atomicJson(path.join(path.dirname(workspace),'project-baseline.json'),baseline);
+    const savedBaseline=captureProject(config.projectMode==='direct'?root:workspace,path.join(path.dirname(workspace),'snapshot-objects'));
+    if(savedBaseline.digest!==baseline.digest)throw new Error('Project changed during preparation; coverage incomplete, retry after stopping writers');
+    atomicJson(path.join(path.dirname(workspace),'project-baseline.json'),savedBaseline);
     return baseline.digest;
   }
   if ((await git(root, ['rev-parse', '--show-toplevel'])).toLowerCase() !== root.replace(/\\/g, '/').toLowerCase()) throw new Error('Source must be Git repository root');
@@ -95,6 +97,7 @@ export async function collectEvidence(state: State, signal: AbortSignal, final =
   }
   if (diff.length > 2 * 1024 * 1024) throw new Error('Diff too large to review');
   const issues: string[] = [];
+  if (diff.includes('Content requires asset/large-file review;')) issues.push('Asset or large-file content changed; exact SHA-256 recorded, but content review is incomplete. Human verification required; no automatic safety PASS.');
   if (state.purpose === 'context-onboarding' || state.projectContextEnabled) {
     try { loadProjectContext(state.workspace, true); assertOnboardingScope(state, new Store(state.config.runtimeDir, state.id)); }
     catch (error) { issues.push((error as Error).message); }
@@ -119,14 +122,16 @@ export async function collectEvidence(state: State, signal: AbortSignal, final =
 }
 export async function snapshot(workspace: string, signal?: AbortSignal, allFiles = false): Promise<string> {
   const hash = createHash('sha256');
-  const files = allFiles ? projectFiles(workspace) : await workspaceFiles(workspace,signal);
+  const files = allFiles ? projectFiles(workspace, { signal }) : await workspaceFiles(workspace,signal);
   for (const file of files) {
     // Existing instruction files are read for hashes, but cannot be agent edit targets.
     const target = path.resolve(workspace, file);
     if (!target.startsWith(`${path.resolve(workspace)}${path.sep}`)) throw new Error('Invalid Git path');
     hash.update(file); hash.update('\0');
-    try { if (lstatSync(target).isSymbolicLink()) throw new Error('Symlink rejected'); hash.update(readFileSync(target)); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') hash.update('<deleted>'); else throw error; }
+    let present = true;
+    try { if (lstatSync(target).isSymbolicLink()) throw new Error('Symlink rejected'); }
+    catch (error) { if (!allFiles && (error as NodeJS.ErrnoException).code === 'ENOENT') present=false; else throw error; }
+    if (present) updateFileHash(hash,target,signal); else hash.update('<deleted>');
     hash.update('\0');
   }
   return hash.digest('hex');
@@ -139,6 +144,7 @@ export async function repositoryContext(workspace: string, signal: AbortSignal):
     const target = path.resolve(workspace, file);
     if (!existsSync(target)) { omitted.push(file); continue; }
     if (lstatSync(target).isSymbolicLink()) throw new Error('Symlink rejected');
+    if (lstatSync(target).size > 100000 || total >= 200000) { omitted.push(file); continue; }
     const data = readFileSync(target);
     if (data.includes(0) || data.length > 100000 || total + data.length > 200000) { omitted.push(file); continue; }
     contents[file] = data.toString('utf8'); total += data.length;

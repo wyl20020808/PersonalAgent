@@ -5,7 +5,7 @@ import path from 'node:path';
 import { configSchema, editSchema, nativeResultSchema, planSchema, reviewSchema, validate, type Config, type Edits, type Plan, type Review } from './schema.js';
 import { Store, atomicJson, type Evidence, type Phase, type State } from './store.js';
 import { collectEvidence, prepare, snapshot, git, workspaceHead, workspaceStatus } from './workspace.js';
-import { lockProject, readProject } from './project-files.js';
+import { lockProject, readProject, captureProject, projectCategory } from './project-files.js';
 import type { Agents } from './adapters.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
 import { classifyFailure, FlowError } from './failure.js';
@@ -47,7 +47,13 @@ export async function createRun(config: Config, source: string, goal: string, op
   state.decisionAgent = decisionIdentity(config);
   if (options.purpose) state.purpose = options.purpose;
   if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
-  state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal }); return store;
+  state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal });
+  if (config.projectMode) {
+    const manifest = readProject(workspace), categories: Record<string, number> = {};
+    for (const name of Object.keys(manifest.files)) { const category = projectCategory(name); categories[category] = (categories[category] ?? 0) + 1; }
+    store.audit('snapshot-coverage', { format: 2, fileCount: Object.keys(manifest.files).length, categories, excluded: ['.git', 'node_modules'], generatedFilesIncluded: true, fingerprint: manifest.digest, backup: 'snapshot-objects' });
+  }
+  return store;
 }
 export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number }): Promise<State> {
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
@@ -191,6 +197,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       } else if (state.phase === 'verify') {
         state.nextPhase = 'verify'; store.save(state);
         state.evidence = await checkedEvidence();
+        if (state.evidence.issues.some(issue => issue.startsWith('Asset or large-file content changed;'))) { store.audit('independent-check',state.evidence); state.nextPhase='verify'; checkpoint('paused','Asset/large-file content requires human review; exact hashes are in evidence.diff. Automatic safety PASS and delivery are blocked. Preserve changes for manual resource inspection, or restore the recorded baseline before resuming.'); continue; }
         if (!state.config.tests.length) { store.audit('independent-check',state.evidence); state.nextPhase='verify'; checkpoint('paused','No independent acceptance tests configured; human verification required'); continue; }
         const taskDiff = await baselineDiff(store, state, `task-${state.taskIndex}-baseline.json`, stop.signal);
         const roundDiff = await baselineDiff(store, state, `round-${state.loops}-baseline.json`, stop.signal);
@@ -296,7 +303,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     try {
       if(state.config.projectMode === 'direct') {
         const checkpoint=`recovery-${randomUUID()}.json`;
-        atomicJson(store.file(checkpoint),readProject(state.workspace));
+        atomicJson(store.file(checkpoint),captureProject(state.workspace,store.file('snapshot-objects')));
         store.audit('direct-checkpoint',{checkpoint,phase:state.phase,note:'Changes already exist in selected project; do not apply a delivery'});
       }
     } finally {clearInterval(poll); externalSignal?.removeEventListener('abort', abort); releaseProject?.(); unlock();}

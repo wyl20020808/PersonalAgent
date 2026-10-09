@@ -1,4 +1,4 @@
-import { loadProject, readProject } from './project-files.js';
+import { loadProject, readProject, projectFileHash } from './project-files.js';
 import { loadProjectContext, contextRoot } from './project-context.js';
 import { FlowError } from './failure.js';
 import type { State, Store } from './store.js';
@@ -9,7 +9,7 @@ export function assertOnboardingScope(state: State, store: Store): void {
   if (state.config.projectMode !== 'isolated' || state.workspace === state.source) throw new FlowError('safety', '建档 Run 必须使用 isolated 工作副本');
   const before = loadProject(store.file('project-baseline.json')), after = readProject(state.workspace);
   for (const name of new Set([...Object.keys(before.files), ...Object.keys(after.files)])) {
-    if (before.files[name] === after.files[name]) continue;
+    if (projectFileHash(before,name) === projectFileHash(after,name)) continue;
     if (!onboardingDocumentPath(name) || (after.files[name] === undefined && name === `${contextRoot}/overview.md`)) throw new FlowError('safety', `建档产物范围错误：${name}`);
   }
 }

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicJson, type State, type Store } from './store.js';
-import { readProject, hashBytes, type ProjectSnapshot } from './project-files.js';
+import { readProject, projectFileHash, type ProjectSnapshot } from './project-files.js';
 import { belongsToModule, contextRoot, contextHash, contextPath, parseContextDocument, loadProjectContext, type ProjectContext, type ModuleDocument } from './project-context.js';
 import type { Review } from './schema.js';
 import { verifyConfirmation } from './context-trust.js';
@@ -16,7 +16,7 @@ export function assertPlanningContext(state: State, store: Store): void {
   const baseline = JSON.parse(readFileSync(file, 'utf8')) as ProjectSnapshot;
   if (contextHash(JSON.stringify(baseline.files)) !== baseline.digest) throw new FlowError('safety', '规划基线摘要损坏');
   const current = readProject(state.workspace);
-  const paths = [...new Set([...Object.keys(baseline.files), ...Object.keys(current.files)])].sort().filter(relative => !relative.startsWith(`${contextRoot}/`) && baseline.files[relative] !== current.files[relative]);
+  const paths = [...new Set([...Object.keys(baseline.files), ...Object.keys(current.files)])].sort().filter(relative => !relative.startsWith(`${contextRoot}/`) && projectFileHash(baseline,relative) !== projectFileHash(current,relative));
   if (paths.length) {
     store.audit('context-planning-change', { baseline: file, before: baseline.digest, after: current.digest, paths });
     throw new FlowError('supervisor', `规划期间业务文件修改尚未处理，不能进入 Execute；恢复业务文件后继续规划：${paths.join(', ')}`);
@@ -54,13 +54,13 @@ export function taskContextBaseline(state: State, store: Store): ContextBaseline
   if (contextHash(JSON.stringify(payload)) !== digest || payload.taskId !== state.tasks[state.taskIndex]?.id) throw Error('Project Context 固定基线损坏或任务不匹配');
   return { ...payload, digest };
 }
-const fileHash = (snapshot: ProjectSnapshot, file: string): string | null => snapshot.files[file] === undefined ? null : hashBytes(Buffer.from(snapshot.files[file]!, 'base64'));
+const fileHash = projectFileHash;
 export function checkTaskContext(state: State, store: Store): ContextReport | undefined {
   const baseline = taskContextBaseline(state, store); if (!baseline) return undefined;
   const current = readProject(state.workspace), before = baseline.snapshot;
   const changes: ContextReport['changes'] = [], knowledgeChanges: string[] = [], actual = new Set<string>();
   for (const file of [...new Set([...Object.keys(before.files), ...Object.keys(current.files)])].sort()) {
-    if (before.files[file] === current.files[file]) continue;
+    if (fileHash(before,file) === fileHash(current,file)) continue;
     if (file.startsWith(`${contextRoot}/`)) { knowledgeChanges.push(file); continue; }
     const modules = baseline.context.modules.filter(doc => belongsToModule(doc, file)).map(doc => doc.metadata.id);
     modules.forEach(id => actual.add(id));
@@ -69,7 +69,7 @@ export function checkTaskContext(state: State, store: Store): ContextReport | un
   // Exact-byte renames are supplemental evidence; both paths always remain in changes.
   const available = changes.filter(entry => entry.kind === 'added');
   const renames = changes.filter(entry => entry.kind === 'deleted').flatMap(entry => {
-    const index = available.findIndex(added => current.files[added.path] === before.files[entry.path]);
+    const index = available.findIndex(added => fileHash(current,added.path) === fileHash(before,entry.path));
     return index < 0 ? [] : [{ oldPath: entry.path, newPath: available.splice(index, 1)[0]!.path }];
   });
   const findings: ContextReport['findings'] = []; let live: ProjectContext | undefined;
@@ -78,11 +78,11 @@ export function checkTaskContext(state: State, store: Store): ContextReport | un
   if (live && live.overview!.metadata.project_id !== baseline.context.overview!.metadata.project_id) findings.push({ code: 'CONTEXT_INVALID', origin: 'task', message: '本任务不得改变冻结的项目身份' });
   const affected = new Set(actual);
   for (const module of baseline.context.modules) {
-    const updated = before.files[module.relative] !== current.files[module.relative];
+    const updated = fileHash(before,module.relative) !== fileHash(current,module.relative);
     if (updated) affected.add(module.metadata.id);
     if (actual.has(module.metadata.id) && !updated) findings.push({ code: 'MODULE_DOC_UNCHANGED', moduleId: module.metadata.id, path: module.relative, origin: 'task', message: '模块源码变化，职责或接口说明未更新；需要 CC 明确判断原因' });
   }
-  for (const module of live?.modules ?? []) if (before.files[module.relative] !== current.files[module.relative]) affected.add(module.metadata.id);
+  for (const module of live?.modules ?? []) if (fileHash(before,module.relative) !== fileHash(current,module.relative)) affected.add(module.metadata.id);
   const hashModules = baseline.context.modules.map(module => {
     const updated = live?.modules.find(doc => doc.metadata.id === module.metadata.id);
     return { ...module, metadata: { ...module.metadata, checked_files: { ...module.metadata.checked_files, ...updated?.metadata.checked_files } } } as ModuleDocument;
@@ -110,7 +110,7 @@ export function checkTaskContext(state: State, store: Store): ContextReport | un
   const reportPath = store.file(`context/task-${state.taskIndex}-check-${state.loops}-${randomUUID()}.json`);
   const report: ContextReport = { taskId: baseline.taskId, baselineDigest: baseline.digest, sourceSnapshot: before.digest, snapshot: current.digest, declaredModules: baseline.moduleIds, actualModules: [...actual].sort(), expandedModules: [...actual].filter(id => !baseline.moduleIds.includes(id)).sort(), changes, renames, knowledgeChanges, unmappedPaths: changes.filter(entry => !entry.modules.length).map(entry => ({ path: entry.path, reason: '任务开始时模块路径映射无匹配；可能为新职责或未建档文件，需要 CC 判断' })), findings, affectedModules: [...affected].sort().map(id => {
     const module = (live?.modules ?? []).find(doc => doc.metadata.id === id) ?? baseline.context.modules.find(doc => doc.metadata.id === id)!;
-    return { moduleId: id, documentPath: module.relative, documentUpdated: before.files[module.relative] !== current.files[module.relative], checkedFiles: Object.keys(hashModules.find(entry => entry.metadata.id === id)?.metadata.checked_files ?? module.metadata.checked_files) };
+    return { moduleId: id, documentPath: module.relative, documentUpdated: fileHash(before,module.relative) !== fileHash(current,module.relative), checkedFiles: Object.keys(hashModules.find(entry => entry.metadata.id === id)?.metadata.checked_files ?? module.metadata.checked_files) };
   }), contracts: related('contracts'), decisions: related('decisions'), relatedModules: baseline.context.modules.filter(doc => selected.has(doc.metadata.id)).map(doc => ({ moduleId: doc.metadata.id, documentPath: doc.relative })), reportPath };
   if (!existsSync(reportPath)) atomicJson(reportPath, report);
   store.audit('context-task-check', { taskId: report.taskId, path: reportPath, snapshot: current.digest, expandedModules: report.expandedModules, findings }); return report;

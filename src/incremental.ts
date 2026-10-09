@@ -1,40 +1,47 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { atomicJson, type Evidence, type State, type Store } from './store.js';
 import { workspaceFiles } from './workspace.js';
-import { projectFiles } from './project-files.js';
+import { projectFiles, captureProject, loadProject, readProject, projectFileHash, projectBytes, projectCategory } from './project-files.js';
 import { gitProcess } from './git-process.js';
 import { FlowError } from './failure.js';
 
-interface Baseline { files: Record<string, string>; digest: string }
 export async function captureBaseline(store: Store, state: State, name: string, signal: AbortSignal): Promise<void> {
   if (existsSync(store.file(name))) return;
-  const files: Record<string, string> = Object.create(null); let bytes = 0;
-  for (const relative of state.config.projectMode ? projectFiles(state.workspace) : await workspaceFiles(state.workspace,signal)) {
-    const target = path.resolve(state.workspace, relative);
-    if (!target.startsWith(`${state.workspace}${path.sep}`)) throw new FlowError('safety', 'Unsafe baseline path');
-    if (!existsSync(target)) continue;
-    const content = readFileSync(target); bytes += content.length;
-    if (bytes > 50 * 1024 * 1024) throw new FlowError('safety', 'Baseline size limit exceeded');
-    files[relative] = content.toString('base64');
+  if (state.config.projectMode) {
+    atomicJson(store.file(name), captureProject(state.workspace, store.file('snapshot-objects'), signal));
+    store.audit('snapshot-baseline', { name, format: 2, coverage: 'all project files except .git and node_modules', content: 'deduplicated external objects' });
+    return;
   }
-  atomicJson(store.file(name), { files, digest: createHash('sha256').update(JSON.stringify(files)).digest('hex') });
+  atomicJson(store.file(name), captureProject(state.workspace, store.file('snapshot-objects'), signal, await workspaceFiles(state.workspace,signal)));
 }
 export async function baselineDiff(store: Store, state: State, name: string, signal: AbortSignal): Promise<string | undefined> {
   if (!existsSync(store.file(name))) return undefined;
-  const baseline = JSON.parse(readFileSync(store.file(name), 'utf8')) as Baseline;
+  const baseline = loadProject(store.file(name));
   if (createHash('sha256').update(JSON.stringify(baseline.files)).digest('hex') !== baseline.digest) throw new FlowError('safety', 'Baseline hash mismatch');
   const current = state.config.projectMode ? projectFiles(state.workspace) : await workspaceFiles(state.workspace,signal);
   const files = new Set([...Object.keys(baseline.files), ...current]); let diff = '', index = 0;
   const temp = store.file(`diff-${name}`); mkdirSync(temp, { recursive: true });
+  const fingerprint = readProject(state.workspace, signal, current);
   for (const relative of files) {
     const target = path.resolve(state.workspace, relative);
     if (!target.startsWith(`${state.workspace}${path.sep}`)) throw new FlowError('safety', 'Unsafe baseline path');
-    const before = Object.hasOwn(baseline.files, relative) ? Buffer.from(baseline.files[relative]!, 'base64') : Buffer.alloc(0);
-    const after = existsSync(target) ? readFileSync(target) : Buffer.alloc(0);
+    if (fingerprint && projectFileHash(baseline, relative) === projectFileHash(fingerprint, relative)) continue;
     const beforeExists=Object.hasOwn(baseline.files,relative),afterExists=existsSync(target);
+    // Assets and large files have exact hashes in evidence. Never allocate them
+    // as text or truncate a source diff and pretend it was reviewed.
+    if (projectCategory(relative) === 'resource' || (beforeExists && baseline.version === 2 && statSync(path.join(baseline.objectDir!, baseline.files[relative]!)).size > 1024 * 1024) || afterExists && statSync(target).size > 1024 * 1024) {
+      diff += `\nFILE ${relative}${!beforeExists ? ' (added)' : !afterExists ? ' (deleted)' : ''}\nContent requires asset/large-file review; SHA-256 before ${projectFileHash(baseline,relative) ?? 'absent'}, after ${projectFileHash(fingerprint,relative) ?? 'absent'}.\n`;
+      continue;
+    }
+    const before = beforeExists ? projectBytes(baseline, relative) : Buffer.alloc(0);
+    const after = existsSync(target) ? readFileSync(target) : Buffer.alloc(0);
     if (beforeExists===afterExists && before.equals(after)) continue;
+    if (before.includes(0) || after.includes(0)) {
+      diff += `\nFILE ${relative}${!beforeExists ? ' (added)' : !afterExists ? ' (deleted)' : ''}\nContent requires asset/large-file review; SHA-256 before ${projectFileHash(baseline,relative) ?? 'absent'}, after ${projectFileHash(fingerprint,relative) ?? 'absent'}.\n`;
+      continue;
+    }
     const left = path.join(temp, `${index}-before`), right = path.join(temp, `${index++}-after`);
     writeFileSync(left, before); writeFileSync(right, after);
     const result = await gitProcess(store.dir, ['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--', left, right], { signal, timeoutMs: state.config.timeoutMs, allowedExitCodes: [0, 1] });

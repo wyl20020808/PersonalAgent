@@ -6,7 +6,7 @@ import { contextHash, contextPath, loadProjectContext, stampEligible, belongsToM
 import { atomicJson, type State, type Store } from './store.js';
 import { workspaceHead, snapshot } from './workspace.js';
 import { taskContextBaseline } from './context-review.js';
-import { readProject, hashBytes } from './project-files.js';
+import { readProject, projectFileHash } from './project-files.js';
 
 interface Omission { count: number; reason: string; path?: string }
 export function matchesContextTerm(search: string, term: string): boolean {
@@ -55,9 +55,9 @@ export async function callContext(state: State, store: Store, phase: 'plan' | 'e
     .filter(file => stampEligible(file) && belongsToModule(module, file) && existsSync(path.join(root, file)))
     .slice(0, 1).map(file => ({ module: module.metadata.id, file })))[0];
   const version = { head: existsSync(path.join(root, '.git')) ? await workspaceHead(state, signal) : null, snapshot: await snapshot(root, signal, !!state.config.projectMode) };
-  const sourceFiles = readProject(root).files;
+  const sourceFiles = readProject(root);
   const freshness = modules.flatMap(module => Object.entries(module.metadata.checked_files).flatMap(([file, expected]) => {
-    const actual = sourceFiles[file] === undefined ? null : hashBytes(Buffer.from(sourceFiles[file]!, 'base64'));
+    const actual = projectFileHash(sourceFiles,file);
     return actual === expected ? [] : [{ moduleId: module.metadata.id, path: file, expected, actual, code: 'MODULE_HASH_MISMATCH', instruction: '当前目标工作区源码与说明盖章不一致；必须核对当前源码，不盲信旧文档，不从历史 manifest 复用索引。' }];
   }));
   const navigation: Record<string, any> = {

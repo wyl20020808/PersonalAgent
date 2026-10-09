@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store, assertD, atomicJson, type State } from './store.js';
 import { git, safeTarget, snapshot, collectEvidence, workspaceHead, workspaceBaseHead } from './workspace.js';
-import { readProject, loadProject, projectTarget, projectFiles, lockProject } from './project-files.js';
+import { readProject, loadProject, projectTarget, projectFiles, lockProject, projectFileHash, projectFingerprint, hashFile } from './project-files.js';
 import { editSchema, validate } from './schema.js';
 import { acceptanceRulesHash } from './rules.js';
 import { gitProcess, gitDiffCheck } from './git-process.js';
@@ -85,7 +85,7 @@ function load(store: Store, id: string): { delivery: Delivery; state: DeliverySt
 }
 async function fileMap(repo: string, generic = false): Promise<FileMap> {
   const result: FileMap = Object.create(null);
-  if(generic) {for(const [name,content] of Object.entries(readProject(repo).files)) result[name]=hash(Buffer.from(content,'base64'));return result;}
+  if(generic) {const manifest=readProject(repo);for(const name of Object.keys(manifest.files)) result[name]=projectFileHash(manifest,name)!;return result;}
   for (const file of (await git(repo, ['ls-files', '--cached', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean).sort()) {
     const target = path.resolve(repo, file);
     if (!target.startsWith(`${repo}${path.sep}`) || lstatSync(target).isSymbolicLink()) throw new Error('Unsafe delivery snapshot path');
@@ -168,15 +168,15 @@ export async function previewDelivery(store: Store, target: string, branch: stri
     if (run.config.projectMode === 'direct') {
       target = realpathSync(target);
       if (target !== run.workspace || branch !== 'direct') throw new Error('Direct delivery requires the current source directory and direct branch marker');
-      const baselineFile = JSON.parse(readFileSync(store.file('project-baseline.json'), 'utf8')) as { files: Record<string, string>; digest: string };
+      const baselineFile = loadProject(store.file('project-baseline.json'));
       if (hash(JSON.stringify(baselineFile.files)) !== baselineFile.digest) throw new Error('Direct baseline hash mismatch');
       const baseline: FileMap = {}, changes: Change[] = [];
-      for (const [file, bytes] of Object.entries(baselineFile.files)) baseline[file] = hash(Buffer.from(bytes, 'base64'));
+      for (const file of Object.keys(baselineFile.files)) baseline[file] = projectFileHash(baselineFile,file)!;
       const current = projectFiles(run.workspace);
       for (const file of new Set([...Object.keys(baseline), ...current])) {
         const output = path.resolve(run.workspace, file);
         if (!existsSync(output)) throw new Error('Direct delivery deletions require explicit manual review');
-        const bytes = readFileSync(output), after = hash(bytes), before = baseline[file] ?? null;
+        const after = hashFile(output), before = baseline[file] ?? null;
         if (before !== after) changes.push({ path: file, content: '', before, after });
       }
       const diff = await baselineDiff(store, run, 'project-baseline.json', new AbortController().signal) ?? '';
@@ -227,17 +227,17 @@ async function previewProjectDelivery(store: Store,run: State,target: string,pro
   target=realpathSync(target);
   if(target!==realpathSync(run.source))throw new Error('Isolated project delivery must target original project');
   const baseline=loadProject(store.file('project-baseline.json')), current=readProject(target), output=readProject(run.workspace);
-  if(current.digest!==baseline.digest)throw new Error('Project delivery conflict: source changed since run creation');
+  if(current.digest!==projectFingerprint(baseline))throw new Error('Project delivery conflict: source changed since run creation');
   const changes: Change[]=[];
   for(const name of new Set([...Object.keys(baseline.files),...Object.keys(output.files)])) {
-    if(baseline.files[name]===output.files[name])continue;
+    if(projectFileHash(baseline,name)===projectFileHash(output,name))continue;
     if(output.files[name]===undefined) {
       if(run.purpose !== 'context-onboarding' || !onboardingDocumentPath(name) || name.endsWith('/overview.md')) throw new Error('Delivery deletion outside Context document scope');
-      changes.push({path:name,content:'',before:hash(Buffer.from(baseline.files[name]!,'base64')),after:null}); continue;
+      changes.push({path:name,content:'',before:projectFileHash(baseline,name),after:null}); continue;
     }
-    const bytes=Buffer.from(output.files[name]!,'base64'),content=bytes.toString('utf8');
+    const bytes=readFileSync(projectTarget(run.workspace,name)),content=bytes.toString('utf8');
     if(bytes.includes(0)||!Buffer.from(content).equals(bytes))throw new Error('Only UTF-8 delivery files supported');
-    changes.push({path:name,content,before:baseline.files[name]===undefined?null:hash(Buffer.from(baseline.files[name]!,'base64')),after:hash(bytes)});
+    changes.push({path:name,content,before:projectFileHash(baseline,name),after:hash(bytes)});
   }
   const delivery:Delivery={version:1,id:randomUUID(),runId:run.id,target,branch:'project-files',head:run.base,baseline:await fileMap(target,true),targetStatus:'',indexHash:hash('project-files'),workspaceSnapshot:run.evidence!.snapshotDigest,rulesHash:run.evidence!.acceptanceRulesHash!,proofHash,diff:run.evidence!.diff,changes};
   validate(deliverySchema,delivery);
