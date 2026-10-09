@@ -21,8 +21,9 @@ const env={...process.env,PERSONAL_AGENT_DESKTOP_DATA:path.join(dir,'data'),TEMP
 delete env.ELECTRON_RUN_AS_NODE;
 let app,page;const checks=[],errors=[],screenshots=[];
 async function launch(){app=await electron.launch({executablePath:path.join(root,'desktop/node_modules/electron/dist/electron.exe'),args:[path.join(root,'desktop')],env,timeout:30000});page=await app.firstWindow();page.on('pageerror',error=>errors.push(error.message));await page.waitForSelector('.group-workspace');await app.evaluate(({dialog})=>{globalThis.__dialogCalls=[];dialog.showOpenDialog=async()=>({canceled:false,filePaths:[globalThis.__fixturePath]});dialog.showMessageBox=async(_window,options)=>{globalThis.__dialogCalls.push(options);return {response:globalThis.__cancelNext?0:1,checkboxChecked:false};};});}
-const nav=async name=>page.locator('.sidebar nav').getByRole('button',{name:new RegExp('^'+name)}).click();
+const nav=async name=>page.locator('.rail').getByRole('button',{name:new RegExp('^'+name)}).click();
 const overview=()=>page.evaluate(()=>window.personalAgent.invoke({operation:'overview'}));
+const menu=async()=>{if(!await page.locator('.menu-pop').count())await page.getByRole('button',{name:'更多操作',exact:true}).click();};
 async function shot(name){const file=path.join(dir,name+'.png');await page.screenshot({path:file});screenshots.push(file);}
 async function check(name,operation){await operation();checks.push({name,passed:true});}
 async function create(folder,goal,mode='direct'){
@@ -90,7 +91,7 @@ try{
   const run=await page.evaluate(p=>window.personalAgent.invoke({operation:'start',profileId:p.id,repository:p.repositories[0],goal:'Manual GUI local fixture',maxClaudeCalls:5,maxLoops:4,maxReworks:1}),profile);
   for(let index=0;index<2;index++){
     await page.waitForFunction(async id=>(await window.personalAgent.invoke({operation:'overview'})).runs.some(r=>r.id===id&&r.phase==='paused'&&!r.active),run.id,{timeout:60000});
-    if(index===0){await page.locator('.sidebar-sessions button').filter({hasText:'manual-folder'}).first().click();}
+    if(index===0){await nav('运行记录');await page.locator('.run-row').filter({hasText:'Manual GUI local fixture'}).click();}
     await nav('运行详情');await page.getByRole('button',{name:'提交人工验收',exact:true}).click();
     assert.match(await page.getByRole('dialog').innerText(),/不执行独立测试/);await page.locator('#decision').fill('已实际查看本地夹具任务文件与Diff，内容正确；无独立测试，不批准交付');
     assert.equal(await page.getByRole('button',{name:'记录人工验收',exact:true}).isDisabled(),true);
@@ -108,14 +109,14 @@ try{
   const data=await page.evaluate(()=>window.personalAgent.invoke({operation:'prepareMock'})),profile=data.profiles.at(-1);
   legacyRun=await page.evaluate(p=>window.personalAgent.invoke({operation:'start',profileId:p.id,repository:p.repositories[0],goal:'Legacy group regression',maxClaudeCalls:5,maxLoops:4,maxReworks:1,scenario:'pass'}),profile);
   for(let i=0;i<240;i++){if((await overview()).runs.find(r=>r.id===legacyRun.id)?.phase==='completed')break;await page.waitForTimeout(250);}
-  await page.locator('.sidebar-sessions button').filter({hasText:'repository'}).first().click();await page.waitForFunction(()=>document.querySelector('.live-label')?.textContent?.includes('本轮开发已完成'));
-  await page.getByLabel('筛选群聊角色').selectOption('claude');assert.equal(await page.locator('.chat-feed .group-message:not(.role-claude)').count(),0);await page.getByLabel('筛选群聊角色').selectOption('all');
+  await nav('运行记录');await page.locator('.run-row').filter({hasText:legacyRun.goal}).click();await page.waitForFunction(()=>document.querySelector('.live-label')?.textContent?.includes('本轮开发已完成'));
+  await menu();await page.getByLabel('筛选群聊角色').selectOption('claude');assert.equal(await page.locator('.chat-feed .group-message:not(.role-claude)').count(),0);await page.getByLabel('筛选群聊角色').selectOption('all');await page.getByRole('button',{name:'更多操作',exact:true}).click();
   await page.locator('#group-input').fill('**后续需求**：仅记录，不批准交付');await page.getByRole('button',{name:'记录消息',exact:true}).click();await page.waitForSelector('.kind-note');assert.equal((await overview()).runs.find(r=>r.id===legacyRun.id).phase,'completed');assert.ok(await page.locator('.pending-label').filter({hasText:'未生效'}).count());await shot('09-legacy-group-note');
  });
  await check('群聊IPC断连保留记录，恢复后事件不重复',async()=>{
   const count=await page.locator('.group-message').count();await app.evaluate(({ipcMain},id)=>{globalThis.__handler=ipcMain._invokeHandlers.get('personalagent:request');ipcMain.removeHandler('personalagent:request');ipcMain.handle('personalagent:request',(event,r)=>{if(r.operation==='thread'&&r.runId===id)throw Error('Mock IPC disconnect');return globalThis.__handler(event,r);});},legacyRun.id);
-  await page.waitForFunction(()=>document.querySelector('.conversation-toolbar')?.textContent?.includes('连接中断'));assert.equal(await page.locator('.group-message').count(),count);
-  await app.evaluate(({ipcMain})=>{ipcMain.removeHandler('personalagent:request');ipcMain.handle('personalagent:request',globalThis.__handler);});await page.waitForFunction(()=>document.querySelector('.conversation-toolbar')?.textContent?.includes('记录已连接'));
+  await page.waitForFunction(()=>Boolean(document.querySelector('.connection-dot.offline')));assert.equal(await page.locator('.group-message').count(),count);
+  await app.evaluate(({ipcMain})=>{ipcMain.removeHandler('personalagent:request');ipcMain.handle('personalagent:request',globalThis.__handler);});await page.waitForFunction(()=>!document.querySelector('.connection-dot.offline'));
   const ids=await page.locator('.group-message').evaluateAll(nodes=>nodes.map(n=>n.dataset.messageId));assert.equal(new Set(ids).size,ids.length);assert.equal(ids.length,count);
  });
  await check('暂停决策、可信截图放大、明确视觉确认后续接兼容',async()=>{
@@ -123,7 +124,7 @@ try{
   const artifacts=path.join(path.dirname(config.tests[0].args[0]),'artifacts','visual-proof');fs.mkdirSync(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'fixture.png')});fs.appendFileSync(config.tests[0].args[0],'\nconsole.log('+JSON.stringify(JSON.stringify({artifacts}))+');\n');
   const paused=await page.evaluate(p=>window.personalAgent.invoke({operation:'start',profileId:p.id,repository:p.repositories[0],goal:'Legacy visual regression',maxClaudeCalls:5,maxLoops:4,maxReworks:1,scenario:'human'}),profile);
   for(let i=0;i<240;i++){if((await overview()).runs.find(r=>r.id===paused.id)?.phase==='paused')break;await page.waitForTimeout(250);}
-  await page.locator('.sidebar-sessions button').filter({hasText:'repository'}).first().click();await page.waitForSelector('.decision-workbench');await page.waitForSelector('.gallery-thumb');await page.locator('.gallery-thumb').first().click();await page.waitForSelector('.image-viewer');await page.waitForFunction(()=>document.querySelector('.image-viewer img')?.naturalWidth>0);await shot('10-legacy-trusted-image');await page.getByRole('button',{name:'关闭截图',exact:true}).click();
+  await nav('运行记录');await page.locator('.run-row').filter({hasText:legacyRun.goal}).click();await page.waitForSelector('.decision-workbench');await page.waitForSelector('.gallery-thumb');await page.locator('.gallery-thumb').first().click();await page.waitForSelector('.image-viewer');await page.waitForFunction(()=>document.querySelector('.image-viewer img')?.naturalWidth>0);await shot('10-legacy-trusted-image');await page.getByRole('button',{name:'关闭截图',exact:true}).click();
   await page.getByLabel('消息用途').selectOption('visual');await page.locator('#group-input').fill('确认本地Mock截图，不批准交付');await page.getByLabel('我已查看本阶段所选截图').check();await page.getByRole('button',{name:'提交正式决策'}).click();
   let resumedFinal=false;for(let i=0;i<240;i++){const current=(await overview()).runs.find(r=>r.id===paused.id);if(current?.phase==='completed')break;if(current?.phase==='paused'&&current.taskIndex>0&&!resumedFinal){await page.waitForSelector('.decision-workbench');await page.getByLabel('消息用途').selectOption('resume');await page.locator('#group-input').fill('继续最后一个本地Mock阶段，不扩大预算，不批准交付');await page.getByRole('button',{name:'提交正式决策'}).click();resumedFinal=true;}await page.waitForTimeout(250);}
   assert.equal((await overview()).runs.find(r=>r.id===paused.id)?.phase,'completed');assert.equal((await overview()).runs.find(r=>r.id===paused.id)?.claudeCalls,0);await page.waitForFunction(()=>document.querySelector('.live-label')?.textContent?.includes('本轮开发已完成'));await shot('11-legacy-formal-resume');

@@ -12,7 +12,7 @@ const protectedFile=path.join(artifacts,'protected-fixture.txt');fs.writeFileSyn
 const results=[],errors=[];let app,page;let display={};
 const check=async(name,fn)=>{try{await fn();results.push({name,passed:true});}catch(e){results.push({name,passed:false,error:e.message});fs.writeFileSync(path.join(artifacts,'failure-details.json'),JSON.stringify(results,null,2));throw e;}};
 const snapshot=async name=>page.screenshot({path:path.join(artifacts,name+'.png'),fullPage:false});
-const nav=async name=>page.locator('.sidebar').getByRole('button',{name:new RegExp('^'+name)}).click();
+const nav=async name=>page.locator('.rail').getByRole('button',{name:new RegExp('^'+name)}).click();
 const overview=()=>page.evaluate(()=>window.personalAgent.invoke({operation:'overview'}));
 const advanced=async()=>{const summary=page.getByText('高级配置、兼容模式与 Mock 场景',{exact:true});if(await summary.isVisible())await summary.evaluate(el=>{el.closest('details').open=true;});};
 const waitUntil=async(predicate,arg,options={})=>{const deadline=Date.now()+(options.timeout??45000);while(Date.now()<deadline){if(await page.evaluate(predicate,arg))return;await new Promise(resolve=>setTimeout(resolve,300));}throw Error('Timed out waiting for UI predicate');};
@@ -20,9 +20,9 @@ const waitPhase=async phase=>{for(let n=0;n<150;n++){const o=await overview();if
 try{
  app=await electron.launch({executablePath:path.join(root,'desktop/node_modules/electron/dist/electron.exe'),args:[path.join(root,'desktop')],env:{...process.env,PERSONAL_AGENT_DESKTOP_DATA:path.join(artifacts,'data'),TEMP:path.join(artifacts,'tmp'),TMP:path.join(artifacts,'tmp')},timeout:30000});
  page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));app.process().stderr.on('data',data=>fs.appendFileSync(path.join(artifacts,'electron.stderr.log'),data));page.on('console',msg=>fs.appendFileSync(path.join(artifacts,'renderer.console.log'),msg.type()+': '+msg.text()+'\n'));page.on('requestfailed',req=>fs.appendFileSync(path.join(artifacts,'requests.log'),req.url()+' '+req.failure()?.errorText+'\n'));
- await page.waitForSelector('h1',{state:'attached'});await nav('工作台');
+ await page.waitForSelector('.group-workspace');await nav('工作台');
  display={bounds:await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].getBounds()),renderer:await page.evaluate(()=>({width:innerWidth,height:innerHeight,devicePixelRatio}))};
- await check('default-light-white-theme',async()=>{const style=await page.evaluate(()=>({scheme:getComputedStyle(document.documentElement).colorScheme,background:getComputedStyle(document.documentElement).backgroundColor,panel:getComputedStyle(document.querySelector('.agent-panel')).backgroundColor}));assert.deepEqual(style,{scheme:'light',background:'rgb(246, 248, 251)',panel:'rgb(255, 255, 255)'});});
+ await check('default-light-white-theme',async()=>{const style=await page.evaluate(()=>({scheme:getComputedStyle(document.documentElement).colorScheme,background:getComputedStyle(document.documentElement).backgroundColor,panel:getComputedStyle(document.querySelector('.agent-panel')).backgroundColor}));assert.deepEqual(style,{scheme:'light',background:'rgb(255, 255, 255)',panel:'rgb(255, 255, 255)'});});
  await check('native-window-1440x900-dashboard-isolated-history',async()=>{assert.equal(await page.title(),'PersonalAgent');assert.equal(await page.locator('h1').innerText(),'工作台');assert.equal((await overview()).runs.length,0);await snapshot('dashboard-1440');});
  await check('renderer-isolated-no-node-capability',async()=>{const result=await page.evaluate(()=>({node:typeof window.require,process:typeof window.process,bridge:Object.keys(window.personalAgent)}));assert.deepEqual(result,{node:'undefined',process:'undefined',bridge:['invoke']});});
  await check('unknown-ipc-operation-refused',async()=>{const error=await page.evaluate(async()=>{try{await window.personalAgent.invoke({operation:'shell',command:'whoami'});return '';}catch(e){return e.message;}});assert.match(error,/Unknown desktop operation/);});
