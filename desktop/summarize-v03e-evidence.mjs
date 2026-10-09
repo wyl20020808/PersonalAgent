@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+const root=path.resolve(import.meta.dirname,'..'),dir=path.join(root,'desktop/validation-v03e');
+const json=name=>JSON.parse(fs.readFileSync(path.join(dir,name),'utf8'));
+const hash=file=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const totals=name=>{const bytes=fs.readFileSync(path.join(dir,name)),log=bytes.toString(bytes[0]===255&&bytes[1]===254?'utf16le':'utf8');return Object.fromEntries(['tests','pass','fail','skipped','cancelled'].map(key=>[key,Number(log.match(new RegExp('^# '+key+' (\\d+)','m'))?.[1])]));};
+const protectedFiles=['AGENTS.md','src/incremental.ts','test/v02b.test.ts'].map(file=>{const before=hash(path.join(dir,'baseline',file.replaceAll('/','__'))),after=hash(path.join(root,file));return {file,before,after,unchanged:before===after};});
+const gui=json('latest-electron.json'),regression=json('regression-results.json');
+const cases=regression.results.map(result=>{const text=result.output,index=text.indexOf('{');const data=JSON.parse(text.slice(index));return {name:result.name,passed:data.passed,failed:data.failed,realAgentCalls:data.realAgentCalls,errors:data.errors};});
+const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8'}).trim();
+const contrast=hex=>{const c=hex.match(/../g).map(x=>parseInt(x,16)/255).map(x=>x<=0.04045?x/12.92:((x+0.055)/1.055)**2.4);return +(1.05/(.2126*c[0]+.7152*c[1]+.0722*c[2]+.05)).toFixed(2);};
+const summary={createdAt:new Date().toISOString(),branch:git(['branch','--show-current']),main:git(['rev-parse','main']),head:git(['rev-parse','HEAD']),controller:totals('controller-tests.log'),desktop:totals('desktop-tests-final.log'),gui:{passed:gui.passed,failed:gui.failed,realAgentCalls:gui.realAgentCalls,errors:gui.errors,dir:gui.dir,sessionId:gui.sessionId},legacyCases:cases,protectedFiles,contrastOnWhite:{body:contrast('111827'),metadata:contrast('526174')},comparison:json('comparison-results.json')};
+fs.writeFileSync(path.join(dir,'evidence-summary.json'),JSON.stringify(summary,null,2));
+console.log(JSON.stringify(summary,null,2));
