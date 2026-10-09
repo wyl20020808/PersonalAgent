@@ -3,7 +3,7 @@ import type {State} from '../../src/store.js';
 import type {ChatMessage,Note} from './types.js';
 
 export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessage[]{
- const decisionRole:ChatMessage['role']=state.decisionAgent?.backend==='opencode'?'opencode':'claude',decisionName=decisionRole==='opencode'?'OpenCode':'Claude Code';
+ const decisionRole:ChatMessage['role']=(state.decisionAgent??state.config?.decisionAgent)?.backend==='opencode'?'opencode':'claude',decisionName=decisionRole==='opencode'?'OpenCode':'Claude Code';
  const result:ChatMessage[]=[];let taskIndex=0,loop=0;
  for(const [timelineIndex,e] of events.entries()){
    const d=e.data??{};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
