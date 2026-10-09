@@ -128,6 +128,14 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         if (!plan.tasks.length) throw new Error('Plan must include tasks or request human decision');
         if (plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
         if (new Set(plan.tasks.map(task => task.id)).size !== plan.tasks.length) throw new Error('Duplicate task IDs');
+        const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
+        if (context.enabled && state.purpose !== 'context-onboarding') {
+          const ids = new Set(context.modules.map(module => module.metadata.id));
+          if (plan.tasks.some(task => !task.moduleIds?.length || task.moduleIds.some(id => !ids.has(id)))) {
+            state.feedback = 'Project Context 已启用：每个开发任务必须声明至少一个现有且相关的 moduleIds。先通过原生工具探索模块目录和源码；新职责可先按建档规则补充业务模块再规划，不得随便填无关模块。';
+            throw new FlowError('supervisor', state.feedback);
+          }
+        }
         state.tasks = orderTasks(plan.tasks, state.config); state.completedTaskIds = []; store.audit('plan', { ...plan, tasks: state.tasks }); checkpoint('execute');
       } else if (state.phase === 'execute') {
         // Infrastructure must be healthy before charging a rework or execution attempt.

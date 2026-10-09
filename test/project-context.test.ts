@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { stringify } from 'yaml';
 import { contextHash, contextRoot, loadProjectContext, parseContextDocument, stampContext } from '../src/project-context.js';
-import { callContext } from '../src/context-navigation.js';
+import { callContext, matchesContextTerm } from '../src/context-navigation.js';
 import { createRun, drive } from '../src/controller.js';
 import { MockAgents, type Agents } from '../src/adapters.js';
 import { RealAgents } from '../src/real-agents.js';
@@ -20,6 +20,10 @@ import type { Config, Task } from '../src/schema.js';
 
 const root = path.resolve('.validation', `pc-${randomUUID().slice(0, 8)}`), cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 fs.mkdirSync(root, { recursive: true });
+test('module terms match whole Unicode words, case and hyphenated IDs without guesses', () => {
+  for (const [search, term] of [['AI logic', 'ai'], ['优化 game-app HUD', 'game-app'], ['修订 核心 模块', '核心'], ['Game-App', 'game-app']]) assert.equal(matchesContextTerm(search!, term!), true);
+  for (const [search, term] of [['main paint', 'ai'], ['game-application', 'game-app'], ['新核心系统', '核心'], ['核心模块', '核心'], ['chair', 'ai'], ['src/ai-helper.js', 'ai']]) assert.equal(matchesContextTerm(search!, term!), false);
+});
 const headings = { overview: ['项目目标', '范围', '非目标', '总体结构'], module: ['职责', '边界', '入口与测试'], contract: ['约束', '检查方式'], decision: ['决定', '原因', '未采用方案'] };
 function document(kind: keyof typeof headings, metadata: object, body = '仅含简短说明。') { return `---\n${stringify({ schema: 1, kind, ...metadata })}---\n${headings[kind].map(title => `## ${title}\n${body}\n`).join('')}`; }
 function write(workspace: string, relative: string, content: string) { const file = path.join(workspace, relative); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, content); return file; }
@@ -123,7 +127,7 @@ test('project identity persists in overview across onboarding Runs, sessions, re
   await applyDelivery(first, preview.id);
   const identity = loadProjectContext(f.source, true).overview!.metadata.project_id;
   // A real source change gives re-onboarding a deliverable hash update; an identical Mock output correctly pauses as no changes.
-  write(f.source, 'README.md', '# 同一项目后续资料更新\n');
+  write(f.source, 'src/core/main.ts', '// 同一项目后续源码更新\n');
   const second = await createRun(f.config, f.source, '同一项目重新建档', { purpose: 'context-onboarding' });
   assert.notEqual(second.id, first.id);
   const state = second.load(); state.claudeSessionId = randomUUID(); state.codexThreadId = randomUUID(); second.save(state);
@@ -188,8 +192,8 @@ test('navigation caps catalog/tree/UTF-8 bytes with explicit omissions and full 
   for (let n = 0; n < 320; n++) write(f.workspace, `files/f${n}.txt`, 'NO_SOURCE_INJECTION');
   write(f.workspace, 'deep/a/b/c/file.ts', 'deep source'); write(f.workspace, '.env', 'DO_NOT_LOAD'); write(f.workspace, 'dist/main.js', 'BUILT_DO_NOT_LOAD');
   const state = f.store.load(), navigation = await callContext(state, f.store, 'plan', new AbortController().signal), manifest = JSON.parse(fs.readFileSync(navigation!.manifestPath, 'utf8'));
-  assert.ok(navigation!.moduleCatalog.length <= 100); assert.ok(navigation!.fileTree.length <= 300); assert.ok(navigation!.fileTree.every((node: any) => node.path.split('/').length <= 3)); assert.ok(Buffer.byteLength(JSON.stringify(navigation)) <= 24 * 1024);
-  assert.equal(manifest.moduleCatalog.length, 116); assert.ok(navigation!.omitted.length > 0); assert.ok(manifest.omitted.some((item: any) => item.reason.includes('100 项'))); assert.equal(JSON.stringify(navigation).includes('DO_NOT_LOAD'), false);
+  assert.equal(navigation!.moduleCatalog.length, 116); assert.ok(navigation!.fileTree.length <= 300); assert.ok(navigation!.fileTree.every((node: any) => node.path.split('/').length <= 3)); assert.ok(Buffer.byteLength(JSON.stringify(navigation)) <= 24 * 1024);
+  assert.equal(manifest.moduleCatalog.length, 116); assert.ok(navigation!.omitted.length > 0); assert.equal(JSON.stringify(navigation).includes('DO_NOT_LOAD'), false);
   const bigOverview = document('overview', { project_id: state.id, name: '大总览' }, Array(9).fill('中'.repeat(300)).join('\n'));
   write(f.workspace, `${contextRoot}/overview.md`, bigOverview); const big = await callContext(state, f.store, 'plan', new AbortController().signal); assert.ok(Buffer.byteLength(JSON.stringify(big)) <= 24 * 1024); assert.ok(big!.omitted.some((item: any) => item.reason.includes('总览正文')));
 });
@@ -228,4 +232,102 @@ test('changed onboarding preview invalidates approval, documents remain proposed
   const preview = await previewDelivery(store, f.source, 'project-files'); await approveDelivery(store, preview.id, preview.digest, '本地夹具批准');
   const file = path.join(state.workspace, contextRoot, 'overview.md'); fs.appendFileSync(file, '\n'); assert.equal((await deliveryStatus(store, preview.id)).phase, 'invalidated'); await assert.rejects(applyDelivery(store, preview.id), /approval/);
   assert.equal(loadProjectContext(f.source).contracts[0]!.metadata.status, 'proposed');
+});
+
+test('execute always receives catalog and concrete executable stamp example, no match stays unselected', async () => {
+  const f = await fixture(), state = f.store.load(); state.goal = 'paint main';
+  const navigation = (await callContext(state, f.store, 'execute', new AbortController().signal))!;
+  assert.deepEqual(navigation.moduleIds, []); assert.equal(navigation.moduleCatalog[0].id, 'core');
+  assert.ok(navigation.stampCommand.includes('--module')); assert.ok(navigation.stampCommand.includes('src/core/main.ts'));
+  assert.equal(spawnSync(navigation.stampCommand[0], navigation.stampCommand.slice(1)).status, 0);
+  fs.unlinkSync(path.join(f.workspace, 'src/core/main.ts'));
+  // Remove proposals whose code basis intentionally no longer exists.
+  fs.unlinkSync(path.join(f.workspace, contextRoot, 'contracts/api.md'));
+  assert.equal((await callContext(state, f.store, 'execute', new AbortController().signal))!.stampCommand, null);
+});
+
+test('stamp rejects obvious non-core objects atomically but accepts HTML, source and interface files', async () => {
+  const f = await fixture(), module = path.join(f.workspace, contextRoot, 'modules/core.md');
+  for (const file of ['README.md', 'notes.md', 'package-lock.json', '.gitignore', 'result.json', 'main.test.ts', 'tests/main.ts', 'generated/main.js', 'browser-validation.mjs', 'validate-bots.cjs', 'chrome-acceptance.mjs']) {
+    const name = 'src/core/' + file; write(f.workspace, name, 'fixture'); const before = fs.readFileSync(module);
+    assert.throws(() => stampContext(f.workspace, 'core', ['src/core/main.ts', name]), /核心源码入口/);
+    assert.deepEqual(fs.readFileSync(module), before);
+  }
+  for (const name of ['index.html', 'api.d.ts', 'engine.cpp', 'interface.h', 'main.js', 'styles.css']) {
+    write(f.workspace, 'src/core/' + name, 'fixture'); stampContext(f.workspace, 'core', ['src/core/' + name]);
+  }
+});
+
+test('new enabled development plans block missing or invalid moduleIds and can retry after native exploration', async () => {
+  for (const ids of [undefined, [], ['missing']]) {
+    const f = await fixture(true, { mode: 'mock' }); let executed = false;
+    const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'work', instruction: '核心源码', acceptance: ['通过'], moduleIds: ids }], humanDecision: null }), execute: async () => { executed = true; return { mode: 'native', summary: 'never' }; }, review: async () => ({ verdict: 'pass', reason: 'fixture' }) };
+    const result = await drive(f.store, agents); assert.equal(result.phase, 'paused'); assert.equal(result.nextPhase, 'planning'); assert.equal(executed, false); assert.equal(result.loops, 0);
+    assert.match(result.feedback, /相关/);
+    agents.plan = async state => {
+      // Native exploration can establish a new business responsibility before returning a plan.
+      write(state.workspace, `${contextRoot}/modules/new-business.md`, document('module', { id: 'new-business', name: '新业务', paths: ['src/new/'], depends_on: [], checked_files: {} }));
+      return { tasks: [{ id: 'work', instruction: '新业务', acceptance: ['通过'], moduleIds: ['new-business'] }], humanDecision: null };
+    };
+    agents.execute = async state => { write(state.workspace, 'src/new/main.ts', 'export const added = true;'); return { mode: 'native', summary: 'fixture' }; };
+    const resumed = await drive(f.store, agents, '修正计划，续接同一Run'); assert.equal(resumed.phase, 'completed', resumed.reason);
+  }
+});
+
+async function deletionFixture() {
+  const f = await fixture(true, { mode: 'mock' }); docs(f.source, ['core', 'obsolete']); proposals(f.source);
+  const store = await createRun(f.config, f.source, '只修订建档文档', { purpose: 'context-onboarding' });
+  const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'docs', instruction: '合并测试归属', acceptance: ['有效文档'] }], humanDecision: null }), execute: async state => {
+    fs.unlinkSync(path.join(state.workspace, contextRoot, 'modules/obsolete.md'));
+    write(state.workspace, `${contextRoot}/modules/core.md`, document('module', { id: 'core', name: '核心更新', paths: ['src/core/'], depends_on: [], checked_files: {} }));
+    write(state.workspace, `${contextRoot}/modules/added.md`, document('module', { id: 'added', name: '新业务', paths: ['src/added/'], depends_on: [], checked_files: {} }));
+    return { mode: 'native', summary: '本地确定性删除夹具' };
+  }, review: async () => ({ verdict: 'pass', reason: '本地夹具' }) };
+  const result = await drive(store, agents); assert.equal(result.phase, 'completed', result.reason);
+  return { ...f, store, preview: await previewDelivery(store, f.source, 'project-files') };
+}
+
+test('Context document ADD/MODIFY/DELETE are bound to exact approval, resumable apply and snapshot', async () => {
+  const f = await deletionFixture(), before = readProject(f.source), manifest = JSON.parse(fs.readFileSync(path.join(f.preview.directory, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.changes.find((c: any) => c.path.endsWith('/obsolete.md')).after, null);
+  assert.match(fs.readFileSync(path.join(f.preview.directory, 'preview.md'), 'utf8'), /DELETE.*obsolete/);
+  assert.match(manifest.diff, /obsolete.md \(deleted\)/);
+  await assert.rejects(applyDelivery(f.store, f.preview.id), /approval/); assert.equal(readProject(f.source).digest, before.digest);
+  await assert.rejects(approveDelivery(f.store, f.preview.id, 'a'.repeat(64), 'wrong digest'), /digest/i);
+  await approveDelivery(f.store, f.preview.id, f.preview.digest, '仅批准本地夹具的明确删除');
+  assert.equal((await applyDelivery(f.store, f.preview.id)).phase, 'applied'); assert.equal(fs.existsSync(path.join(f.source, contextRoot, 'modules/obsolete.md')), false);
+  assert.equal(readProject(f.source).files['src/core/main.ts'], before.files['src/core/main.ts']);
+  assert.equal((await applyDelivery(f.store, f.preview.id)).phase, 'applied');
+});
+
+test('deletion preview replacement and source conflict prevent apply without deleting documents', async () => {
+  for (const mutation of ['preview', 'manifest', 'source']) {
+    const f = await deletionFixture(); await approveDelivery(f.store, f.preview.id, f.preview.digest, '本地夹具');
+    if (mutation === 'source') write(f.source, 'src/core/main.ts', 'user change');
+    else if (mutation === 'preview') fs.appendFileSync(path.join(f.preview.directory, 'preview.md'), 'tampered');
+    else { const name = path.join(f.preview.directory, 'manifest.json'), manifest = JSON.parse(fs.readFileSync(name, 'utf8')); manifest.changes.find((c: any) => c.after === null).path = 'src/core/main.ts'; fs.writeFileSync(name, JSON.stringify(manifest)); }
+    await assert.rejects(applyDelivery(f.store, f.preview.id), /replaced|digest|conflict/i);
+    assert.equal(fs.existsSync(path.join(f.source, contextRoot, 'modules/obsolete.md')), true);
+  }
+});
+
+test('self-consistent forged deletion manifests still reject paths outside allowed Context documents', async () => {
+  for (const name of ['src/core/main.ts', 'docs/project-context/../game.js', `${contextRoot}/overview.md`, `${contextRoot}/history.json`]) {
+    const f = await deletionFixture(), manifestPath = path.join(f.preview.directory, 'manifest.json'), statePath = path.join(f.preview.directory, 'state.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')), journal = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    manifest.changes.find((c: any) => c.after === null).path = name; journal.digest = contextHash(JSON.stringify(manifest));
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest)); fs.writeFileSync(statePath, JSON.stringify(journal));
+    await assert.rejects(deliveryStatus(f.store, f.preview.id), /deletion outside/);
+    assert.equal(fs.existsSync(path.join(f.source, contextRoot, 'modules/obsolete.md')), true);
+  }
+});
+
+test('onboarding rejects deletion of business, runtime-like, nonstandard and overview files', async () => {
+  for (const name of ['src/core/main.ts', 'runtime-history.json', `${contextRoot}/extra.txt`, `${contextRoot}/overview.md`]) {
+    const f = await fixture(true, { mode: 'mock' }); if (!fs.existsSync(path.join(f.source, name))) write(f.source, name, 'must preserve');
+    const store = await createRun(f.config, f.source, '禁止范围删除', { purpose: 'context-onboarding' }), before = readProject(f.source);
+    const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'docs', instruction: 'fixture', acceptance: ['fixture'] }], humanDecision: null }), execute: async state => { fs.unlinkSync(path.join(state.workspace, name)); return { mode: 'native', summary: 'rejected fixture' }; }, review: async () => ({ verdict: 'pass', reason: 'never' }) };
+    const result = await drive(store, agents); assert.equal(result.phase, 'failed'); assert.match(result.reason, /建档产物范围错误/); assert.equal(readProject(f.source).digest, before.digest);
+    await assert.rejects(previewDelivery(store, f.source, 'project-files'));
+  }
 });

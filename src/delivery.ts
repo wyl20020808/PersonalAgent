@@ -10,7 +10,7 @@ import { acceptanceRulesHash } from './rules.js';
 import { gitProcess, gitDiffCheck } from './git-process.js';
 import { testIndexes } from './dependencies.js';
 import { baselineDiff } from './incremental.js';
-import { assertOnboardingScope } from './context-onboarding.js';
+import { assertOnboardingScope, onboardingDocumentPath } from './context-onboarding.js';
 import { loadProjectContext } from './project-context.js';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
@@ -23,7 +23,7 @@ function destination(repo: string, file: string): string {
   return target;
 }
 type FileMap = Record<string, string>;
-interface Change { path: string; content: string; before: string | null; after: string }
+interface Change { path: string; content: string; before: string | null; after: string | null }
 export interface Delivery {
   kind?: 'direct';
   version: 1; id: string; runId: string; target: string; branch: string; head: string;
@@ -39,7 +39,7 @@ const str = { type: 'string' }, sha = { type: 'string', pattern: '^[0-9a-f]{64}$
 export const deliverySchema = { type: 'object', additionalProperties: false, required: ['version', 'id', 'runId', 'target', 'branch', 'head', 'baseline', 'targetStatus', 'indexHash', 'workspaceSnapshot', 'rulesHash', 'proofHash', 'diff', 'changes'], properties: {
   kind: { const: 'direct' }, version: { const: 1 }, id: uuid, runId: uuid, target: str, branch: str, head: str,
   baseline: { type: 'object', additionalProperties: sha }, targetStatus: { const: '' }, indexHash: sha, workspaceSnapshot: sha, rulesHash: sha, proofHash: sha, diff: str,
-  changes: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'object', additionalProperties: false, required: ['path', 'content', 'before', 'after'], properties: { path: str, content: str, before: { anyOf: [sha, { type: 'null' }] }, after: sha } } }
+  changes: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'object', additionalProperties: false, required: ['path', 'content', 'before', 'after'], properties: { path: str, content: str, before: { anyOf: [sha, { type: 'null' }] }, after: { anyOf: [sha, { type: 'null' }] } } } }
 } };
 export const deliveryStateSchema = { type: 'object', additionalProperties: false, required: ['version', 'id', 'digest', 'phase', 'approval', 'written', 'intent', 'reason'], properties: {
   version: { const: 1 }, id: uuid, digest: sha, phase: { enum: ['preview', 'approved', 'applying', 'applied', 'invalidated', 'blocked'] }, written: { type: 'array', uniqueItems: true, items: str }, intent: { type: ['string', 'null'] }, reason: str,
@@ -54,15 +54,17 @@ function save(store: Store, state: DeliveryState): void {
   store.audit('delivery-transition', { deliveryId: state.id, digest: state.digest, phase: state.phase, written: state.written, intent: state.intent, reason: state.reason });
 }
 function render(delivery: Delivery, digest: string): string {
+  const scope = delivery.changes.some(change => change.after === null) ? 'Additions, modifications and explicitly listed Context document deletions only. No commit, merge or push.' : 'Only additions and modifications. No commit, merge, push or deletion.';
   if (delivery.kind === 'direct') return `# 直接开发成果确认\n\nRun：${delivery.runId}\n项目：${delivery.target}\n审批摘要：${digest}\n\n文件已经由 Agent 在项目目录中修改。此审批确认已发生的成果，不会再次写入、提交、合并、推送或部署。\n\n${delivery.changes.map(c => `${c.path}: ${c.before ?? '新增'} -> ${c.after}`).join('\n')}\n\n完整 Diff 见 diff.patch。\n`;
 
-  return `# Delivery preview\n\nDelivery: ${delivery.id}\nRun: ${delivery.runId}\nTarget: ${JSON.stringify(delivery.target)}\nBranch: ${JSON.stringify(delivery.branch)}\nHEAD: ${delivery.head}\nApproval digest: ${digest}\nAcceptance rules: ${delivery.rulesHash}\nWorkspace snapshot: ${delivery.workspaceSnapshot}\n\nOnly additions and modifications. No commit, merge, push or deletion.\n\n${delivery.changes.map(change => `${change.before === null ? 'ADD' : 'MODIFY'} ${JSON.stringify(change.path)}: ${change.before ?? 'absent'} -> ${change.after}`).join('\n')}\n\nFull diff is in diff.patch and manifest.json. Approve this exact digest only after inspecting them.\n`;
+  return `# Delivery preview\n\nDelivery: ${delivery.id}\nRun: ${delivery.runId}\nTarget: ${JSON.stringify(delivery.target)}\nBranch: ${JSON.stringify(delivery.branch)}\nHEAD: ${delivery.head}\nApproval digest: ${digest}\nAcceptance rules: ${delivery.rulesHash}\nWorkspace snapshot: ${delivery.workspaceSnapshot}\n\n${scope}\n\n${delivery.changes.map(change => `${change.after === null ? 'DELETE' : change.before === null ? 'ADD' : 'MODIFY'} ${JSON.stringify(change.path)}: ${change.before ?? 'absent'} -> ${change.after ?? 'absent'}`).join('\n')}\n\nFull diff is in diff.patch and manifest.json. Approve this exact digest only after inspecting them.\n`;
 }
 function load(store: Store, id: string): { delivery: Delivery; state: DeliveryState } {
   const dir = directory(store, id);
   const delivery = validate<Delivery>(deliverySchema, JSON.parse(readFileSync(path.join(dir, 'manifest.json'), 'utf8')));
   const state = validate<DeliveryState>(deliveryStateSchema, JSON.parse(readFileSync(path.join(dir, 'state.json'), 'utf8')));
   if (delivery.id !== id || state.id !== id || delivery.runId !== store.id || hash(JSON.stringify(delivery)) !== state.digest) throw new Error('Delivery content digest mismatch');
+  for (const change of delivery.changes) if (change.after === null && (delivery.branch !== 'project-files' || store.load().purpose !== 'context-onboarding' || !onboardingDocumentPath(change.path) || change.path.endsWith('/overview.md') || change.before === null || change.content !== '')) throw new Error('Delivery deletion outside Context document scope');
   if (delivery.kind === 'direct') {
     if (realpathSync(delivery.target) !== delivery.target || store.load().config.projectMode !== 'direct') throw new Error('Direct delivery project mismatch');
     if (readFileSync(path.join(dir, 'diff.patch'), 'utf8') !== delivery.diff || readFileSync(path.join(dir, 'preview.md'), 'utf8') !== render(delivery, state.digest)) throw new Error('Delivery preview was replaced');
@@ -73,7 +75,7 @@ function load(store: Store, id: string): { delivery: Delivery; state: DeliverySt
   const seen = new Set<string>(); let size = 0;
   for (const change of delivery.changes) {
     const key = destination(delivery.target, change.path).toLowerCase();
-    if (seen.has(key) || hash(change.content) !== change.after) throw new Error('Unsafe duplicate or changed delivery content');
+    if (seen.has(key) || change.after !== null && hash(change.content) !== change.after) throw new Error('Unsafe duplicate or changed delivery content');
     seen.add(key); size += Buffer.byteLength(change.content);
     if (size > 2 * 1024 * 1024) throw new Error('Delivery size limit exceeded');
   }
@@ -201,7 +203,7 @@ export async function previewDelivery(store: Store, target: string, branch: stri
       changes.push({ path: file, content, before: existsSync(output) ? hash(readFileSync(output)) : null, after: hash(bytes) });
     }
     const delivery: Delivery = { version: 1, id: randomUUID(), runId: run.id, target, branch, head: run.base, baseline: await fileMap(target), targetStatus: '', indexHash: hash(await git(target, ['ls-files', '--stage', '-z'])), workspaceSnapshot: run.evidence!.snapshotDigest, rulesHash: run.evidence!.acceptanceRulesHash!, proofHash, diff: await fullDiff(run.workspace, run.base), changes };
-    const expected = { ...delivery.baseline }; for (const change of changes) expected[change.path] = change.after;
+    const expected = { ...delivery.baseline }; for (const change of changes) expected[change.path] = change.after!;
     const mapHash = (files: FileMap) => hash(JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))));
     if (mapHash(expected) !== mapHash(await fileMap(run.workspace))) throw new Error('Target bytes differ from validated workspace');
     validate(deliverySchema, delivery);
@@ -229,7 +231,10 @@ async function previewProjectDelivery(store: Store,run: State,target: string,pro
   const changes: Change[]=[];
   for(const name of new Set([...Object.keys(baseline.files),...Object.keys(output.files)])) {
     if(baseline.files[name]===output.files[name])continue;
-    if(output.files[name]===undefined)throw new Error('Delivery deletions require manual recovery; automatic deletion is forbidden');
+    if(output.files[name]===undefined) {
+      if(run.purpose !== 'context-onboarding' || !onboardingDocumentPath(name) || name.endsWith('/overview.md')) throw new Error('Delivery deletion outside Context document scope');
+      changes.push({path:name,content:'',before:hash(Buffer.from(baseline.files[name]!,'base64')),after:null}); continue;
+    }
     const bytes=Buffer.from(output.files[name]!,'base64'),content=bytes.toString('utf8');
     if(bytes.includes(0)||!Buffer.from(content).equals(bytes))throw new Error('Only UTF-8 delivery files supported');
     changes.push({path:name,content,before:baseline.files[name]===undefined?null:hash(Buffer.from(baseline.files[name]!,'base64')),after:hash(bytes)});
@@ -289,6 +294,12 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       if (actual === change.after) { if (!journal.written.includes(change.path)) journal.written.push(change.path); journal.intent = null; save(store, journal); continue; }
       if (actual !== change.before) throw new Error(`Target conflict before write: ${change.path}`);
       journal.intent = change.path; save(store, journal);
+      if (change.after === null) {
+        if (hash(readFileSync(target)) !== change.before) throw new Error(`Target conflict before deletion: ${change.path}`);
+        unlinkSync(target);
+        await options.afterWrite?.(change.path, journal.written.length + 1);
+        journal.written.push(change.path); journal.intent = null; save(store, journal); continue;
+      }
       mkdirSync(path.dirname(target), { recursive: true });
       // Existing files are opened without truncation and compared again before writing.
       // This rejects detected races; Node provides no CAS against unrelated writers.

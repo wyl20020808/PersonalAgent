@@ -2,6 +2,7 @@ import { loadProject, readProject } from './project-files.js';
 import { loadProjectContext, contextRoot } from './project-context.js';
 import { FlowError } from './failure.js';
 import type { State, Store } from './store.js';
+export const onboardingDocumentPath = (name: string): boolean => new RegExp(`^${contextRoot}/(?:overview\\.md|(?:modules|contracts|decisions)/[a-zA-Z0-9_-]{1,64}\\.md)$`).test(name);
 
 export function assertOnboardingScope(state: State, store: Store): void {
   if (state.purpose !== 'context-onboarding') return;
@@ -9,7 +10,7 @@ export function assertOnboardingScope(state: State, store: Store): void {
   const before = loadProject(store.file('project-baseline.json')), after = readProject(state.workspace);
   for (const name of new Set([...Object.keys(before.files), ...Object.keys(after.files)])) {
     if (before.files[name] === after.files[name]) continue;
-    if (after.files[name] === undefined || !new RegExp(`^${contextRoot}/(?:overview\\.md|(?:modules|contracts|decisions)/[a-zA-Z0-9_-]{1,64}\\.md)$`).test(name)) throw new FlowError('safety', `建档产物范围错误：${name}`);
+    if (!onboardingDocumentPath(name) || (after.files[name] === undefined && name === `${contextRoot}/overview.md`)) throw new FlowError('safety', `建档产物范围错误：${name}`);
   }
 }
 export function assertRunContext(state: State, store: Store): void {

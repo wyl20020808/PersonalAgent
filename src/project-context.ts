@@ -28,6 +28,13 @@ export function contextPath(relative: string, directory = false): boolean {
   return name.split('/').every(part => part && part !== '.' && part !== '..' && !/[. ]$/.test(part) && !/^(?:\.git|\.codex|\.claude|\.env(?:\..*)?|node_modules|dist|build|out|\.cache|\.tmp|\.runtime|auth\.json|\.?credentials\.json|.*\.(?:pem|key)|CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(part));
 }
 export function belongsToModule(module: ModuleDocument, file: string): boolean { return module.metadata.paths.some(declared => declared.endsWith('/') ? file.startsWith(declared) : file === declared); }
+// Reject clearly unsuitable stamp targets, without restricting source languages.
+export function stampEligible(file: string): boolean {
+  return contextPath(file) && !/(^|\/)(?:tests?|__tests__|validation|coverage|artifacts|generated)(\/|$)/i.test(file)
+    && !/(?:^|\/)(?:README(?:\.[^/]*)?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.gitignore|\.gitattributes|\.editorconfig|\.npmrc)$/i.test(file)
+    && !/\.(?:md|markdown|rst|txt|json|lock|map|png|jpg|svg|zip)$/i.test(file)
+    && !/(?:[.-](?:test|spec)\.[^/]+|(?:validation|验收)[^/]*\.[^/]+|(?:^|\/)validate[-_.][^/]+|[.-]acceptance\.[^/]+)$/i.test(file);
+}
 function docTarget(workspace: string, relative: string): string {
   const target = projectTarget(workspace, relative);
   if (existsSync(target) && (!lstatSync(target).isFile() || lstatSync(target).nlink > 1)) invalid(`不是普通文档文件：${relative}`);
@@ -107,6 +114,7 @@ export function stampContext(workspace: string, moduleId: string, files: string[
   if (!module || !files.length || new Set(files).size !== files.length) invalid('盖章需要有效模块和不重复的文件参数');
   const checked = { ...module.metadata.checked_files }, results: Record<string, string> = {};
   for (const file of files) {
+    if (!stampEligible(file)) invalid(`盖章只允许核心源码入口或接口文件，不允许文档、测试、锁文件或生成结果：${file}`);
     if (!contextPath(file) || !belongsToModule(module, file)) invalid(`盖章文件不属于模块：${file}`);
     const target = docTarget(root, file);
     if (!existsSync(target)) invalid(`盖章文件不存在：${file}`);
