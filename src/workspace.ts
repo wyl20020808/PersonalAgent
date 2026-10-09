@@ -10,6 +10,8 @@ import { collectScreenshots } from './screenshots.js';
 import { testIndexes, acceptanceStage } from './dependencies.js';
 import { acceptanceRulesHash } from './rules.js';
 import { gitText, gitHead, gitDiffCheck, validateGitObjects } from './git-process.js';
+import { loadProjectContext } from './project-context.js';
+import { assertOnboardingScope } from './context-onboarding.js';
 
 export async function git(cwd: string, args: string[], signal?: AbortSignal): Promise<string> {
   return gitText(cwd, args, signal);
@@ -93,6 +95,10 @@ export async function collectEvidence(state: State, signal: AbortSignal, final =
   }
   if (diff.length > 2 * 1024 * 1024) throw new Error('Diff too large to review');
   const issues: string[] = [];
+  if (state.purpose === 'context-onboarding' || state.projectContextEnabled) {
+    try { loadProjectContext(state.workspace, true); assertOnboardingScope(state, new Store(state.config.runtimeDir, state.id)); }
+    catch (error) { issues.push((error as Error).message); }
+  }
   if (head !== workspaceBaseHead(state)) issues.push('Git HEAD changed; commits and merges are forbidden');
   if (!generic && /^ D|^D |^MD|^AD/m.test(status)) issues.push('Deletion detected');
   if (state.executorExitCode !== 0) issues.push('Executor failed');

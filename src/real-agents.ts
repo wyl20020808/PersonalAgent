@@ -10,6 +10,7 @@ import { reserveClaudeCall } from './budget.js';
 import { FlowError, classifyFailure } from './failure.js';
 import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { reviewEvidence } from './incremental.js';
+import { callContext, recordContextPrompt } from './context-navigation.js';
 
 export class RealAgents implements Agents {
   get executionMode(): 'native' | 'proposal' { return this.config.executionMode ?? 'native'; }
@@ -48,18 +49,24 @@ export class RealAgents implements Agents {
     return validate<T>(schema, envelope.structured_output);
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
-    const repository = await repositoryContext(state.workspace, signal);
-    return this.claude(state, store, signal, planSchema, JSON.stringify({ action: 'Plan goal into small implementation tasks with concrete acceptance criteria. Use dependsOn for prerequisite task IDs and acceptanceStage only from configured stage names. Set humanDecision to null for a ready plan. If requirements are unclear or a forbidden action is necessary, set humanDecision to the specific question and return no tasks. Controller independent acceptance uses only configured tests. You may inspect the repository, run your own checks, and directly fix necessary small bugs or configuration issues with native tools. Keep instructions and criteria concise.', goal: state.goal, repository, feedback: state.feedback, tests: this.config.tests, acceptanceStages: state.config.acceptanceStages, taskStages: state.config.taskStages }), 'plan');
+    const context = await callContext(state, store, 'plan', signal);
+    const repository = context ? undefined : await repositoryContext(state.workspace, signal);
+    const onboarding = state.purpose === 'context-onboarding' ? '本轮只建档：仅修改 docs/project-context/ 下约定文档。按真实代码核查划分模块；不复制已有资料全文，不改源码/资源/依赖/运行配置；契约和决策只写有真实依据的 proposed，不伪造用户确认，不为凑数创建提议。由程序 context-stamp 计算哈希。' : '';
+    const prompt = JSON.stringify({ action: 'Plan goal into small implementation tasks with concrete acceptance criteria. Use dependsOn for prerequisite task IDs and acceptanceStage only from configured stage names. Set humanDecision to null for a ready plan. If requirements are unclear or a forbidden action is necessary, set humanDecision to the specific question and return no tasks. Controller independent acceptance uses only configured tests. You may inspect the repository, run your own checks, and directly fix necessary small bugs or configuration issues with native tools. Keep instructions and criteria concise.' + (context ? ' Use moduleIds to declare relevant modules from the live catalog; inspect documents/code with native tools as needed. proposed contracts/decisions are suggestions, not accepted requirements. ' + onboarding : ''), goal: state.goal, repository, context, feedback: state.feedback, tests: this.config.tests, acceptanceStages: state.config.acceptanceStages, taskStages: state.config.taskStages });
+    recordContextPrompt(store, context, prompt);
+    return this.claude(state, store, signal, planSchema, prompt, 'plan');
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
     const env = nativeAgentEnv();
     let edits: unknown;
     const record = activityRecorder(state, store, 'codex', `codex:${state.loops}`);
-    const repository = await repositoryContext(state.workspace, signal);
+    const context = await callContext(state, store, 'execute', signal);
+    const repository = context ? undefined : await repositoryContext(state.workspace, signal);
     const action = this.executionMode === 'native'
       ? 'Use native tools to explore the repository, directly implement the task, run tests and debug failures until resolved. Report actual changes and verification in Chinese. Do not return full file contents for Controller to apply.'
       : 'Compatibility proposal mode: inspect with native tools, but return full UTF-8 file contents in changes for Controller to apply. Do not directly edit the workspace in this mode. Return the requested JSON schema.';
-    const prompt = JSON.stringify({ action, rules: agentRules, goal: state.goal, repository, task: state.tasks[state.taskIndex], feedback: state.feedback, evidence: state.evidence });
+    const prompt = JSON.stringify({ action: action + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
+    recordContextPrompt(store, context, prompt);
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
       cwd: store.dir, env, signal, timeoutMs: this.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, executionMode: this.executionMode }),
       onLine(line) {
@@ -79,10 +86,12 @@ export class RealAgents implements Agents {
     return validate<ExecutionResult>(this.executionMode === 'native' ? nativeResultSchema : editSchema, edits);
   }
   async review(state: State, store: Store, signal: AbortSignal): Promise<Review> {
+    const context = await callContext(state, store, 'review', signal);
     const evidence = reviewEvidence(state.evidence);
     const task = state.tasks[state.taskIndex];
     const prerequisites = state.tasks.filter(previous => task?.dependsOn?.includes(previous.id)).map(previous => ({ id: previous.id, acceptance: previous.acceptance, completed: state.completedTaskIds?.includes(previous.id) ?? false }));
-    const prompt = JSON.stringify({ action: 'Use native tools to inspect the repository and review every criterion, diff, task context, exit code and independent tests. You may directly repair necessary small problems and run your own tests. Controller will independently revalidate all your changes before accepting them. pass only if every criterion is satisfied; rework for fixes; human for decisions or omitted diff; fail to terminate. Keep reason concise. Screenshot metadata and paths are not image pixels. Request human visual confirmation if required screenshots have not been reviewed; do not claim to have seen them.', task, prerequisites, evidence, feedback: state.feedback });
+    const prompt = JSON.stringify({ action: 'Use native tools to inspect the repository and review every criterion, diff, task context, exit code and independent tests. You may directly repair necessary small problems and run your own tests. Controller will independently revalidate all your changes before accepting them. pass only if every criterion is satisfied; rework for fixes; human for decisions or omitted diff; fail to terminate. Keep reason concise. Screenshot metadata and paths are not image pixels. Request human visual confirmation if required screenshots have not been reviewed; do not claim to have seen them.' + (context ? ' proposed 契约和决策尚未确认，不得将提议当成用户已接受的要求。' : '') + (state.purpose === 'context-onboarding' ? ' 本轮只建档；只可修改约定文档，核查格式、真实依据、模块划分与程序盖章，不批准或应用交付。' : ''), task, prerequisites, evidence, feedback: state.feedback, ...(context ? { context, changedFiles: state.evidence?.status } : {}) });
+    recordContextPrompt(store, context, prompt);
     store.audit('review-context', { bytes: Buffer.byteLength(prompt), fullEvidenceBytes: Buffer.byteLength(JSON.stringify(state.evidence)), evidence });
     return this.claude(state, store, signal, reviewSchema, prompt, 'review');
   }

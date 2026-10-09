@@ -283,6 +283,15 @@
           "acceptanceStage": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+          },
+          "moduleIds": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+            }
           }
         },
         "required": [
@@ -477,6 +486,12 @@
           "additionalProperties": false
         }
       ]
+    },
+    "purpose": {
+      "const": "context-onboarding"
+    },
+    "projectContextEnabled": {
+      "type": "boolean"
     },
     "nativeExecution": {
       "type": "boolean"

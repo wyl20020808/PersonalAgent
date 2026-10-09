@@ -13,13 +13,16 @@ import { classifyFailure, FlowError } from './failure.js';
 import { journalFile, prepareApplication, recoverApplication } from './application.js';
 import { orderTasks, assertPrerequisites } from './dependencies.js';
 import { captureBaseline, baselineDiff, reviewEvidence } from './incremental.js';
+import { assertOnboardingScope, assertRunContext } from './context-onboarding.js';
+import { loadProjectContext } from './project-context.js';
 
-export async function createRun(config: Config, source: string, goal: string): Promise<Store> {
+export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
+  if (options.purpose === 'context-onboarding') config = { ...config, projectMode: 'isolated', executionMode: 'native' };
   if (!config.projectMode && !existsSync(path.join(source,'.git'))) config = {...config, projectMode:'isolated'};
   if (config.projectMode === 'direct' && config.executionMode === 'proposal') throw new Error('Direct project mode requires native execution'); if (!goal.trim()) throw new Error('Goal is required');
   if (config.projectMode === 'direct') config = {...config,executionMode:'native'};
-  if(config.mode==='mock' && config.projectMode) for(const marker of ['hello','done']) { const file=path.join(source,marker+'.txt'); if(existsSync(file) && readFileSync(file,'utf8')!==marker+'\n') throw new Error('Mock 标记文件已存在且内容不同，拒绝覆盖'); }
+  if(config.mode==='mock' && config.projectMode && !options.purpose) for(const marker of ['hello','done']) { const file=path.join(source,marker+'.txt'); if(existsSync(file) && readFileSync(file,'utf8')!==marker+'\n') throw new Error('Mock 标记文件已存在且内容不同，拒绝覆盖'); }
   const store = new Store(config.runtimeDir, randomUUID());
   const isolated = store.file('workspace');
   const releasePreparation = lockProject({ source: realpathSync(source), config } as State);
@@ -37,6 +40,8 @@ export async function createRun(config: Config, source: string, goal: string): P
   } finally { releasePreparation(); }
   const workspace = config.projectMode === 'direct' ? realpathSync(source) : isolated;
   const state: State = { version: 1, id: store.id, goal, source: realpathSync(source), workspace, base, config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: null, codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
+  if (options.purpose) state.purpose = options.purpose;
+  if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
   state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal }); return store;
 }
 export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; maxClaudeCalls?: number }): Promise<State> {
@@ -55,6 +60,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
   async function agentOperation<T>(agent: 'claude' | 'codex', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    assertRunContext(state, store);
     if(existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
     const started = Date.now(), before = await snapshot(state.workspace, stop.signal,!!state.config.projectMode);
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
@@ -66,6 +72,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       const after = await snapshot(state.workspace, undefined,!!state.config.projectMode);
       const diff = await baselineDiff(store, state, baseline, new AbortController().signal);
       store.audit('agent-finish', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops, durationMs: Date.now() - started, before, after, changed: before !== after, diff, status: await workspaceStatus(state) });
+      assertOnboardingScope(state, store);
     }
   }
   async function timed<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {

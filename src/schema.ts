@@ -5,6 +5,7 @@ const text = { type: 'string', minLength: 1, maxLength: 100000 };
 const object = (properties: Record<string, unknown>) => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
 export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
+Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export const planSchema = object({ tasks: { type: 'array', items: taskSchema, minItems: 0, maxItems: 20 }, humanDecision: { type: ['string', 'null'], minLength: 1 } });
 export const reviewSchema = object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text });
 export const editSchema = object({ summary: text, changes: { type: 'array', maxItems: 50, items: object({ path: { type: 'string', minLength: 1, maxLength: 240 }, content: { type: 'string', maxLength: 1000000 } }) } });
@@ -23,7 +24,7 @@ export const configSchema = object({
 Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'proposal'] }, claudeStreaming: { type: 'boolean' }, maxClaudeCalls: { type: 'integer', minimum: 1, maximum: 100 }, minTasks: { type: 'integer', minimum: 1, maximum: 20 } });
 Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
-export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string }
+export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string; moduleIds?: string[] }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export interface Plan { tasks: Task[]; humanDecision: string | null }
 export interface Review { verdict: 'pass' | 'rework' | 'human' | 'fail'; reason: string }

@@ -10,6 +10,8 @@ import { acceptanceRulesHash } from './rules.js';
 import { gitProcess, gitDiffCheck } from './git-process.js';
 import { testIndexes } from './dependencies.js';
 import { baselineDiff } from './incremental.js';
+import { assertOnboardingScope } from './context-onboarding.js';
+import { loadProjectContext } from './project-context.js';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 function destination(repo: string, file: string): string {
@@ -99,6 +101,7 @@ async function fullDiff(repo: string, base: string): Promise<string> {
   return diff;
 }
 async function completionProof(store: Store, state: State): Promise<string> {
+  if (state.purpose === 'context-onboarding') { assertOnboardingScope(state, store); loadProjectContext(state.workspace, true); }
   if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !state.evidence?.passed || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
   if (await snapshot(state.workspace,undefined,!!state.config.projectMode) !== state.evidence.snapshotDigest || await workspaceHead(state) !== workspaceBaseHead(state)) throw new Error('Completed workspace changed');
   const rules = await acceptanceRulesHash(state, true);

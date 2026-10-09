@@ -9,6 +9,7 @@ import { failureKinds, type Failure } from './failure.js';
 export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify' | 'review' | 'paused' | 'stopped' | 'failed' | 'completed';
 export interface Evidence { screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
+  purpose?: 'context-onboarding'; projectContextEnabled?: boolean;
   nativeExecution?: boolean;
   claudeCalls?: number;
   completedTaskIds?: string[];
@@ -27,7 +28,7 @@ const stateProperties = {
   claudeSessionId: nullable, codexThreadId: nullable, feedback: str, reason: str, updatedAt: str, beforeExecution: str, executorExitCode: { type: 'integer' },
   evidence: { anyOf: [{ type: 'null' }, { type: 'object', properties: { screenshots: { type: 'array', maxItems: 240, items: { type: 'object', additionalProperties: false, required: ['id','path','source','width','height','hash','time','runId','taskId','loop','testIndex','name'], properties: {id:str,path:str,source:str,width:integer,height:integer,hash:str,time:str,runId:str,taskId:nullable,loop:integer,testIndex:integer,name:str} } }, diff: str, acceptanceRulesHash: str, taskDiff: str, roundDiff: str, status: str, head: str, snapshotDigest: str, tests: { type: 'array', items: resultSchema }, executorExitCode: { type: 'integer' }, passed: { type: 'boolean' }, issues: { type: 'array', items: str } }, required: ['diff', 'status', 'head', 'snapshotDigest', 'tests', 'executorExitCode', 'passed', 'issues'], additionalProperties: false }] }
 };
-export const stateSchema = { type: 'object', properties: { ...stateProperties, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
+export const stateSchema = { type: 'object', properties: { ...stateProperties, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 export function assertD(value: string): string {
   const resolved = path.resolve(value);
   if (process.platform === 'win32' && !/^D:\\/i.test(resolved)) throw new Error(`Path must be on D drive: ${value}`);

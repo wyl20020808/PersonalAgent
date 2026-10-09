@@ -9,9 +9,13 @@ import { RealAgents } from './real-agents.js';
 import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from './delivery.js';
 import { acceptManual } from './manual-acceptance.js';
 import { restoreProject } from './project-files.js';
+import { loadProjectContext, stampContext } from './project-context.js';
 
 const help = `PersonalAgent CLI MVP
   start --config FILE --repo D:\\REPO --goal "GOAL"
+  context-start --config FILE --repo D:\\REPO --goal "ONBOARDING GOAL"
+  context-check --workspace D:\\REPO
+  context-stamp --workspace D:\\REPO --module ID --file RELATIVE_PATH [--file RELATIVE_PATH ...]
   resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--max-loops N] [--max-reworks N] [--max-claude-calls N]
   status --config FILE --id UUID
   stop --config FILE --id UUID
@@ -24,16 +28,24 @@ const help = `PersonalAgent CLI MVP
 Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
   if (values.help || !command) { console.log(help); }
+  else if (command === 'context-stamp') {
+    if (!values.workspace || !values.module || !values.file?.length) throw Error('--workspace, --module and --file are required');
+    console.log(JSON.stringify(stampContext(path.resolve(values.workspace), values.module, values.file), null, 2));
+  } else if (command === 'context-check') {
+    if (!values.workspace) throw Error('--workspace is required');
+    const context = loadProjectContext(path.resolve(values.workspace), true);
+    console.log(JSON.stringify({ enabled: true, projectId: context.overview!.metadata.project_id, modules: context.modules.length, contracts: context.contracts.length, decisions: context.decisions.length, proposalStatus: 'proposed' }, null, 2));
+  }
   else {
     if (!values.config) throw new Error('--config is required');
     const config = validate<Config>(configSchema, JSON.parse(readFileSync(path.resolve(values.config), 'utf8')));
     let store: Store;
-    if (command === 'start') {
+    if (command === 'start' || command === 'context-start') {
       if (!values.repo || !values.goal) throw new Error('--repo and --goal are required');
-      store = await createRun(config, values.repo, values.goal); console.log(`Run ID: ${store.id}`);
+      store = await createRun(config, values.repo, values.goal, command === 'context-start' ? { purpose: 'context-onboarding' } : {}); console.log(`Run ID: ${store.id}`);
     } else {
       if (!['resume', 'status', 'stop', 'manual-accept', 'project-restore', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
       if (!values.id) throw new Error('--id is required'); store = new Store(config.runtimeDir, values.id);
