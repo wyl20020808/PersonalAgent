@@ -31,11 +31,12 @@ export async function createRun(config: Config, source: string, goal: string, op
   try { base = await prepare(source, isolated, config); }
   catch (error) {
     // Keep a durable, inspectable failure even when clone/preparation never completes.
-    if (error instanceof FlowError && ['git','git-integrity'].includes(error.kind)) {
+    {
       const failure=classifyFailure(error,'prepare');
       const failed:State={version:1,id:store.id,goal,source:realpathSync(source),workspace:config.projectMode==='direct'?realpathSync(source):isolated,base:'',config,phase:'failed',nextPhase:'planning',tasks:[],taskIndex:0,loops:0,reworks:0,totalReworks:0,claudeCalls:0,completedTaskIds:[],reworkPending:false,claudeSessionId:null,codexThreadId:null,feedback:'',reason:failure.message,failure,evidence:null,executorExitCode:-1,updatedAt:'',beforeExecution:''};
       store.save(failed);store.audit('transition',{phase:'failed',reason:failed.reason,loops:0,reworks:0});store.audit('error',failure);
-      error.runId=store.id;
+      if (error instanceof FlowError) error.runId=store.id;
+      else { const durable = new FlowError(failure.kind, failure.message); durable.runId=store.id; throw durable; }
     }
     throw error;
   } finally { releasePreparation(); }

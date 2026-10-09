@@ -11,6 +11,13 @@ import {mockContextDocuments,loadProjectContext} from '../../dist/src/project-co
 import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
+
+test('MAIN cannot acquire writable profiles inside claimed DEV data, including junction aliases; history remains read-only',()=>{
+ const previous=process.env.PERSONALAGENT_INSTANCE;process.env.PERSONALAGENT_INSTANCE='main';
+ try{const local=new DesktopService(root,path.join(data,'main-ownership'),process.execPath);const foreign=path.join(data,'claimed-dev'),alias=path.join(data,'dev-alias');fs.mkdirSync(foreign,{recursive:true});fs.writeFileSync(path.join(foreign,'instance.json'),JSON.stringify({version:1,instanceId:'dev'}));fs.symlinkSync(foreign,alias,'junction');
+  for(const directory of [foreign,alias]){const file=path.join(data,'foreign-'+randomUUID()+'.json');fs.writeFileSync(file,JSON.stringify({allowedRepositories:[data],runtimeDir:path.join(directory,'runtime'),mode:'mock',claudeExecutable:'NEVER-PAID',timeoutMs:30000,maxLoops:2,maxReworks:1,tests:[],mockScenario:'pass'}));assert.throws(()=>local.register(file),/another instance/);local.register(file,true);const entry=local.registry().profiles.find(p=>p.file===file)!;assert.throws(()=>local.writable(entry.id),/只读/);}
+ }finally{if(previous===undefined)delete process.env.PERSONALAGENT_INSTANCE;else process.env.PERSONALAGENT_INSTANCE=previous;}
+});
 test('DEV rejects writable external runtimes while explicit historical replay remains read-only',()=>{
  const previous=process.env.PERSONALAGENT_INSTANCE,localData=path.join(data,'dev-ownership');
  try{process.env.PERSONALAGENT_INSTANCE='dev';const local=new DesktopService(root,localData,process.execPath);
@@ -37,7 +44,7 @@ test('document decision IPC schema rejects extra approval fields and unsupported
 });
 test('ordinary project detection reads scripts without executing them and requires direct permission without paid authorization',()=>{
  const project=path.join(data,'ordinary');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'package.json'),JSON.stringify({scripts:{test:'throw never execute',build:'throw never execute'}}));
- const info=service.inspectProject(project);assert.equal(info.git,false);assert.equal(info.kind,'Node.js');assert.deepEqual(info.testCommands,['npm run test']);assert.equal(info.settings.projectMode,'direct');assert.equal(info.settings.mode,'mock');assert.equal(info.directAuthorized,false);
+ const info=service.inspectProject(project);assert.equal(info.git,false);assert.equal(info.kind,'Node.js');assert.deepEqual(info.testCommands,['npm run test']);assert.equal(info.settings.projectMode,'direct');assert.equal(info.settings.mode,'real');assert.equal(info.directAuthorized,false);
  assert.throws(()=>service.inspectProject('relative'),/绝对/);assert.throws(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock'}),/明确授权/);
  assert.doesNotThrow(()=>service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'isolated',mode:'real'}));
  assert.equal(service.validateProjectStart({operation:'startProject',projectPath:project,goal:'test',projectMode:'direct',mode:'mock',directAcknowledged:true}).path,fs.realpathSync(project));
@@ -61,7 +68,7 @@ test('automatic config starts non-Git direct and isolated Mock runs, preserves e
  }
 });
 let profileId='',runId='',target='',head='';
-async function wait(phase:string){for(let n=0;n<150;n++){const detail=service.detail(profileId,runId);if(detail.run.phase===phase)return detail.run;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out waiting for '+phase);}
+async function wait(phase:string){for(let n=0;n<150;n++){const detail=service.detail(profileId,runId);if(detail.run.phase===phase&&!detail.run.active)return detail.run;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out waiting for '+phase);}
 test('IPC rejects generic shell, extra fields, path-shaped IDs and malformed approval digests',()=>{
  for(const r of [{operation:'shell',command:'whoami'},{operation:'toString'},{operation:'__proto__'},{operation:'overview',path:'C:/secret'},{operation:'detail',profileId:'../x',runId:randomUUID()},{operation:'approve',profileId:randomUUID(),runId:randomUUID(),deliveryId:randomUUID(),digest:'bad',decision:'approve'}])assert.throws(()=>validateRequest(r));
 });
