@@ -9,7 +9,51 @@ import {groupMessages} from './threadGrouping.js';
 import {projectMessages} from './thread.js';
 import type {ChatMessage,Conversation} from './types.js';
 import type {State} from '../../src/store.js';
+import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+test('decision backend: dynamic sanitized discovery, latest selection validation, immutable Run and restart persistence',async()=>{
+ const {data,project}=fixture();
+ let discovery:DecisionModels={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};
+ const discover=async()=>({...discovery,password:'private-test-credential',providers:discovery.providers.map(p=>({...p,apiKey:'private-test-credential',models:p.models.map(m=>({...m,secret:'private-test-credential'}))}))});
+ const service=new DesktopService(root,data,process.execPath,discover);
+ const old=await service.dispatch({operation:'createSession',projectPath:project}) as Conversation;
+ assert.deepEqual(old.settings.decisionAgent,{backend:'claude-code'});
+ const dynamic=await service.dispatch({operation:'decisionModels',projectPath:project}) as DecisionModels;
+ assert.equal(dynamic.providers[0].models[0].id,'fixture-model');
+ assert.equal(JSON.stringify(dynamic).includes('private-test-credential'),false);
+ assert.deepEqual(Object.keys(dynamic).sort(),['available','providers','reason']);
+ const decisionAgent:DecisionAgent={backend:'opencode',opencode:{providerID:'fixture-provider',modelID:'fixture-model'}};
+ assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionAgent:{backend:'opencode',opencode:{providerID:'fixture-provider'}}}));
+ assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionAgent:{...decisionAgent,opencode:{...decisionAgent.opencode,executable:'untrusted.exe'}}}));
+ await assert.rejects(service.dispatch({operation:'createSession',projectPath:project,decisionAgent:{backend:'opencode',opencode:{providerID:'stale-provider',modelID:'stale-model'}}}),/失效/);
+ const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',decisionAgent}) as Conversation;
+ assert.deepEqual(session.settings.decisionAgent,decisionAgent);
+ const restart=new DesktopService(root,data,process.execPath,discover);
+ assert.deepEqual(restart.sessions.get(session.id).settings.decisionAgent,decisionAgent);
+ discovery={available:false,reason:'fixture server unavailable password=private-test-credential',providers:[]};
+ const unavailable=await service.dispatch({operation:'decisionModels',projectPath:project}) as DecisionModels;
+ assert.equal(unavailable.available,false);assert.match(unavailable.reason,/fixture server unavailable/);assert.equal(unavailable.reason.includes('private-test-credential'),false);
+ await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Mock backend requirement',directAcknowledged:true}),/不可用/);
+ assert.equal(service.overview().runs.length,0);
+ discovery={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};
+ await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Mock backend requirement retry',directAcknowledged:true});
+ try{
+  const run=await done(service,session.id);assert.equal(run.phase,'completed');
+  assert.deepEqual(run.decisionAgent,{backend:'opencode',providerID:'fixture-provider',modelID:'fixture-model'});
+  const store=service.store(run.profileId,run.id),state=store.load();
+  const events=[{hash:'fixture-plan',time:state.updatedAt,event:'plan',data:{tasks:[]}},{hash:'fixture-tool',time:state.updatedAt,event:'agent-activity',data:{agent:'opencode',kind:'tool',title:'Shell',text:'exit_code=0'}},{hash:'fixture-review',time:state.updatedAt,event:'review',data:{verdict:'pass',reason:'Mock'}}];
+  assert.equal(projectMessages(state,events,[]).every(message=>message.role==='opencode'),true);
+  assert.deepEqual(state.config.decisionAgent,decisionAgent);
+  assert.equal(fs.readFileSync(store.file('desktop.config.json'),'utf8').includes('private-test-credential'),false);
+  assert.deepEqual(new DesktopService(root,data,process.execPath,discover).inspectProject(project).settings.decisionAgent,decisionAgent);
+  assert.deepEqual(service.publicRun({...state,config:{...state.config,decisionAgent:{backend:'claude-code'}}},run.profileId).decisionAgent,run.decisionAgent);
+  assert.throws(()=>store.save({...state,decisionAgent:{backend:'claude-code'}}),/Immutable Decision Agent identity changed/);
+  discovery={available:true,reason:'',providers:[{id:'other-live-provider',name:'Other',models:[{id:'other-live-model',name:'Other',capabilities:{tools:true,structuredOutput:true}}]}]};
+  assert.equal((await service.decisionModels(project)).providers[0].id,'other-live-provider');
+  await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'stale selection must fail'}),/失效/);
+  assert.equal(service.sessions.get(session.id).runs.length,1);
+ }finally{await service.stopOwned();}
+});
 function fixture(){const data=path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
 async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return run;await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}
 test('ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist',async()=>{

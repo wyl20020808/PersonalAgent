@@ -16,13 +16,14 @@ export class SessionStore {
  lockPath(session:Saved){return path.join(this.service.data,'session-project-'+createHash('sha256').update(session.projectPath.toLowerCase()).digest('hex')+'.lock');}
  lockAlive(file:string){if(!fs.existsSync(file))return false;try{const pid=JSON.parse(fs.readFileSync(file,'utf8')).pid;if(!Number.isInteger(pid)||pid<1)return true;try{process.kill(pid,0);return true;}catch(error){return (error as NodeJS.ErrnoException).code!=='ESRCH';}}catch{return true;}}
  acquire(session:Saved){const file=this.lockPath(session);if(fs.existsSync(file)&&!this.lockAlive(file))fs.unlinkSync(file);let descriptor:number;try{descriptor=fs.openSync(file,'wx');}catch{throw Error('此项目正在处理消息，请稍后重试；未重复启动');}fs.writeFileSync(descriptor,JSON.stringify({pid:process.pid,sessionId:session.id}));fs.fsyncSync(descriptor);return ()=>{fs.closeSync(descriptor);fs.unlinkSync(file);};}
- read():Saved[]{return fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):[];}
+ read():Saved[]{const items:Saved[]=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):[];return items.map(s=>({...s,settings:{...s.settings,decisionAgent:s.settings.decisionAgent??{backend:'claude-code'}}}));}
  save(items:Saved[]){atomicJson(this.file,items);}
  get(id:string){const session=this.read().find(s=>s.id===id);if(!session)throw Error('会话不存在');return session;}
  update(session:Saved){const items=this.read(),index=items.findIndex(s=>s.id===session.id);if(index<0)throw Error('会话不存在');items[index]=session;this.save(items);}
  create(r:Request):Conversation {
   const project=this.service.inspectProject(r.projectPath!);
-  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
+  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{decisionAgent:r.decisionAgent??{backend:'claude-code'},mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
+
   if(session.selectedTests.some(t=>!project.testCommands.includes(t)))throw Error('测试命令与项目检测不匹配');
   const items=this.read();items.push(session);this.save(items);return this.public(session);
  }
@@ -30,7 +31,8 @@ export class SessionStore {
   const items=this.read(),known=new Set(items.flatMap(s=>s.runs.map(r=>r.id)));let changed=false;
   for(const run of this.service.overview().runs){if(known.has(run.id))continue;
    // Historical runs remain separate, inspectable records; no implicit continuation authorization.
-   items.push({id:randomUUID(),title:run.goal.slice(0,32),manualTitle:false,projectPath:run.source,projectName:path.basename(run.source),createdAt:run.updatedAt,updatedAt:run.updatedAt,settings:{mode:run.mode as 'mock'|'real',projectMode:run.projectMode??'isolated',...run.config},selectedTests:[],directAuthorized:false,profileId:run.profileId,runs:[{id:run.id,profileId:run.profileId,runtimeDir:this.service.config(run.profileId).config.runtimeDir}],messages:[],legacy:true});changed=true;
+   items.push({id:randomUUID(),title:run.goal.slice(0,32),manualTitle:false,projectPath:run.source,projectName:path.basename(run.source),createdAt:run.updatedAt,updatedAt:run.updatedAt,settings:{decisionAgent:run.decisionAgent?.backend==='opencode'?{backend:'opencode',opencode:{providerID:run.decisionAgent.providerID!,modelID:run.decisionAgent.modelID!}}:{backend:'claude-code'},mode:run.mode as 'mock'|'real',projectMode:run.projectMode??'isolated',...run.config},selectedTests:[],directAuthorized:false,profileId:run.profileId,runs:[{id:run.id,profileId:run.profileId,runtimeDir:this.service.config(run.profileId).config.runtimeDir}],messages:[],legacy:true});changed=true;
+
   }if(changed)this.save(items);
  }
  run(ref:Conversation['runs'][number],session?:Saved){
@@ -102,6 +104,7 @@ export class SessionStore {
    }else{
     // Revalidate immutable, hashed config and project identity before launching another run.
     const {config}=this.service.config(session.profileId);
+    if(JSON.stringify(config.decisionAgent??{backend:'claude-code'})!==JSON.stringify(session.settings.decisionAgent??{backend:'claude-code'}))throw Error('会话决策后端已改变，拒绝启动');
     if(config.mode!==session.settings.mode||config.projectMode!==session.settings.projectMode||config.allowedRepositories.length!==1||config.allowedRepositories[0].toLowerCase()!==session.projectPath.toLowerCase())throw Error('会话项目授权已改变，拒绝启动');
     await this.service.start({operation:'start',profileId:session.profileId,mode:session.settings.mode,repository:session.projectPath,goal,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
    }

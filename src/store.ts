@@ -6,10 +6,12 @@ import type { Screenshot } from './screenshots.js';
 import type { ProcessResult } from './process.js';
 import { failureKinds, type Failure } from './failure.js';
 import type { ContextReport } from './context-review.js';
+import type { DecisionIdentity, DecisionSession } from './decision-agent.js';
 
 export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify' | 'review' | 'paused' | 'stopped' | 'failed' | 'completed';
 export interface Evidence { contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
+  decisionAgent?: DecisionIdentity; decisionSession?: DecisionSession;
   purpose?: 'context-onboarding'; projectContextEnabled?: boolean;
   nativeExecution?: boolean;
   claudeCalls?: number;
@@ -31,6 +33,13 @@ const stateProperties = {
   evidence: { anyOf: [{ type: 'null' }, { type: 'object', properties: { contextReport: { type: 'object', required: ['taskId','snapshot','baselineDigest','reportPath'], properties: { taskId: str, snapshot: str, baselineDigest: str, reportPath: str } }, screenshots: { type: 'array', maxItems: 240, items: { type: 'object', additionalProperties: false, required: ['id','path','source','width','height','hash','time','runId','taskId','loop','testIndex','name'], properties: {id:str,path:str,source:str,width:integer,height:integer,hash:str,time:str,runId:str,taskId:nullable,loop:integer,testIndex:integer,name:str} } }, diff: str, acceptanceRulesHash: str, taskDiff: str, roundDiff: str, status: str, head: str, snapshotDigest: str, tests: { type: 'array', items: resultSchema }, executorExitCode: { type: 'integer' }, passed: { type: 'boolean' }, issues: { type: 'array', items: str } }, required: ['diff', 'status', 'head', 'snapshotDigest', 'tests', 'executorExitCode', 'passed', 'issues'], additionalProperties: false }] }
 };
 export const stateSchema = { type: 'object', properties: { ...stateProperties, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
+Object.assign(stateSchema.properties, {
+  decisionAgent: { oneOf: [
+    { type: 'object', properties: { backend: { const: 'claude-code' } }, required: ['backend'], additionalProperties: false },
+    { type: 'object', properties: { backend: { const: 'opencode' }, providerID: str, modelID: str }, required: ['backend','providerID','modelID'], additionalProperties: false }
+  ] },
+  decisionSession: { type: 'object', properties: { backend: { enum: ['claude-code','opencode'] }, sessionId: str, runId: str, workspace: str, directory: str }, required: ['backend','sessionId','runId','workspace','directory'], additionalProperties: false }
+});
 export function assertD(value: string): string {
   const resolved = path.resolve(value);
   if (process.platform === 'win32' && !/^D:\\/i.test(resolved)) throw new Error(`Path must be on D drive: ${value}`);
@@ -65,7 +74,13 @@ export class Store {
     this.dir = path.join(assertD(runtime), 'runs', id); mkdirSync(this.dir, { recursive: true });
   }
   file(name: string) { return path.join(this.dir, name); }
-  save(state: State) { state.config = normalizeConfig(state.config); state.updatedAt = new Date().toISOString(); validate(stateSchema, state); atomicJson(this.file('state.json'), state); }
+  save(state: State) {
+    if (existsSync(this.file('state.json'))) {
+      const old = JSON.parse(readFileSync(this.file('state.json'), 'utf8'));
+      if (JSON.stringify(old.decisionAgent ?? { backend: 'claude-code' }) !== JSON.stringify(state.decisionAgent ?? { backend: 'claude-code' })) throw new Error('Immutable Decision Agent identity changed');
+    }
+    state.config = normalizeConfig(state.config); state.updatedAt = new Date().toISOString(); validate(stateSchema, state); atomicJson(this.file('state.json'), state);
+  }
   load(): State { const state = JSON.parse(readFileSync(this.file('state.json'), 'utf8')); state.config = validate<Config>(configSchema, state.config); return validate<State>(stateSchema, state); }
   audit(event: string, data: unknown = {}): void {
     const file = this.file('audit.jsonl');

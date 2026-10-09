@@ -16,6 +16,7 @@ import { assertOnboardingScope, assertRunContext } from './context-onboarding.js
 import { loadProjectContext } from './project-context.js';
 import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, normalizeContractReferences, reviewContractCatalog, taskContextBaseline } from './context-review.js';
 import { prepareUnlocked, pendingContextConfirmations } from './context-confirmation.js';
+import { decisionIdentity, assertDecisionState } from './decision-agent.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
@@ -34,6 +35,7 @@ export async function createRun(config: Config, source: string, goal: string, op
     {
       const failure=classifyFailure(error,'prepare');
       const failed:State={version:1,id:store.id,goal,source:realpathSync(source),workspace:config.projectMode==='direct'?realpathSync(source):isolated,base:'',config,phase:'failed',nextPhase:'planning',tasks:[],taskIndex:0,loops:0,reworks:0,totalReworks:0,claudeCalls:0,completedTaskIds:[],reworkPending:false,claudeSessionId:null,codexThreadId:null,feedback:'',reason:failure.message,failure,evidence:null,executorExitCode:-1,updatedAt:'',beforeExecution:''};
+      failed.decisionAgent = decisionIdentity(config);
       store.save(failed);store.audit('transition',{phase:'failed',reason:failed.reason,loops:0,reworks:0});store.audit('error',failure);
       if (error instanceof FlowError) error.runId=store.id;
       else { const durable = new FlowError(failure.kind, failure.message); durable.runId=store.id; throw durable; }
@@ -42,6 +44,7 @@ export async function createRun(config: Config, source: string, goal: string, op
   } finally { releasePreparation(); }
   const workspace = config.projectMode === 'direct' ? realpathSync(source) : isolated;
   const state: State = { version: 1, id: store.id, goal, source: realpathSync(source), workspace, base, config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: null, codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
+  state.decisionAgent = decisionIdentity(config);
   if (options.purpose) state.purpose = options.purpose;
   if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
   state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal }); return store;
@@ -50,6 +53,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
   try {
     state = store.load();
+    assertDecisionState(state);
     if(state.phase==='failed' && state.failure?.stage==='prepare' && !state.failure.recoverable){unlock();return state;}
     if(state.config.projectMode==='direct' && agents.executionMode!=='native') throw new Error('Direct project mode requires native execution adapter');
     if (state.workspace !== (state.config.projectMode === 'direct' ? realpathSync(state.source) : store.file('workspace')) || realpathSync(state.workspace).toLowerCase() !== path.resolve(state.workspace).toLowerCase()) throw new Error('Persisted workspace path mismatch or junction redirect');

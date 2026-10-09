@@ -3,13 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && node dist/scripts/export-schemas.js",
     "test": "npm run build && node --test dist/test/*.test.js",
     "start": "node dist/src/cli.js",
     "demo": "node dist/scripts/demo.js"
   },
-  "dependencies": { "@openai/codex-sdk": "0.161.0", "ajv": "^8.17.1", "yaml": "2.9.1" },
-  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.9.0" }
+  "dependencies": {
+    "@openai/codex-sdk": "0.161.0",
+    "@opencode-ai/sdk": "1.18.35",
+    "ajv": "^8.17.1",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
 }
