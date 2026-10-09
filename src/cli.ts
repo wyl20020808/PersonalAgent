@@ -10,12 +10,16 @@ import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from 
 import { acceptManual } from './manual-acceptance.js';
 import { restoreProject } from './project-files.js';
 import { loadProjectContext, stampContext } from './project-context.js';
+import { prepareContextConfirmation, decideContextConfirmation, pendingContextConfirmations, type ConfirmationAction } from './context-confirmation.js';
 
 const help = `PersonalAgent CLI MVP
   start --config FILE --repo D:\\REPO --goal "GOAL"
   context-start --config FILE --repo D:\\REPO --goal "ONBOARDING GOAL"
   context-check --workspace D:\\REPO
   context-stamp --workspace D:\\REPO --module ID --file RELATIVE_PATH [--file RELATIVE_PATH ...]
+  context-request --config FILE --id UUID --document RELATIVE_PATH --action accepted|rejected|superseded
+  context-decide --config FILE --id UUID --request UUID --approval SHA256 --decision "EXPLICIT DOCUMENT DECISION" [--cancel]
+  context-pending --config FILE --id UUID
   resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--max-loops N] [--max-reworks N] [--max-claude-calls N]
   status --config FILE --id UUID
   stop --config FILE --id UUID
@@ -28,7 +32,7 @@ const help = `PersonalAgent CLI MVP
 Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, 'max-claude-calls': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
   if (values.help || !command) { console.log(help); }
   else if (command === 'context-stamp') {
@@ -36,8 +40,11 @@ try {
     console.log(JSON.stringify(stampContext(path.resolve(values.workspace), values.module, values.file), null, 2));
   } else if (command === 'context-check') {
     if (!values.workspace) throw Error('--workspace is required');
-    const context = loadProjectContext(path.resolve(values.workspace), true);
-    console.log(JSON.stringify({ enabled: true, projectId: context.overview!.metadata.project_id, modules: context.modules.length, contracts: context.contracts.length, decisions: context.decisions.length, proposalStatus: 'proposed' }, null, 2));
+    const config = values.config ? validate<Config>(configSchema, JSON.parse(readFileSync(path.resolve(values.config), 'utf8'))) : undefined;
+    const context = loadProjectContext(path.resolve(values.workspace), true, config ? { runtimeDir: config.runtimeDir, source: path.resolve(values.repo ?? values.workspace) } : undefined);
+    const confirmationStates = [...context.contracts, ...context.decisions].map(doc => ({ id: doc.metadata.id, path: doc.relative, declaredStatus: doc.metadata.status, ...doc.trust }));
+    console.log(JSON.stringify({ enabled: true, projectId: context.overview!.metadata.project_id, modules: context.modules.length, contracts: context.contracts.length, decisions: context.decisions.length, proposalStatus: 'proposed 未确认；正式状态按本机审计逐份核验', confirmationStates }, null, 2));
+    if (confirmationStates.some(doc => doc.effectiveStatus === 'unverifiable')) process.exitCode = 1;
   }
   else {
     if (!values.config) throw new Error('--config is required');
@@ -47,10 +54,13 @@ try {
       if (!values.repo || !values.goal) throw new Error('--repo and --goal are required');
       store = await createRun(config, values.repo, values.goal, command === 'context-start' ? { purpose: 'context-onboarding' } : {}); console.log(`Run ID: ${store.id}`);
     } else {
-      if (!['resume', 'status', 'stop', 'manual-accept', 'project-restore', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
+      if (!['context-request', 'context-decide', 'context-pending', 'resume', 'status', 'stop', 'manual-accept', 'project-restore', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
       if (!values.id) throw new Error('--id is required'); store = new Store(config.runtimeDir, values.id);
     }
-    if(command==='manual-accept'){console.log(JSON.stringify(await acceptManual(store,values.approval??'',values.decision??''),null,2));}
+    if (command === 'context-request') console.log(JSON.stringify(prepareContextConfirmation(store, values.document ?? '', values.action as ConfirmationAction), null, 2));
+    else if (command === 'context-decide') console.log(JSON.stringify(decideContextConfirmation(store, values.request ?? '', values.approval ?? '', values.decision ?? '', values.cancel, values.action as 'accepted' | 'rejected' | undefined), null, 2));
+    else if (command === 'context-pending') console.log(JSON.stringify(pendingContextConfirmations(store), null, 2));
+    else if(command==='manual-accept'){console.log(JSON.stringify(await acceptManual(store,values.approval??'',values.decision??''),null,2));}
     else if (command.startsWith('delivery-')) {
       if (command === 'delivery-preview') {
         if (!values.repo || !values.branch) throw new Error('--repo and --branch required for delivery preview');

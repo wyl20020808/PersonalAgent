@@ -56,6 +56,15 @@ if(locked)app.whenReady().then(async()=>{
    if(r.operation==='start'&&service.config(r.profileId!).config.mode==='real'){if(!r.realAcknowledged)throw Error('需明确勾选真实额度消耗确认');const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权本次真实执行'],defaultId:0,cancelId:0,message:'真实 Claude Code / Codex 调用将消耗额度',detail:`目标仓库：${r.repository}\nCC 上限 ${r.maxClaudeCalls} 次；Codex 上限 ${r.maxLoops} 次；每任务返工 ${r.maxReworks} 次。\n${r.goal}\n\n全局预算仍生效，交付审批不包含在本次授权中。`});if(approval.response!==1)throw Error('用户取消真实执行授权');}
    if(r.operation==='resume')service.validateResume(r);
    if(r.operation==='resume'&&service.store(r.profileId!,r.runId!).load().config.mode==='real'){const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','恢复本次 Run'],defaultId:0,cancelId:0,message:'恢复可能继续消耗已授权额度',detail:'原有计数、会话和预算保留，不自动扩大上限。\n'+r.decision});if(approval.response!==1)throw Error('用户取消恢复');}
+   if(r.operation==='contextDecide'){const run=service.store(r.profileId!,r.runId!).load();const request=service.publicRun(run,r.profileId!).contextConfirmations?.find(item=>item.id===r.requestId&&item.requestHash===r.digest);if(!request)throw Error('文档确认请求已变化');const answer=await dialog.showMessageBox(window,{type:'question',buttons:['取消',r.cancel?'取消该确认请求':'明确执行文档决策'],defaultId:0,cancelId:0,message:'正式契约/决策确认；不批准成果交付',detail:`项目：${request.projectId}
+工作区：${request.workspace}
+文件：${request.relative}
+ID：${request.documentId}
+动作：${r.cancel?'取消请求':r.contextAction??request.action}
+摘要：${request.digest}
+具体内容：
+${request.content}
+${request.replacement?'替代方案：'+request.replacement.relative+'\n'+request.replacement.content:''}`});if(answer.response!==1)throw Error('用户取消文档决策');}
    if(r.operation==='manualAccept'){const answer=await dialog.showMessageBox(window,{type:'question',buttons:['取消','记录人工验收'],defaultId:0,cancelId:0,message:'人工验收不会声明独立测试通过',detail:`Run：${r.runId}\n摘要：${r.digest}\n检查记录：${r.decision}`});if(answer.response!==1)throw Error('用户取消人工验收');}
    if(r.operation==='approve'){const deliveries=await service.deliveries(r.profileId!,r.runId!),d=deliveries.find(d=>d.id===r.deliveryId);if(!d||d.digest!==r.digest)throw Error('Delivery digest mismatch');const approval=await dialog.showMessageBox(window,{type:'question',buttons:['取消','批准此具体交付'],defaultId:0,cancelId:0,message:'批准具体交付内容（不会立即应用）',detail:`Run：${d.runId}\n目标：${d.target}\n分支：${d.branch}\nHEAD：${d.head}\n摘要：${d.digest}\n${d.changes.map(c=>(c.after===null?'DELETE ':c.before===null?'ADD ':'MODIFY ')+c.path).join('\n')}`});if(approval.response!==1)throw Error('用户取消审批');}
    if(r.operation==='apply'){const direct=service.store(r.profileId!,r.runId!).load().config.projectMode==='direct';const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','应用已批准内容'],defaultId:0,cancelId:0,message:direct?'重新验收并确认已有成果（不重复写入）':'应用将写入目标仓库',detail:direct?'文件已直接修改。核验准确批准、Diff 与独立验收；不重复写入项目。':'重新核验批准、内容和目标状态，仅应用摘要中列出的新增、修改及 Context 文档删除；不会 commit、merge 或 push。'});if(approval.response!==1)throw Error('用户取消应用');}

@@ -15,6 +15,125 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 100000
+    },
+    "contextReview": {
+      "type": "object",
+      "properties": {
+        "expansionReason": {
+          "type": "string"
+        },
+        "unmappedReason": {
+          "type": "string"
+        },
+        "checkedContracts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          }
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "moduleId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100000
+              },
+              "documentUpdated": {
+                "type": "boolean"
+              },
+              "noUpdateReason": {
+                "type": "string"
+              },
+              "checkedFiles": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                }
+              },
+              "constraintsChanged": {
+                "type": "boolean"
+              },
+              "disposition": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100000
+              }
+            },
+            "required": [
+              "moduleId",
+              "documentUpdated",
+              "noUpdateReason",
+              "checkedFiles",
+              "constraintsChanged",
+              "disposition"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "confirmationNotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100000
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100000
+              }
+            },
+            "required": [
+              "path",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "expansionReason",
+        "unmappedReason",
+        "checkedContracts",
+        "modules"
+      ],
+      "additionalProperties": false
+    },
+    "contextConfirmations": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "properties": {
+          "relative": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "action": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "superseded"
+            ]
+          }
+        },
+        "required": [
+          "relative",
+          "action"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [

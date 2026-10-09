@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { configSchema, editSchema, nativeResultSchema, planSchema, reviewSchema, validate, type Config, type Edits, type Plan, type Review } from './schema.js';
-import { Store, atomicJson, type Phase, type State } from './store.js';
+import { Store, atomicJson, type Evidence, type Phase, type State } from './store.js';
 import { collectEvidence, prepare, snapshot, git, workspaceHead, workspaceStatus } from './workspace.js';
 import { lockProject, readProject } from './project-files.js';
 import type { Agents } from './adapters.js';
@@ -15,6 +15,8 @@ import { orderTasks, assertPrerequisites } from './dependencies.js';
 import { captureBaseline, baselineDiff, reviewEvidence } from './incremental.js';
 import { assertOnboardingScope, assertRunContext } from './context-onboarding.js';
 import { loadProjectContext } from './project-context.js';
+import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, taskContextBaseline } from './context-review.js';
+import { prepareUnlocked, pendingContextConfirmations } from './context-confirmation.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
@@ -60,7 +62,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
   async function agentOperation<T>(agent: 'claude' | 'codex', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    assertRunContext(state, store);
+    if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
     if(existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
     const started = Date.now(), before = await snapshot(state.workspace, stop.signal,!!state.config.projectMode);
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
@@ -73,6 +75,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       const diff = await baselineDiff(store, state, baseline, new AbortController().signal);
       store.audit('agent-finish', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops, durationMs: Date.now() - started, before, after, changed: before !== after, diff, status: await workspaceStatus(state) });
       assertOnboardingScope(state, store);
+      if (role === 'plan') assertPlanningContext(state, store);
     }
   }
   async function timed<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
@@ -80,6 +83,15 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     const signal = AbortSignal.any([stop.signal, timeout]);
     try { return await operation(signal); }
     catch (error) { if (timeout.aborted) throw new Error(`Timeout after ${state.config.timeoutMs} ms`); throw error; }
+  }
+  async function checkedEvidence(): Promise<Evidence> {
+    const contextReport = checkTaskContext(state, store);
+    const evidence = await collectEvidence(state, stop.signal, state.nativeExecution === true && state.taskIndex === state.tasks.length - 1);
+    if (contextReport) {
+      if (readProject(state.workspace).digest !== contextReport.snapshot) throw new FlowError('safety', '模块检查后工作区变化；必须重新检查和独立验收');
+      evidence.contextReport = contextReport;
+    }
+    return evidence;
   }
   try {
     if (state.phase === 'completed') return state;
@@ -105,6 +117,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         }
         return state;
       }
+      if (pendingContextConfirmations(store).length) { checkpoint('paused', '待确认契约必须通过正式文档决策入口处理；普通恢复指令不能确认'); return state; }
       state.feedback = [state.feedback, `User decision: ${decision}`].filter(Boolean).join('\n');
       if (existsSync(store.file('stop.request'))) unlinkSync(store.file('stop.request'));
       if (state.phase === 'executing') { state.nextPhase = 'execute'; state.reworkPending = true; }
@@ -123,6 +136,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       if (state.config.mode === 'real' && ['planning', 'execute'].includes(state.phase)) assertClaudeBudget(state);
       if (state.phase === 'planning') {
         state.nextPhase = 'planning'; store.save(state);
+        assertPlanningContext(state, store);
         const plan = validate<Plan>(planSchema, await agentOperation('claude', 'plan', signal => agents.plan(state, store, signal)));
         if (plan.humanDecision) { store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; checkpoint('paused', plan.humanDecision); continue; }
         if (!plan.tasks.length) throw new Error('Plan must include tasks or request human decision');
@@ -146,6 +160,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           state.reworks++; state.totalReworks = (state.totalReworks ?? 0) + 1; state.reworkPending = false;
         }
         state.beforeExecution = await snapshot(state.workspace, stop.signal,!!state.config.projectMode);
+        freezeTaskContext(state, store);
         await captureBaseline(store, state, `task-${state.taskIndex}-baseline.json`, stop.signal);
         await captureBaseline(store, state, `round-${state.loops + 1}-baseline.json`, stop.signal);
         state.nativeExecution = agents.executionMode === 'native';
@@ -172,7 +187,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         store.audit('edits-applied', { summary: edits.summary, paths: edits.changes.map(change => change.path) }); checkpoint('verify');
       } else if (state.phase === 'verify') {
         state.nextPhase = 'verify'; store.save(state);
-        state.evidence = await collectEvidence(state, stop.signal, state.nativeExecution === true && state.taskIndex === state.tasks.length - 1);
+        state.evidence = await checkedEvidence();
         if (!state.config.tests.length) { store.audit('independent-check',state.evidence); state.nextPhase='verify'; checkpoint('paused','No independent acceptance tests configured; human verification required'); continue; }
         const taskDiff = await baselineDiff(store, state, `task-${state.taskIndex}-baseline.json`, stop.signal);
         const roundDiff = await baselineDiff(store, state, `round-${state.loops}-baseline.json`, stop.signal);
@@ -191,7 +206,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           throw new Error('Workspace changed after independent verification');
         }
         const context = { runId: state.id, task: state.tasks[state.taskIndex], taskIndex: state.taskIndex, loop: state.loops, head: state.evidence.head, snapshotDigest: state.evidence.snapshotDigest, feedback: state.feedback, evidenceDigest: createHash('sha256').update(JSON.stringify({ tests: state.evidence.tests, issues: state.evidence.issues, passed: state.evidence.passed, executorExitCode: state.evidence.executorExitCode, ...(state.evidence.acceptanceRulesHash === undefined ? {} : { acceptanceRulesHash: state.evidence.acceptanceRulesHash }), ...(state.evidence.roundDiff === undefined ? {} : { roundDiff: state.evidence.roundDiff, taskDiff: state.evidence.taskDiff }) })).digest('hex') };
-        const key = createHash('sha256').update(JSON.stringify(context)).digest('hex');
+        const key = createHash('sha256').update(JSON.stringify({ ...context, contextReport: state.evidence.contextReport })).digest('hex');
         const receipt = store.file(`review-${state.loops}-${key}.json`);
         let review: Review;
         if (existsSync(receipt)) {
@@ -205,14 +220,34 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         store.audit('review', review);
         if (await snapshot(state.workspace, stop.signal,!!state.config.projectMode) !== state.evidence.snapshotDigest || await workspaceHead(state,stop.signal) !== state.evidence.head) {
           store.audit('review-modified-workspace', { verdict: review.verdict, reason: review.reason, before: state.evidence.snapshotDigest, after: await snapshot(state.workspace, stop.signal,!!state.config.projectMode) });
-          if (review.verdict === 'human') { state.nextPhase = 'verify'; checkpoint('paused', review.reason); }
+          if (review.verdict === 'human') {
+            // Human cards must show evidence for the actual post-review files,
+            // even when further Agent work waits for the user's decision.
+            state.evidence = await checkedEvidence();
+            const taskDiff = await baselineDiff(store, state, `task-${state.taskIndex}-baseline.json`, stop.signal);
+            const roundDiff = await baselineDiff(store, state, `round-${state.loops}-baseline.json`, stop.signal);
+            if (taskDiff !== undefined) state.evidence.taskDiff = taskDiff;
+            if (roundDiff !== undefined) state.evidence.roundDiff = roundDiff;
+            store.audit('independent-check', state.evidence);
+            state.nextPhase = 'verify'; checkpoint('paused', review.reason);
+            for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
+          }
           else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
           else { state.nextPhase = 'verify'; checkpoint('verify', 'Claude 修改后重新独立验收和审查'); }
           continue;
         }
-        if (review.verdict === 'human') { state.nextPhase = 'verify'; checkpoint('paused', review.reason); }
+        if (review.verdict === 'human') {
+          state.nextPhase = 'verify'; checkpoint('paused', review.reason);
+          for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
+        }
         else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
         else if (review.verdict === 'pass' && state.evidence?.passed) {
+          const contextProblems = contextReviewProblems(state.evidence.contextReport, review);
+          if (contextProblems.length) {
+            store.audit('review-vetoed', { reason: 'Project Context 审查缺少正式处理', contextProblems });
+            state.feedback = contextProblems.join('\n'); state.nextPhase = 'execute'; state.reworkPending = true;
+            checkpoint(state.reworks >= state.config.maxReworks ? 'paused' : 'execute', state.reworks >= state.config.maxReworks ? 'Rework limit reached' : state.feedback); continue;
+          }
           if ((reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) { state.nextPhase = 'verify'; checkpoint('paused', 'Review context omitted diff; human inspection required'); continue; }
           state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
           if (!state.completedTaskIds.includes(state.tasks[state.taskIndex]!.id)) state.completedTaskIds.push(state.tasks[state.taskIndex]!.id);

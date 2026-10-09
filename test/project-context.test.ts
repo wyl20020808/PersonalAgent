@@ -44,14 +44,14 @@ async function fixture(withContext = true, overrides: Partial<Config> = {}) {
   return { directory, source, config, store, workspace: store.load().workspace };
 }
 
-test('four document kinds retain proposed and real basis references, without confirmation state', async () => {
+test('four document kinds retain proposed; unconfirmed terminal states remain unverifiable', async () => {
   const f = await fixture(), context = loadProjectContext(f.workspace, true);
   assert.equal(context.overview!.metadata.name, '确定性夹具项目'); assert.equal(context.modules[0]!.metadata.id, 'core');
   assert.equal(context.contracts[0]!.metadata.status, 'proposed'); assert.equal(context.decisions[0]!.metadata.status, 'proposed');
   assert.equal(fs.existsSync(path.join(f.workspace, contextRoot, 'approvals')), false);
   for (const kind of ['contract', 'decision'] as const) {
     const relative = `${contextRoot}/${kind}s/${kind === 'contract' ? 'api' : 'choice'}.md`, file = path.join(f.workspace, relative), original = fs.readFileSync(file, 'utf8');
-    for (const status of ['accepted', 'rejected', 'superseded']) { fs.writeFileSync(file, original.replace('status: proposed', `status: ${status}`)); assert.throws(() => loadProjectContext(f.workspace), /proposed/); }
+    for (const status of ['accepted', 'rejected', 'superseded']) { fs.writeFileSync(file, original.replace('status: proposed', `status: ${status}`)); const forged = loadProjectContext(f.workspace)[kind === 'contract' ? 'contracts' : 'decisions'][0]!; assert.equal(forged.trust?.verified, false); assert.equal(forged.trust?.effectiveStatus, 'unverifiable'); }
     fs.writeFileSync(file, original);
   }
 });
@@ -270,6 +270,7 @@ test('new enabled development plans block missing or invalid moduleIds and can r
       return { tasks: [{ id: 'work', instruction: '新业务', acceptance: ['通过'], moduleIds: ['new-business'] }], humanDecision: null };
     };
     agents.execute = async state => { write(state.workspace, 'src/new/main.ts', 'export const added = true;'); return { mode: 'native', summary: 'fixture' }; };
+    agents.review = async state => ({ verdict: 'pass', reason: 'Mock 新业务检查完成', contextReview: { expansionReason: '', unmappedReason: '', checkedContracts: state.evidence!.contextReport!.contracts.map(doc => doc.id), modules: state.evidence!.contextReport!.affectedModules.map(module => ({ moduleId: module.moduleId, documentUpdated: module.documentUpdated, noUpdateReason: '本地 Mock 新业务实现未改变职责和接口', checkedFiles: module.checkedFiles, constraintsChanged: false, disposition: '本地 Mock 检查完成' })) } });
     const resumed = await drive(f.store, agents, '修正计划，续接同一Run'); assert.equal(resumed.phase, 'completed', resumed.reason);
   }
 });

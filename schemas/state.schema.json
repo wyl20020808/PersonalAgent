@@ -349,6 +349,29 @@
         {
           "type": "object",
           "properties": {
+            "contextReport": {
+              "type": "object",
+              "required": [
+                "taskId",
+                "snapshot",
+                "baselineDigest",
+                "reportPath"
+              ],
+              "properties": {
+                "taskId": {
+                  "type": "string"
+                },
+                "snapshot": {
+                  "type": "string"
+                },
+                "baselineDigest": {
+                  "type": "string"
+                },
+                "reportPath": {
+                  "type": "string"
+                }
+              }
+            },
             "screenshots": {
               "type": "array",
               "maxItems": 240,

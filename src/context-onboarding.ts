@@ -14,7 +14,7 @@ export function assertOnboardingScope(state: State, store: Store): void {
   }
 }
 export function assertRunContext(state: State, store: Store): void {
-  const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
+  const context = loadProjectContext(state.workspace, state.projectContextEnabled === true, { runtimeDir: state.config.runtimeDir, source: state.source });
   if (context.enabled && !state.projectContextEnabled) { state.projectContextEnabled = true; store.save(state); }
   assertOnboardingScope(state, store);
 }

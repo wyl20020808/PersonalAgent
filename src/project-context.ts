@@ -5,6 +5,7 @@ import { isMap, parseDocument, stringify } from 'yaml';
 import { projectTarget } from './project-files.js';
 import { replaceAtomic } from './store.js';
 import { FlowError } from './failure.js';
+import { verifyConfirmation, confirmationDigest, type AuditScope, type ConfirmationTrust } from './context-trust.js';
 
 export const contextRoot = 'docs/project-context';
 export const contextHash = (value: Buffer | string): string => createHash('sha256').update(value).digest('hex');
@@ -13,6 +14,7 @@ const sha256 = /^[a-f0-9]{64}$/;
 const sections = { overview: ['项目目标', '范围', '非目标', '总体结构'], module: ['职责', '边界', '入口与测试'], contract: ['约束', '检查方式'], decision: ['决定', '原因', '未采用方案'] };
 export type ContextKind = keyof typeof sections;
 export interface ContextDocument {
+  trust?: ConfirmationTrust;
   kind: ContextKind; relative: string; path: string; content: string; hash: string; bytes: number;
   metadata: Record<string, any>; frontmatterEnd: number; newline: string;
 }
@@ -66,7 +68,7 @@ export function parseContextDocument(workspace: string, relative: string, kind: 
       if (!text(data.name) || !strings(data.paths) || !data.paths.length || !data.paths.every(p => contextPath(p, true)) || !strings(data.depends_on) || !data.depends_on.every(id => identifier.test(id)) || !object(data.checked_files) || Object.keys(data.checked_files).length > 20) invalid(`${relative} 模块字段无效`);
       for (const [file, hash] of Object.entries(data.checked_files)) if (!contextPath(file) || !sha256.test(String(hash)) || typeof hash !== 'string' || !data.paths.some(p => p.endsWith('/') ? file.startsWith(p) : file === p)) invalid(`${relative} checked_files 无效`);
     } else {
-      if (!text(data.title) || !strings(data.modules) || !data.modules.length || !data.modules.every(id => identifier.test(id)) || data.status !== 'proposed') invalid(`${relative} 只允许 proposed 提议及有效关联模块`);
+      if (!text(data.title) || !strings(data.modules) || !data.modules.length || !data.modules.every(id => identifier.test(id)) || !['proposed', 'accepted', 'rejected', 'superseded'].includes(data.status)) invalid(`${relative} 状态或关联模块无效`);
       const basis = Array.isArray(data.basis) ? data.basis : [data.basis];
       if (!basis.length) invalid(`${relative} basis 不能为空`);
       for (const entry of basis) {
@@ -83,7 +85,7 @@ export function parseContextDocument(workspace: string, relative: string, kind: 
   if (JSON.stringify(actualSections) !== JSON.stringify(sections[kind])) invalid(`${relative} 固定章节不匹配`);
   return { kind, relative, path: target, content, hash: contextHash(bytes), bytes: bytes.length, metadata: data, frontmatterEnd: end, newline: content.includes('\r\n') ? '\r\n' : '\n' };
 }
-export function loadProjectContext(workspace: string, required = false): ProjectContext {
+export function loadProjectContext(workspace: string, required = false, scope?: AuditScope): ProjectContext {
   const overviewPath = projectTarget(workspace, `${contextRoot}/overview.md`);
   if (!existsSync(overviewPath)) {
     if (required) invalid('overview.md 丢失；当前 Run 不得降级为旧流程');
@@ -104,8 +106,13 @@ export function loadProjectContext(workspace: string, required = false): Project
   const moduleIds = new Set(modules.map(doc => doc.metadata.id));
   for (const module of modules) if (module.metadata.depends_on.some(id => !moduleIds.has(id) || id === module.metadata.id)) invalid(`${module.relative} 依赖模块不存在或指向自身`);
   for (const doc of [...contracts, ...decisions]) {
+    doc.trust = verifyConfirmation(doc, overview.metadata.project_id, scope);
     if (doc.metadata.modules.some((id: string) => !moduleIds.has(id))) invalid(`${doc.relative} 关联模块不存在`);
     if (doc.metadata.supersedes && !documents.some(other => other.kind === doc.kind && other.metadata.id === doc.metadata.supersedes && other !== doc)) invalid(`${doc.relative} supersedes 引用不存在`);
+  }
+  for (const doc of [...contracts, ...decisions]) if (doc.metadata.status === 'superseded' && doc.trust?.verified) {
+    const replacement = [...contracts, ...decisions].find(other => other.kind === doc.kind && other.metadata.id === doc.trust?.replacement?.id && other.relative === doc.trust?.replacement?.relative);
+    if (!replacement || replacement.metadata.status !== 'accepted' || !replacement.trust?.verified || replacement.metadata.supersedes !== doc.metadata.id || confirmationDigest(replacement) !== doc.trust.replacement?.digest) doc.trust = { verified: false, effectiveStatus: 'unverifiable', reason: '替代方案内容或确认已变化，旧替代授权不能复用' };
   }
   return { enabled: true, overview, modules, contracts, decisions };
 }

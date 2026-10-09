@@ -7,7 +7,9 @@ export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
 Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export const planSchema = object({ tasks: { type: 'array', items: taskSchema, minItems: 0, maxItems: 20 }, humanDecision: { type: ['string', 'null'], minLength: 1 } });
-export const reviewSchema = object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text });
+const contextModuleReview = object({ moduleId: text, documentUpdated: { type: 'boolean' }, noUpdateReason: { type: 'string' }, checkedFiles: { type: 'array', items: text }, constraintsChanged: { type: 'boolean' }, disposition: text });
+const contextReviewSchema = { ...object({ expansionReason: { type: 'string' }, unmappedReason: { type: 'string' }, checkedContracts: { type: 'array', items: text }, modules: { type: 'array', items: contextModuleReview }, confirmationNotes: { type: 'array', items: object({ path: text, reason: text }) } }), required: ['expansionReason', 'unmappedReason', 'checkedContracts', 'modules'] };
+export const reviewSchema = { ...object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text, contextReview: contextReviewSchema, contextConfirmations: { type: 'array', maxItems: 20, items: object({ relative: text, action: { enum: ['accepted', 'rejected', 'superseded'] } }) } }), required: ['verdict', 'reason'] };
 export const editSchema = object({ summary: text, changes: { type: 'array', maxItems: 50, items: object({ path: { type: 'string', minLength: 1, maxLength: 240 }, content: { type: 'string', maxLength: 1000000 } }) } });
 export const nativeResultSchema = object({ mode: { const: 'native' }, summary: text });
 export const configSchema = object({
@@ -27,7 +29,7 @@ Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', min
 export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string; moduleIds?: string[] }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export interface Plan { tasks: Task[]; humanDecision: string | null }
-export interface Review { verdict: 'pass' | 'rework' | 'human' | 'fail'; reason: string }
+export interface Review { verdict: 'pass' | 'rework' | 'human' | 'fail'; reason: string; contextReview?: { confirmationNotes?: { path: string; reason: string }[]; expansionReason: string; unmappedReason: string; checkedContracts: string[]; modules: { moduleId: string; documentUpdated: boolean; noUpdateReason: string; checkedFiles: string[]; constraintsChanged: boolean; disposition: string }[] }; contextConfirmations?: { relative: string; action: 'accepted' | 'rejected' | 'superseded' }[] }
 export interface Edits { summary: string; changes: { path: string; content: string }[] }
 export interface NativeResult { mode: 'native'; summary: string }
 export type ExecutionResult = Edits | NativeResult;

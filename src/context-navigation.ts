@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { contextHash, contextPath, loadProjectContext, stampEligible, belongsToModule, type ContextDocument } from './project-context.js';
 import { atomicJson, type State, type Store } from './store.js';
 import { workspaceHead, snapshot } from './workspace.js';
+import { taskContextBaseline } from './context-review.js';
 
 interface Omission { count: number; reason: string; path?: string }
 export function matchesContextTerm(search: string, term: string): boolean {
@@ -14,7 +15,13 @@ export function matchesContextTerm(search: string, term: string): boolean {
   return new RegExp(`(?<![\\p{L}\\p{N}_-])${escaped}(?![\\p{L}\\p{N}_-])`, 'iu').test(search);
 }
 export async function callContext(state: State, store: Store, phase: 'plan' | 'execute' | 'review', signal: AbortSignal): Promise<Record<string, any> | undefined> {
-  const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
+  let context;
+  try { context = loadProjectContext(state.workspace, state.projectContextEnabled === true, { runtimeDir: state.config.runtimeDir, source: state.source }); }
+  catch (error) {
+    const baseline = phase === 'review' || phase === 'execute' ? taskContextBaseline(state, store) : undefined;
+    if (!baseline) throw error;
+    context = baseline.context;
+  }
   if (!context.enabled && state.purpose !== 'context-onboarding') return undefined;
   if (context.enabled && !state.projectContextEnabled) { state.projectContextEnabled = true; store.save(state); }
   const callId = randomUUID(), manifestPath = store.file(`context/${callId}.manifest.json`);
@@ -54,7 +61,8 @@ export async function callContext(state: State, store: Store, phase: 'plan' | 'e
     fileTree: phase === 'plan' || state.purpose === 'context-onboarding' ? tree : [], existingDocumentPaths: state.purpose === 'context-onboarding' ? documents : [],
     moduleIds: modules.map(doc => doc.metadata.id), moduleDocumentPaths: modules.map(doc => doc.path),
     contractDocumentPaths: contracts.map(doc => doc.path), decisionDocumentPaths: decisions.map(doc => doc.path),
-    proposalStatus: '契约和决策均为 proposed，尚未获人工确认；文档交付批准不代表接受提议。',
+    proposalStatus: 'proposed 为未确认建议；正式状态仅在本机 human-decision 审计和内容验证通过时有效。文档交付批准不代表接受提议。',
+    confirmationStates: [...contracts, ...decisions].map(doc => ({ id: doc.metadata.id, path: doc.path, declaredStatus: doc.metadata.status, ...doc.trust })),
     manifestPath, omitted: [],
     stampCommand: stampExample ? [process.execPath, fileURLToPath(new URL('./cli.js', import.meta.url)), 'context-stamp', '--workspace', root, '--module', stampExample.module, '--file', stampExample.file] : null,
     stampGuidance: '仅对核实的核心源码入口或接口盖章。无示例时先用原生工具选择/建立业务模块，声明真实源码文件，再传入 --module 和 --file；不得伪造路径。',
@@ -96,7 +104,7 @@ export async function callContext(state: State, store: Store, phase: 'plan' | 'e
     callId, runId: state.id, phase, projectId: context.overview?.metadata.project_id ?? state.id, targetWorkspace: root, version,
     moduleCatalog: catalog, attached, selectionReasons: [...selected].map(([moduleId, reason]) => ({ moduleId, reason })),
     moduleIds: navigation.moduleIds, moduleDocumentPaths: navigation.moduleDocumentPaths, contractDocumentPaths: navigation.contractDocumentPaths, decisionDocumentPaths: navigation.decisionDocumentPaths,
-    proposals: [...contracts, ...decisions].map(doc => ({ kind: doc.kind, id: doc.metadata.id, path: doc.path, status: 'proposed' })),
+    proposals: [...contracts, ...decisions].map(doc => ({ kind: doc.kind, id: doc.metadata.id, path: doc.path, status: doc.trust?.effectiveStatus ?? 'unverifiable' })),
     documents: [context.overview, ...context.modules, ...context.contracts, ...context.decisions].filter((doc): doc is ContextDocument => !!doc).map(doc => ({ path: doc.path, hash: doc.hash, bytes: doc.bytes })),
     omitted, navigation, note: navigation.note
   };

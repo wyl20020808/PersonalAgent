@@ -6,8 +6,28 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {DesktopService,validateRequest,redact} from './service.js';
 import {git} from '../../dist/src/workspace.js';
+import {createRun} from '../../dist/src/controller.js';
+import {mockContextDocuments,loadProjectContext} from '../../dist/src/project-context.js';
+import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
+test('formal document decision service binds request, rejects stale digest and preserves isolated Delivery boundary',async()=>{
+ const directory=path.join(data,'context2'),source=path.join(directory,'source');fs.mkdirSync(path.join(source,'src'),{recursive:true});fs.writeFileSync(path.join(source,'src/main.ts'),'export const fixture=true;\n');
+ for(const [relative,content] of Object.entries(mockContextDocuments(randomUUID(),'src/main.ts'))){const file=path.join(source,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,content);}
+ const relative='docs/project-context/contracts/local.md';fs.mkdirSync(path.join(source,'docs/project-context/contracts'));fs.writeFileSync(path.join(source,relative),'---\nschema: 1\nkind: contract\nid: local\ntitle: Mock 正式确认\nmodules: [fixture]\nstatus: proposed\nbasis: {kind: agent-proposal, ref: Mock}\n---\n## 约束\nMock 内容\n## 检查方式\nMock 核对\n');
+ const config={mode:'mock' as const,allowedRepositories:[source],runtimeDir:path.join(directory,'runtime'),projectMode:'isolated' as const,executionMode:'native' as const,claudeExecutable:'NEVER-PAID',timeoutMs:30000,maxLoops:2,maxReworks:1,maxClaudeCalls:4,tests:[],mockScenario:'pass' as const};
+ const file=path.join(directory,'config.json');fs.writeFileSync(file,JSON.stringify(config));const local=new DesktopService(root,path.join(directory,'data'),process.execPath);local.register(file);const profileId=local.overview().profiles[0]!.id;
+ const store=await createRun(config,source,'Mock 正式确认');const state=store.load();state.phase='paused';state.nextPhase='verify';store.save(state);const request=prepareContextConfirmation(store,relative,'accepted');
+ assert.equal(local.detail(profileId,store.id).run.contextConfirmations![0]!.content,request.content);
+ await assert.rejects(local.dispatch({operation:'contextDecide',profileId,runId:store.id,requestId:request.id,digest:'a'.repeat(64),decision:'Mock'}),/摘要不匹配/);
+ await local.dispatch({operation:'contextDecide',profileId,runId:store.id,requestId:request.id,digest:request.requestHash,decision:'Mock 正式拒绝',contextAction:'rejected'});
+ assert.equal((loadProjectContext(state.workspace,true,{runtimeDir:config.runtimeDir,source}) as import('../../src/project-context.js').ProjectContext).contracts[0]!.trust!.effectiveStatus,'rejected');assert.equal(loadProjectContext(source).contracts[0]!.metadata.status,'proposed');assert.equal(local.children.size,0);
+ assert.equal(local.detail(profileId,store.id).run.contextConfirmations!.length,0);
+});
+test('document decision IPC schema rejects extra approval fields and unsupported status actions',()=>{
+ const request={operation:'contextDecide',profileId:randomUUID(),runId:randomUUID(),requestId:randomUUID(),digest:'a'.repeat(64),decision:'Mock'};
+ assert.equal(validateRequest(request).operation,'contextDecide');assert.throws(()=>validateRequest({...request,contextAction:'superseded'}),/JSON Schema/);assert.throws(()=>validateRequest({...request,deliveryApproved:true}),/JSON Schema/);
+});
 test('ordinary project detection reads scripts without executing them and requires explicit direct/paid authorization',()=>{
  const project=path.join(data,'ordinary');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'package.json'),JSON.stringify({scripts:{test:'throw never execute',build:'throw never execute'}}));
  const info=service.inspectProject(project);assert.equal(info.git,false);assert.equal(info.kind,'Node.js');assert.deepEqual(info.testCommands,['npm run test']);assert.equal(info.settings.projectMode,'direct');assert.equal(info.settings.mode,'mock');assert.equal(info.directAuthorized,false);
