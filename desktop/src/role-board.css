@@ -1,8 +1,14 @@
 /* Compact setup board: scoped to the new-session empty state. */
 .session-initialization{padding:20px 0 8px;margin:auto 0;width:100%;min-width:0}
-.session-initialization .draft-project-settings{display:flex;justify-content:center;align-items:end;gap:12px;flex-wrap:wrap;margin:16px auto;max-width:720px}
-.session-initialization .draft-project-settings select{flex:0 1 190px;font-size:12px;padding:8px;margin:0;min-height:34px}
-.session-initialization .draft-project-settings .button{min-height:34px;font-size:12px;padding:8px 12px}
+.composer-left:has(.composer-project-controls){overflow:visible;gap:0;padding-left:4px}
+.composer-project-controls{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
+.composer-folder{display:flex;align-items:center;gap:6px;min-width:0;max-width:180px;border:0;background:transparent;color:#4b5563;border-radius:8px;padding:6px;font-size:12px;cursor:pointer}
+.composer-folder:hover{background:#f3f4f6}
+.composer-folder span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.composer-folder svg{flex:none}
+.composer-project-controls select{max-width:112px}
+.composer-folder:focus-visible{outline:2px solid #7aa899;outline-offset:2px}
+.composer-folder:disabled{opacity:.5;cursor:wait}
 .role-board{max-width:720px;margin:20px auto 0;text-align:left;min-width:0}
 .role-pools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
 .agent-pool{border:1px solid #e2e7ee;border-radius:14px;background:#fff;padding:16px;min-width:0}
@@ -50,4 +56,4 @@
 .role-opencode .message-content{background:#fafbfc;border:1px solid #e5e9ef;border-radius:3px 15px 15px 15px}
 .group-message .message-content{text-align:left}
 .group-message .message-main{overflow-wrap:anywhere}
-@media(max-width:850px){.role-pools{grid-template-columns:minmax(0,1fr)}.role-board{max-width:400px}.session-initialization{margin:0}.session-initialization .draft-project-settings select{flex:0 1 160px}.agent-pool{padding:14px}}
+@media(max-width:850px){.role-pools{grid-template-columns:minmax(0,1fr)}.role-board{max-width:400px}.session-initialization{margin:0}.agent-pool{padding:14px}}

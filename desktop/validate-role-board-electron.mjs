@@ -37,9 +37,9 @@ try{
   assert.equal(await page.getByRole('button',{name:'决策池 Claude Code',exact:true}).getAttribute('aria-pressed'),'true');
   for(const name of ['决策池 Codex','执行池 Claude Code','执行池 OpenCode'])assert.equal(await page.getByRole('button',{name,exact:true}).isDisabled(),true);
   assert.equal(await page.locator('.role-board .agent-card').count(),6);assert.equal(await page.locator('.add-decision,.pool-footnote').count(),0);
-  assert.equal(await page.locator('.conversation-composer select').count(),0);
+  assert.equal(await page.locator('.composer-box .composer-left select').count(),1);assert.equal(await page.locator('.composer-box .composer-left .composer-folder').count(),1);assert.equal(await page.locator('.session-initialization .draft-project-settings').count(),0);
   await page.waitForFunction(()=>[...document.querySelectorAll('.agent-logo img')].every(image=>image.complete&&image.naturalWidth>0));
-  const pools=await page.locator('.agent-pool').evaluateAll(nodes=>nodes.map(node=>({x:node.getBoundingClientRect().x,y:node.getBoundingClientRect().y})));
+  assert.equal(await page.locator('.composer-box').evaluate(box=>box.scrollWidth<=box.clientWidth),true);const pools=await page.locator('.agent-pool').evaluateAll(nodes=>nodes.map(node=>({x:node.getBoundingClientRect().x,y:node.getBoundingClientRect().y})));
   assert.ok(pools[1].x>pools[0].x);assert.equal(pools[0].y,pools[1].y);await shot('01-initialization-wide');
  });
 

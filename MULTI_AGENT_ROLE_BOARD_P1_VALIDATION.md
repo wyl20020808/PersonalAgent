@@ -10,7 +10,7 @@
 
 ## 实现
 
-- 左右双池只存在于新会话初始化，窄窗上下排列；保留项目、标题、底部输入框和现有聊天结构。按用户最新视觉反馈删除中央重复标题、说明、三个标签、运行模式选择、工作方式文字及未来功能占位按钮；仅保留工作方式下拉框、文件夹按钮、池标题和必要状态。新会话固定使用既有 Real 默认，Mock 接口与历史会话仍保留。
+- 左右双池只存在于新会话初始化，窄窗上下排列；保留项目、标题、底部输入框和现有聊天结构。按用户最新视觉反馈删除中央重复标题、说明、三个标签、运行模式选择、工作方式文字及未来功能占位按钮；仅保留工作方式下拉框、文件夹按钮、池标题和必要状态。工作方式和文件夹选择按最新要求内嵌在输入框左下角；发送在右下角，选定文件夹后可继续更换或调整工作方式。新会话固定使用既有 Real 默认，Mock 接口与历史会话仍保留。
 - 两池展示三个 Agent，当前只激活一名决策者和一名 Codex 执行者；未实现的角色组合及添加决策者明确禁用。
 - Provider / Model 收进卡片设置面板。OpenCode 复用现有动态发现接口，刷新或项目改变时旧结果不能继续验证；失败不回退 Claude，发送按钮与 Enter 均阻止新任务。
 - Claude Code / Codex 只展示现有真实配置能力，不编造模型选项。
@@ -33,7 +33,7 @@
 
 上述测试共 99 项，分批执行；新增身份测试不包含在前述 79 项回归统计中。Controller 定向测试只使用本地假 Agent / Mock，没有调用远端付费模型。
 
-Electron 最终证据目录：`D:\PersonalAgent-data\multi-agent-role-board-p1\electron-c8709fe9`。机器可读结果为该目录的 `result.json`，截图包括：
+Electron 最终证据目录：`D:\PersonalAgent-data\multi-agent-role-board-p1\electron-285f6059`。机器可读结果为该目录的 `result.json`，截图包括：
 
 - `01-initialization-wide.png`：默认 Real、双池和禁用候选。
 - `02-opencode-settings.png` / `03-opencode-unavailable.png`：动态发现、详细设置、失败与刷新。
@@ -49,14 +49,18 @@ Electron 最终证据目录：`D:\PersonalAgent-data\multi-agent-role-board-p1\e
 
 ## 问题与限制
 
-新建问题记录，均为待处理、非本次功能阻断：
+前三项问题为待处理、非本次功能阻断；第四项已解决：
 
 1. `problems/2026-10-10-agent-brand-permission.md`：Anthropic 品牌公开分发许可尚未取得。当前素材为官方原件；公开分发前必须解决许可，不能视为自由授权。
 2. `problems/2026-10-10-feature-electron-binary-missing.md`：独立 Worktree 安装依赖后缺少 Electron 二进制，根因未确认；本次使用明确路径绕过，未修改依赖认证或主 Worktree。
 3. `problems/2026-10-10-new-session-delivery-rail-selection.md`：既有新会话的侧栏交付入口可能没有 selected Run；项目详情入口可完成完整交付。记录后保留原 App 逻辑，未扩大修改范围。
+
+4. problems/2026-10-10-new-session-composer-controls.md：记录用户反馈的入口位置与冗余提示问题，已解决；实窗验证输入框内部左下角布局及宽窄窗口无横向溢出。
 
 第一阶段仍只允许一名决策者（Claude Code 或实验性 OpenCode V1）及一名 Codex SDK 执行者。没有真实多决策讨论、其他执行者或 Codex 决策实现。Real 默认未改变；本次仅隔离 Mock / 本地兼容验证，未重跑远端真实模型。
 
 第二阶段只规划独立身份与 Session 的 1～3 名决策者、0～2 轮讨论及主决策者汇总，仍由 Controller 校验并独立验收。第三阶段只规划真实兼容验证后的角色互换，执行池仍一名。两阶段均未实施。
 
 本报告为开发会话自测记录，不代替独立正式交付审批。源码、官方素材、必要测试和本报告按用户明确要求提交独立 feature；保留其他未跟踪文件，等待后续合并授权。
+
+本次追加视觉调整仅重跑 Desktop 构建、类型检查及 Electron 9 项检查，均通过；此前 99 项回归结果未重复执行。
