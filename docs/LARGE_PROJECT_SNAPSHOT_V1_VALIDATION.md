@@ -39,3 +39,17 @@ Project Context 规划与任务基线使用指纹比较，checked_files 仍核�
 没有对 OpenWorld 执行完整内容快照、源码修改、引擎构建或付费 Agent Run。真实目录统计与本地大文件生命周期回归分别记录，不能混为真实大型项目端到端交付验收。
 
 问题记录：`problems/2026-10-10-large-project-snapshot-limit.md`。交付仅限独立 fix 分支，等待用户决定是否整合 dev。
+
+## 2026-10-10 正式 DEV 集成
+
+用户明确批准本功能合入本机 DEV。DEV 最新 HEAD 仍为 `039a2fd`，无已跟踪修改，是 `b02e655` 的直接祖先。DEV 原有未跟踪文件不覆盖、不清理；所有历史 Run、Session 和 Worktree 保留。
+
+合入前实际 DEV 数据只有一个已失败 Run，无 Run 锁或活跃 Controller 子进程。核对原 DEV Electron 路径和窗口标题后，通过 `CloseMainWindow` 正常关闭，未强杀进程；随后 `git merge --ff-only b02e655` 成功。MAIN HEAD 保持 `aff8024`，没有操作 MAIN 运行进程。
+
+核心构建 `npx tsc -p tsconfig.json` 和正式 DEV `npm --prefix desktop run build` 通过。构建沿用已有依赖，Vite 对 lucide-react 的 `use client` 给出非阻断提示。核心兼容专项执行大型 Snapshot、Project Context Phase2、direct 项目、契约审查引用与 OpenCode Adapter 兼容性测试，62/62 通过，没有重跑全仓库无关测试。
+
+桌面专项首轮 7/8 通过：旧夹具仍要求 101 MiB 项目准备失败，与新产品行为冲突。将该失败夹具改为不安全硬链接，仍要求准备错误可追溯、消息关联和零 Agent 启动；另增加 101 MiB 项目准备成功、Snapshot V2 清单、Session/Run 原始 Runtime 绑定检查。修正后桌面路由、动态决策后端、MAIN/DEV 隔离、Context/Delivery 边界专项 9/9 通过。生产源码不再扩展。
+
+证据目录为 `D:\PersonalAgent-data\large-project-snapshot-dev-v1\2026-10-09T16-47-42-781Z`：`before.json` 保存 DEV profiles、sessions 和原失败 Run 状态文件的 SHA-256；`desktop-routing-tests.log` 保留首轮失败；`desktop-routing-fixed-tests.log` 保留修正后通过。核心测试日志位于任务 Worktree `.validation/dev-integration-core-tests.log`。合入后通过 `Start-DEV.ps1` 恢复窗口；实际启动结果与状态保留检查写入该证据目录的 `startup.json`。
+
+问题状态为“已合入 DEV，待真实大型项目验证”。本次未创建付费 Agent Run，未对 OpenWorld 执行完整快照或资源修改，没有宣称真实大型项目端到端验收完成。首次备份磁盘占用、隔离副本空间和全内容扫描性能限制仍适用。

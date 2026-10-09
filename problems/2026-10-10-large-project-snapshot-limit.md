@@ -1,7 +1,7 @@
 # 大型项目快照固定上限阻断开发
 
 - 归属：PersonalAgent，项目准备、快照、轮次基线与变更验收。
-- 状态：处理中。独立 fix 分支已实现修复并通过专项自测；尚未合入 dev，未进行真实付费 Agent 验收。
+- 状态：已解决固定上限阻断，已正式合入本机 DEV；待真实大型项目使用验证。未进行真实付费 Agent 或 OpenWorld 大型项目端到端验收。
 - 现象：用户反馈真实项目出现 `Project snapshot limit exceeded (100 MiB / 20000 files)`，无法开始正常开发。
 - 影响：Unreal Engine 源项目和资源目录即使只修改少量源码，也被项目总容量或文件数量阻断。
 
@@ -25,4 +25,8 @@
 
 最终 8 项专项回归全部通过：20001 文件、101 MiB 文件、去重备份、同尺寸且恢复 mtime 的修改检测、损坏备份拒绝、旧格式读取、Git/非 Git 与 direct/isolated 生命周期，以及资源和未知扩展名二进制变更暂停、交付拒绝与明确批准后的恢复。较早全量回归 278/278 通过；备份安全补强后 64/64 通过；最终代码专项、项目模式及跨模块回归 55/55 通过。全部是当前 Codex 会话自主测试和注入本地适配器，未冒充独立真实 Agent 审查。完整阶段说明见 `docs/LARGE_PROJECT_SNAPSHOT_V1_VALIDATION.md`。
 
-下一步：独立 fix 分支交由用户审阅，等待用户决定是否合入 dev；不自动合并、推送或发布。
+2026-10-10 用户正式批准合入 DEV。重新核对 DEV 为 `039a2fd10623d09e2aac66c9fa201edcde2697b4`，是修复提交的直接祖先；既有未跟踪文件全部保留。确认 DEV 仅有一个已失败 Run、没有活跃 Run 锁或 Controller 子进程后，正常关闭 DEV 窗口，执行 `git merge --ff-only b02e655`。MAIN 保持 `aff80240342176ec196fedb2028905f489afced9`，未关闭、重启或修改 MAIN。
+
+本次兼容性回归：Snapshot、Project Context、Controller 审查、direct Delivery 与 OpenCode 环境适配共 62/62 通过。桌面专项发现旧准备失败夹具仍使用 101 MiB 触发已移除的限制；保留原失败审计断言，改为不安全硬链接触发，并新增大型项目准备成功及 Run Runtime 来源绑定测试。修正后 Run Routing、OpenCode 选择持久化、实例隔离和 Delivery 边界专项 9/9 通过。此处只修改确定性夹具，没有改动生产适配器、Routing 或 Controller 规则。
+
+DEV 核心 TypeScript 与正式 Desktop 构建通过。首次真实大型项目使用仍应选择正确项目根，并预留独有内容备份和 isolated 工作区空间；完整内容检查存在全项目读取开销。下一步在 DEV 正常使用时核验真实大型项目；本次不对 OpenWorld 做完整快照或资源修改测试，不推送或发布 MAIN。验证与启动证据目录：`D:\PersonalAgent-data\large-project-snapshot-dev-v1\2026-10-09T16-47-42-781Z`。

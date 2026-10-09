@@ -159,11 +159,20 @@ test('changed profile runtime recovers only through registered read-only origina
 });
 test('prepare failure remains durable, linked to the exact message, and never starts agents',async()=>{
  const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
- const fd=fs.openSync(path.join(project,'large.bin'),'w');fs.ftruncateSync(fd,101*1024*1024);fs.closeSync(fd);
+ fs.writeFileSync(path.join(project,'link-source.bin'),'unsafe hardlink fixture');fs.linkSync(path.join(project,'link-source.bin'),path.join(project,'unsafe-link.bin'));
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'}),messageId=randomUUID();
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId,text:'Preparation failure fixture',directAcknowledged:true});
- const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'failed');assert.match(runs[0].reason,/Project snapshot limit exceeded/);assert.equal(saved.messages[0].runId,runs[0].id);assert.equal(saved.messages[0].status,'failed');assert.equal(launches,0);assert.equal(service.overview().unavailableRuns!.length,0);
+ const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'failed');assert.match(runs[0].reason,/Project symlink\/junction\/hardlink rejected/);assert.equal(saved.messages[0].runId,runs[0].id);assert.equal(saved.messages[0].status,'failed');assert.equal(launches,0);assert.equal(service.overview().unavailableRuns!.length,0);
  const store=service.store(runs[0].profileId,runs[0].id);assert.equal(store.load().failure!.stage,'prepare');assert.equal(store.load().failure!.recoverable,false);assert.ok(service.audit(store).some(e=>e.event==='desktop-session-link'&&e.data.messageId===messageId));
+});
+test('large project session preparation preserves original runtime provenance without paid agents',async()=>{
+ const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
+ const fd=fs.openSync(path.join(project,'large.bin'),'w');fs.ftruncateSync(fd,101*1024*1024);fs.closeSync(fd);
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'}),messageId=randomUUID();
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId,text:'Large preparation fixture',directAcknowledged:true});
+ const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'planning');assert.equal(launches,1);assert.equal(saved.messages[0].runId,runs[0].id);
+ const store=service.store(runs[0].profileId,runs[0].id);assert.equal(saved.runs[0].runtimeDir,store.load().config.runtimeDir);assert.equal(store.load().source,fs.realpathSync(project));assert.equal(store.load().failure,undefined);
+ const baseline=JSON.parse(fs.readFileSync(store.file('project-baseline.json'),'utf8'));assert.equal(baseline.version,2);assert.ok(baseline.files['large.bin']);assert.ok(fs.statSync(store.file('project-baseline.json')).size<4096);
 });
 test('Mock completion projection explicitly denies completion of the real development goal',()=>{
  const state={id:'fixture',goal:'real development goal',config:{mode:'mock'},tasks:[]} as unknown as State;
