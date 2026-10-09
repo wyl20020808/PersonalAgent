@@ -3,6 +3,7 @@ import type {State} from '../../src/store.js';
 import type {ChatMessage,Note} from './types.js';
 
 export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessage[]{
+ const decisionRole:ChatMessage['role']=state.decisionAgent?.backend==='opencode'?'opencode':'claude',decisionName=decisionRole==='opencode'?'OpenCode':'Claude Code';
  const result:ChatMessage[]=[];let taskIndex=0,loop=0;
  for(const [timelineIndex,e] of events.entries()){
    const d=e.data??{};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
@@ -10,16 +11,16 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    if(e.event==='created'){role='user';title='项目目标';text=d.goal??state.goal;kind='goal';status='executed';}
    else if(e.event==='human-decision'){role='user';title='Controller 已收到人工决策';text=d.decision+'\n\n收到决策不代表已开始执行；请查看后续派单或暂停事件。';kind='decision';status='recorded';}
    else if(e.event==='limits-updated'){title='授权预算已更新';text=`每任务返工上限：${d.maxReworks??'保持不变'}；已有消耗保留。`;kind='system';}
-   else if(e.event==='plan'){role='claude';title='任务计划';text=d.humanDecision??`已返回 ${d.tasks?.length??0} 个任务，Controller 将逐项执行并独立验证。`;kind='plan';details={tasks:d.tasks};}
-   else if(e.event==='review'){role='claude';title=d.verdict==='human'?'需要你作出决定':d.verdict==='pass'?'审查通过':d.verdict==='rework'?'审查要求返工':'审查终止';text=d.reason;kind='review';status=d.verdict;}
-   else if(e.event==='planning-human-decision'){role='claude';title='需要补充目标';text=d.humanDecision;kind='review';status='human';}
-   else if(e.event==='agent-activity'){role=d.agent;title=d.title;text=d.text;kind=d.kind;details={protocol:d.source,fullTextHash:d.fullTextHash};status=activityStatus(d);}
-   else if(e.event==='agent-start'){role=d.agent;title=d.agent==='claude'?'Claude 正在执行':'Codex 正在执行';text=`阶段：${d.role}`;kind='dispatch';status='running';}
-   else if(e.event==='agent-finish'){role=d.agent;title='Agent 实际文件变更';text=`耗时 ${d.durationMs} ms；${d.changed?'有文件修改':'无文件修改'}`;kind='changes';details={diff:redact(d.diff??''),protocol:'Controller Git snapshot'};}
+   else if(e.event==='plan'){role=decisionRole;title='任务计划';text=d.humanDecision??`已返回 ${d.tasks?.length??0} 个任务，Controller 将逐项执行并独立验证。`;kind='plan';details={tasks:d.tasks};}
+   else if(e.event==='review'){role=decisionRole;title=d.verdict==='human'?'需要你作出决定':d.verdict==='pass'?'审查通过':d.verdict==='rework'?'审查要求返工':'审查终止';text=d.reason;kind='review';status=d.verdict;}
+   else if(e.event==='planning-human-decision'){role=decisionRole;title='需要补充目标';text=d.humanDecision;kind='review';status='human';}
+   else if(e.event==='agent-activity'){role=d.agent==='claude'?decisionRole:d.agent;title=d.title;text=d.text;kind=d.kind;details={protocol:d.source,fullTextHash:d.fullTextHash};status=activityStatus(d);}
+   else if(e.event==='agent-start'){role=d.agent==='claude'?decisionRole:d.agent;title=d.agent==='codex'?'Codex 正在执行':decisionName+' 正在执行';text=`阶段：${d.role}`;kind='dispatch';status='running';}
+   else if(e.event==='agent-finish'){role=d.agent==='claude'?decisionRole:d.agent;title='Agent 实际文件变更';text=`耗时 ${d.durationMs} ms；${d.changed?'有文件修改':'无文件修改'}`;kind='changes';details={diff:redact(d.diff??''),protocol:'Controller Git snapshot'};}
    else if(e.event==='native-result'){role='codex';title='原生开发结果';text=d.summary;kind='output';}
-   else if(e.event==='review-modified-workspace'){role='controller';title='Claude 修改后需重新独立验收';text=d.reason;kind='tests';status='pending';}
+   else if(e.event==='review-modified-workspace'){role='controller';title=decisionName+' 修改后需重新独立验收';text=d.reason;kind='tests';status='pending';}
    else if(e.event==='execution-interrupted'){title='原生执行中断，已有修改已保留';text=d.note;kind='warning';}
-   else if(e.event==='claude-call-start'){title=d.role==='plan'?'派发规划任务':'派发审查任务';text=`Claude Code 调用预约 ${d.call}；会话 ${d.sessionId}`;kind='dispatch';}
+   else if(e.event==='claude-call-start'){title=d.role==='plan'?'派发规划任务':'派发审查任务';text=`${decisionName} 调用预约 ${d.call}；会话 ${d.sessionId}`;kind='dispatch';}
    else if(e.event==='codex-thread'){title='Codex 会话已续接';text=d.id;kind='session';}
    else if(e.event==='edits-applied'){role='codex';title='开发结果已由 Controller 应用';text=d.summary;kind='changes';details={paths:d.paths};}
    else if(e.event==='independent-check'){title=d.passed?'独立验收通过':'独立验收未通过';text=d.issues?.length?d.issues.join('\n'):'结果来自 Controller 配置的可信验收程序。';kind='tests';status=d.passed?'pass':'fail';details={tests:d.tests?.map((t:any)=>({...t,stdout:redact(t.stdout).slice(0,16000),stderr:redact(t.stderr).slice(0,6000)})),diff:redact(d.diff??'').slice(0,160000),issues:d.issues};}

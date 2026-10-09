@@ -22,7 +22,7 @@ export function sumTokens(rows: Tokens[]): Tokens {
   return result;
 }
 export interface CallUsage extends Tokens {
-  callId: string; runId: string; taskId: string | null; phase: CallPhase; agent: 'claude' | 'codex'; workspace: string;
+  callId: string; runId: string; taskId: string | null; phase: CallPhase; agent: 'claude' | 'codex' | 'opencode'; workspace: string;
   manifestPath: string; mode: string; controllerCall: number; rework: boolean; resumed: boolean;
   model: string | null; models: string[]; modelRequests: number | null; source: string;
   perModel: ({ model: string } & Tokens)[];
@@ -57,15 +57,15 @@ export class CallObservation {
   private initModel: string | null = null;
   private freshModelUsage = false;
 
-  constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false) {
-    const callId = navigation?.callId ?? randomUUID(), agent = phase === 'execute' ? 'codex' : 'claude';
+  constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'opencode') {
+    const callId = navigation?.callId ?? randomUUID(), agent = phase === 'execute' ? 'codex' : decisionBackend ?? 'claude';
     mkdirSync(store.file('context'), { recursive: true });
     const manifestPath = store.file(`context/${callId}.manifest.json`);
     if (!navigation) writeFileSync(manifestPath, JSON.stringify({ callId, runId: state.id, phase, targetWorkspace: state.workspace, enabled: false, prompt: { hash: contextHash(prompt), bytes: Buffer.byteLength(prompt) }, note: 'Project Context 未启用；仅记录调用归属与提示词字节，不复制提示词正文。' }), { flag: 'wx' });
     this.readsFile = store.file(`context/${callId}.reads.jsonl`); this.usageFile = store.file(`context/${callId}.usage.json`);
     // A fresh call ID is mandatory. Never truncate a historical receipt.
     writeFileSync(this.readsFile, '', { flag: 'wx' }); writeFileSync(this.usageFile, '', { flag: 'wx' });
-    this.usage = { ...empty(), callId, runId: state.id, taskId: phase === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase, agent, workspace: state.workspace, manifestPath, mode: state.config.mode, controllerCall: agent === 'claude' ? state.claudeCalls ?? 0 : state.loops, rework: phase !== 'plan' && state.reworks > 0, resumed, model: null, models: [], perModel: [], modelRequests: null, source: agent === 'claude' ? 'claude-cli-stream-json' : 'codex-sdk-0.161.0-turn.completed', completeness: 'unknown', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, durationMs: null, promptBytes: Buffer.byteLength(prompt), notes: [] };
+    this.usage = { ...empty(), callId, runId: state.id, taskId: phase === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase, agent, workspace: state.workspace, manifestPath, mode: state.config.mode, controllerCall: agent !== 'codex' ? state.claudeCalls ?? 0 : state.loops, rework: phase !== 'plan' && state.reworks > 0, resumed, model: null, models: [], perModel: [], modelRequests: null, source: agent === 'opencode' ? 'opencode-sdk-native-messages' : agent === 'claude' ? 'claude-cli-stream-json' : 'codex-sdk-0.161.0-turn.completed', completeness: 'unknown', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, durationMs: null, promptBytes: Buffer.byteLength(prompt), notes: [] };
     store.audit('observation-call-start', this.usage);
     this.record('coverage', { note: agent === 'claude' ? '仅配对本次 CLI Read 调用和可确认的文本结果；未识别的格式、子工具及 Shell 文件 I/O 不可观测。' : 'SDK 不暴露原生 Read、实际模型和内部请求数；仅观察命令与回合用量。Shell/MCP 不推断文件读取。' });
     const assembly = JSON.parse(prompt);
@@ -94,6 +94,17 @@ export class CallObservation {
     return relative;
   }
   private persist(): void { atomicJson(this.usageFile, JSON.parse(redact(JSON.stringify(this.usage)))); }
+  observeOpencodePart(part: any): void {
+    if (this.closed || this.usage.agent !== 'opencode' || part.type !== 'tool') return;
+    if (part.tool === 'bash' && typeof part.state?.input?.command === 'string') this.record('shell-command', {toolCallId:part.callID,command:redactCommand(part.state.input.command),status:part.state.status,exitCode:Number.isInteger(part.state.metadata?.exit)?part.state.metadata.exit:null});
+    else this.record('unobservable',{toolCallId:part.callID,tool:part.tool,reason:'原生事件没有可核验的读取结果范围；不从工具输入推断读取'});
+  }
+  observeOpencodeMessage(info: any): void {
+    if (this.closed || this.usage.agent !== 'opencode' || info.role !== 'assistant' || typeof info.id !== 'string') return;
+    const u = info.tokens;
+    this.requests.set(info.id,{model:typeof info.modelID === 'string' ? `${info.providerID}/${info.modelID}` : null,tokens:{inputTokens:count(u?.input),outputTokens:count(u?.output),cacheReadTokens:count(u?.cache?.read),cacheCreationTokens:count(u?.cache?.write)}});
+    this.resultSeen = true; this.refresh(); this.persist();
+  }
   observe(event: any): void {
     if (this.closed || !event || event.isReplay === true) return;
     if (this.usage.agent === 'codex') {
@@ -159,14 +170,14 @@ export class CallObservation {
     this.usage.models = this.freshModelUsage ? this.usage.perModel.map(row => row.model) : [...new Set(rows.flatMap(row => row.model ? [row.model] : []))];
     if (!this.usage.models.length && this.initModel) this.usage.models = [this.initModel];
     this.usage.model = this.usage.models.length === 1 ? this.usage.models[0]! : null;
-    this.usage.modelRequests = rows.length || null;
+    this.usage.modelRequests = this.usage.agent === 'opencode' ? null : rows.length || null;
     this.usage.completeness = [this.usage.inputTokens, this.usage.outputTokens].some(v => v !== null) ? 'partial' : 'unknown';
   }
   finish(status: 'success' | 'failed' | 'interrupted'): CallUsage {
     if (this.closed) return this.usage; this.closed = true; this.refresh();
     this.usage.status = status; this.usage.finishedAt = new Date().toISOString(); this.usage.durationMs = Date.parse(this.usage.finishedAt) - Date.parse(this.usage.startedAt);
     if (status === 'success' && this.resultSeen && (this.usage.agent === 'codex' || this.freshModelUsage) && this.usage.inputTokens !== null && this.usage.outputTokens !== null) this.usage.completeness = 'complete';
-    this.usage.notes = this.usage.agent === 'codex' ? ['complete 仅表示 SDK 报告的回合 input/output 完整；缓存缺失为 null，模型与内部请求数未知。', 'cached_input_tokens 为输入的缓存子集，不与 input_tokens 相加。'] : [this.freshModelUsage ? '新会话 modelUsage 提供各模型的本次整体报告；complete 仅表示协议报告 input/output 完整，内部请求数仍只含可识别请求。' : '仅确认本次可识别的主循环/子请求；后台或内部辅助请求覆盖无法证明，整体标记 partial。', 'assistant.output_tokens 为占位值，使用 message_delta 输出；恢复调用排除可能累计的 result.usage/modelUsage。', 'Claude 普通输入、缓存读取与缓存写入分别报告，不合并为金额或跨协议输入总数。'];
+    this.usage.notes = this.usage.agent === 'opencode' ? ['仅统计当前调用的原生 assistant 消息；缓存未知保持 null，内部请求数和完整读取覆盖未知；不估算费用。'] : this.usage.agent === 'codex' ? ['complete 仅表示 SDK 报告的回合 input/output 完整；缓存缺失为 null，模型与内部请求数未知。', 'cached_input_tokens 为输入的缓存子集，不与 input_tokens 相加。'] : [this.freshModelUsage ? '新会话 modelUsage 提供各模型的本次整体报告；complete 仅表示协议报告 input/output 完整，内部请求数仍只含可识别请求。' : '仅确认本次可识别的主循环/子请求；后台或内部辅助请求覆盖无法证明，整体标记 partial。', 'assistant.output_tokens 为占位值，使用 message_delta 输出；恢复调用排除可能累计的 result.usage/modelUsage。', 'Claude 普通输入、缓存读取与缓存写入分别报告，不合并为金额或跨协议输入总数。'];
     this.persist(); this.store.audit('agent-usage', this.usage);
     this.store.audit('observation-call-finish', { callId: this.usage.callId, status, readsFile: this.readsFile, readsHash: contextHash(readFileSync(this.readsFile, 'utf8')), usageFile: this.usageFile, usageHash: contextHash(readFileSync(this.usageFile, 'utf8')) });
     return this.usage;
@@ -178,5 +189,5 @@ export function runUsage(store: Store) {
   for (const event of events) if (['observation-call-start', 'usage-progress', 'agent-usage'].includes(event.event) && event.data.runId === store.id) calls.set(event.data.callId, event.data as CallUsage);
   const rows = [...calls.values()];
   const groups = [...new Set(rows.map(row => `${row.taskId ?? '(plan)'}:${row.phase}:${row.rework ? 'rework' : 'initial'}`))].map(key => { const selected = rows.filter(row => `${row.taskId ?? '(plan)'}:${row.phase}:${row.rework ? 'rework' : 'initial'}` === key); return { key, calls: selected.length, ...sumTokens(selected), complete: selected.every(row => row.completeness === 'complete' && row.status === 'success') }; });
-  return { calls: rows, groups, controllerCalls: rows.length, reported: { claude: sumTokens(rows.filter(row => row.agent === 'claude')), codex: sumTokens(rows.filter(row => row.agent === 'codex')) }, complete: !!rows.length && rows.every(row => row.completeness === 'complete' && row.status === 'success'), note: '提示词 UTF-8 字节数 ≠ 模型输入 Token ≠ 最终计费金额；各协议输入/缓存分别汇总。旧 Run 没有观测记录时不补造用量。' };
+  return { calls: rows, groups, controllerCalls: rows.length, reported: { opencode: sumTokens(rows.filter(row => row.agent === 'opencode')), claude: sumTokens(rows.filter(row => row.agent === 'claude')), codex: sumTokens(rows.filter(row => row.agent === 'codex')) }, complete: !!rows.length && rows.every(row => row.completeness === 'complete' && row.status === 'success'), note: '提示词 UTF-8 字节数 ≠ 模型输入 Token ≠ 最终计费金额；各协议输入/缓存分别汇总。旧 Run 没有观测记录时不补造用量。' };
 }

@@ -12,7 +12,9 @@ import type {Config} from '../src/schema.js';
 import type {Agents} from '../src/adapters.js';
 import {MockAgents} from '../src/adapters.js';
 
-const root=path.resolve('.validation',`project-modes-${randomUUID()}`);fs.mkdirSync(root,{recursive:true});
+// Keep ordinary project-mode fixtures below Windows Git's path limit. Dedicated
+// git-integrity tests retain their explicit long-path cases and assertions.
+const root=path.resolve('.validation',`pm-${randomUUID().slice(0,8)}`);fs.mkdirSync(root,{recursive:true});
 async function fixture(mode:'direct'|'isolated',kind:'empty'|'existing'|'dirty'='empty') {
   const directory=path.join(root,randomUUID()),source=path.join(directory,'project');fs.mkdirSync(source,{recursive:true});
   if(kind!=='empty')fs.writeFileSync(path.join(source,'existing.txt'),'user content\n');

@@ -193,6 +193,60 @@
           ],
           "additionalProperties": false
         },
+        "decisionAgent": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "backend": {
+                  "const": "claude-code"
+                }
+              },
+              "required": [
+                "backend"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "backend": {
+                  "const": "opencode"
+                },
+                "opencode": {
+                  "type": "object",
+                  "properties": {
+                    "providerID": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100000
+                    },
+                    "modelID": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100000
+                    },
+                    "executable": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100000
+                    }
+                  },
+                  "required": [
+                    "providerID",
+                    "modelID"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "backend",
+                "opencode"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
         "taskStages": {
           "type": "object",
           "minProperties": 1,
@@ -584,6 +638,73 @@
           "additionalProperties": false
         }
       ]
+    },
+    "decisionAgent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "claude-code"
+            }
+          },
+          "required": [
+            "backend"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "opencode"
+            },
+            "providerID": {
+              "type": "string"
+            },
+            "modelID": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "backend",
+            "providerID",
+            "modelID"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "decisionSession": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "claude-code",
+            "opencode"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        },
+        "directory": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "sessionId",
+        "runId",
+        "workspace",
+        "directory"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

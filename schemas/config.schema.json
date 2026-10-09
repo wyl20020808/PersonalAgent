@@ -171,6 +171,60 @@
       ],
       "additionalProperties": false
     },
+    "decisionAgent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "claude-code"
+            }
+          },
+          "required": [
+            "backend"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "opencode"
+            },
+            "opencode": {
+              "type": "object",
+              "properties": {
+                "providerID": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                },
+                "modelID": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                },
+                "executable": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                }
+              },
+              "required": [
+                "providerID",
+                "modelID"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "backend",
+            "opencode"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "taskStages": {
       "type": "object",
       "minProperties": 1,
