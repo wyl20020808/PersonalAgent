@@ -82,13 +82,27 @@ test('rework round diff shows previous-to-current while task diff keeps original
 });
 test('context truncation preserves all critical issues, exits and output and prevents pass', async () => {
   const f = await fixture('omitted-context');
-  f.agents.execute = async () => ({ summary: 'large file', changes: [{ path: 'a.txt', content: 'x'.repeat(70000) }] });
+  f.agents.execute = async () => ({ summary: 'large file', changes: [{ path: 'a.txt', content: 'x'.repeat(140000) }] });
   f.agents.plan = async () => ({ humanDecision: null, tasks: [{ ...task('a'), acceptanceStage: 'first' }] });
   const state = await drive(f.store, f.agents); assert.equal(state.phase, 'paused'); assert.match(state.reason, /omitted diff/);
   const evidence: Evidence = { ...state.evidence!, issues: ['Deletion detected', 'Independent tests failed'], tests: [{ exitCode: 7, stdout: 'critical-tail', stderr: 'fatal' }], passed: false };
   const compressed = reviewEvidence(evidence) as Evidence & { diffOmitted: boolean };
   assert.deepEqual(compressed.issues, evidence.issues); assert.deepEqual(compressed.tests, evidence.tests); assert.equal(compressed.passed, false); assert.equal(compressed.diffOmitted, true);
 });
+test('compiled project artifacts do not displace source or dependency lock review', () => {
+  const diff = '\nFILE dist/assets/game.js (added)\n+' + 'x'.repeat(500000) + '\nFILE validation/chrome-result.json (added)\n+' + 'x'.repeat(200000) + '\nFILE validation/check.js (added)\n+actual verifier\nFILE package-lock.json (added)\n+locked dependency\nFILE src/main.js (added)\n+actual game logic\n';
+  const evidence: Evidence = { diff, roundDiff:diff, taskDiff:diff, head:'head', status:'A src/main.js', snapshotDigest:'snapshot', tests:[], executorExitCode:0, passed:true, issues:[] };
+  const result = reviewEvidence(evidence) as {roundDiff:string;diffOmitted:boolean;artifactDiffs:{path:string;sha256:string}[];fullDiffHash:string};
+  assert.equal(result.diffOmitted,false);
+  assert.match(result.roundDiff,/locked dependency/);
+  assert.match(result.roundDiff,/actual game logic/);
+  assert.match(result.roundDiff,/actual verifier/);
+  assert.equal(result.artifactDiffs.length,2);
+  assert.match(result.artifactDiffs[0]!.path,/dist\/assets\/game.js/);
+  assert.equal(result.artifactDiffs[0]!.sha256.length,64);
+  assert.equal(evidence.diff,diff);
+});
+
 test('changed baseline hash fails closed rather than hide diff', async () => {
   const f = await fixture('baseline-tamper'); const execute = f.agents.execute;
   f.agents.execute = async (...args) => { const file = f.store.file('round-1-baseline.json'); const value = JSON.parse(readFileSync(file, 'utf8')); value.files['seed.txt'] = ''; writeFileSync(file, JSON.stringify(value)); return execute(...args); };

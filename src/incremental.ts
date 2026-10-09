@@ -52,7 +52,13 @@ export function reviewEvidence(evidence: Evidence | null): unknown {
   if (!evidence) return null;
   const { diff, taskDiff, roundDiff, ...checks } = evidence;
   const selected = roundDiff ?? diff;
-  const limit = 60000, omitted = selected.length > limit;
-  const additional = taskDiff === selected ? undefined : taskDiff;
-  return { ...checks, roundDiff: selected.slice(0, limit), taskDiff: additional?.slice(0, 20000), diffOmitted: omitted || (additional?.length ?? 0) > 20000, fullDiffHash: createHash('sha256').update(diff).digest('hex'), taskDiffHash: taskDiff === undefined ? null : createHash('sha256').update(taskDiff).digest('hex'), roundDiffHash: createHash('sha256').update(selected).digest('hex'), note: 'Full evidence remains in Controller state/audit. Missing diff requires human review; do not pass.' };
+  const artifactDiffs: {path:string;characters:number;sha256:string}[] = [];
+  const sourceDiff = (value:string) => value.replace(/\nFILE ((?:dist\/[^\n]*|validation\/[^\n]*-result\.json(?: \((?:added|deleted)\))?))\n[\s\S]*?(?=\nFILE |$)/g, (section:string, name:string) => {
+    artifactDiffs.push({path:name,characters:section.length,sha256:createHash('sha256').update(section).digest('hex')});
+    return '';
+  });
+  const selectedSource = sourceDiff(selected);
+  const additional = taskDiff === selected ? undefined : taskDiff === undefined ? undefined : sourceDiff(taskDiff);
+  const limit = 120000;
+  return { ...checks, roundDiff: selectedSource.slice(0, limit), taskDiff: additional?.slice(0, limit), artifactDiffs, diffOmitted: selectedSource.length > limit || (additional?.length ?? 0) > limit, fullDiffHash: createHash('sha256').update(diff).digest('hex'), taskDiffHash: taskDiff === undefined ? null : createHash('sha256').update(taskDiff).digest('hex'), roundDiffHash: createHash('sha256').update(selected).digest('hex'), note: 'Compiled dist/ and generated validation/*-result.json artifact sections are summarized with hashes; read the full result files when reviewing browser evidence. Full artifacts and source evidence remain in Controller state/audit. Source and dependency lock diffs remain subject to the context limit. Missing source diff requires human review; do not pass.' };
 }
