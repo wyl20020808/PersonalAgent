@@ -9,6 +9,14 @@ import {DesktopService,validateRequest} from './service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});
+test('historical agent identity uses immutable Run first, trusted config second, never message text',()=>{
+ const configured={...state,config:{decisionAgent:{backend:'opencode',opencode:{providerID:'fixture',modelID:'dynamic'}}}} as State;
+ const events=[event('identity-plan','plan',{tasks:[]}),event('identity-public','agent-activity',{agent:'claude',kind:'output',title:'Legacy event',text:'Codex Claude Code OpenCode'}),event('identity-codex','agent-activity',{agent:'codex',kind:'output',title:'Execution',text:'OpenCode review'})];
+ assert.deepEqual(projectMessages(configured,events,[]).map(message=>message.role),['opencode','opencode','codex']);
+ const frozen={...configured,decisionAgent:{backend:'claude-code'}} as State;
+ assert.deepEqual(projectMessages(frozen,events,[]).map(message=>message.role),['claude','claude','codex']);
+ assert.deepEqual(projectMessages(state,events,[]).map(message=>message.role),['claude','claude','codex']);
+});
 test('messages sorted and deduplicated by persistent audit hash',()=>{const a=event('a','created',{}),b=event('b','review',{verdict:'pass',reason:'Good'},'2026-10-08T02:00:00.000Z');const messages=projectMessages(state,[b,a,a],[]);assert.deepEqual(messages.map(m=>m.id),['audit:a','audit:b']);assert.equal(messages[1].role,'claude');});
 test('task, loop and source associations survive historical replay',()=>{const messages=projectMessages(state,[event('a','transition',{taskIndex:1,loops:3,phase:'review'}),event('b','review',{verdict:'human',reason:'Check pixels'})],[]);assert.equal(messages[1].taskId,'second');assert.equal(messages[1].loop,3);assert.equal(messages[1].source,'audit.jsonl:b');});
 test('plan, tests, paths and public activity are redacted before Renderer',()=>{const events=[event('a','plan',{tasks:[{instruction:'api_key=secret123',acceptance:['password=private']}] }),event('b','independent-check',{passed:false,tests:[{exitCode:1,stdout:'Bearer abcdef',stderr:'secret=private'}],issues:['access_token=hidden'],diff:'sk-1234567890'}),event('c','edits-applied',{paths:['api_key=secret123'],summary:'output'})];const text=JSON.stringify(projectMessages(state,events,[]));for(const secret of ['secret123','private','abcdef','hidden','sk-1234567890'])assert.ok(!text.includes(secret));});
