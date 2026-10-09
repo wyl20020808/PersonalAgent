@@ -1,7 +1,8 @@
 import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { configSchema, taskSchema, normalizeConfig, validate, type Config, type Task } from './schema.js';
+import { configSchema, taskSchema, decisionAgentSchema, decisionDiscussionSchema, planSchema, normalizeConfig, validate, type Config, type Task } from './schema.js';
+import type { DiscussionState } from './decision-discussion.js';
 import type { Screenshot } from './screenshots.js';
 import type { ProcessResult } from './process.js';
 import { failureKinds, type Failure } from './failure.js';
@@ -12,6 +13,7 @@ export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify'
 export interface Evidence { contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
   decisionAgent?: DecisionIdentity; decisionSession?: DecisionSession;
+  discussion?: DiscussionState;
   purpose?: 'context-onboarding'; projectContextEnabled?: boolean;
   nativeExecution?: boolean;
   claudeCalls?: number;
@@ -35,11 +37,17 @@ const stateProperties = {
 export const stateSchema = { type: 'object', properties: { ...stateProperties, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
   decisionAgent: { oneOf: [
-    { type: 'object', properties: { backend: { const: 'claude-code' } }, required: ['backend'], additionalProperties: false },
+    { type: 'object', properties: { backend: { const: 'claude-code' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },
     { type: 'object', properties: { backend: { const: 'opencode' }, providerID: str, modelID: str }, required: ['backend','providerID','modelID'], additionalProperties: false }
   ] },
   decisionSession: { type: 'object', properties: { backend: { enum: ['claude-code','opencode'] }, sessionId: str, runId: str, workspace: str, directory: str }, required: ['backend','sessionId','runId','workspace','directory'], additionalProperties: false }
 });
+const sessionSchema = { type: 'object', additionalProperties: false, required: ['backend','sessionId','runId','workspace','directory'], properties: { backend: { enum: ['claude-code','opencode'] }, sessionId: str, runId: str, workspace: str, directory: str } };
+Object.assign(stateSchema.properties, { discussion: { type: 'object', additionalProperties: false, required: ['config','participants','steps','closed'], properties: {
+  config: decisionDiscussionSchema, closed: { type: 'boolean' },
+  participants: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'object', additionalProperties: false, required: ['id','agent','claudeSessionId','calls'], properties: { id: { enum: ['a','b'] }, agent: decisionAgentSchema, claudeSessionId: nullable, calls: integer, session: sessionSchema } } },
+  steps: { type: 'array', maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['key','participantId','stage','status'], properties: { key: str, participantId: { enum: ['a','b'] }, stage: { enum: ['draft','discussion','synthesis'] }, status: { enum: ['running','success','failed','interrupted'] }, error: str, output: { anyOf: [planSchema, { type: 'object', additionalProperties: false, required: ['summary','disagreements','amendments'], properties: { summary: str, disagreements: { type: 'array', items: str }, amendments: { type: 'array', items: str } } }] } } } }
+} } });
 export function assertD(value: string): string {
   const resolved = path.resolve(value);
   if (process.platform === 'win32' && !/^D:\\/i.test(resolved)) throw new Error(`Path must be on D drive: ${value}`);
@@ -68,6 +76,7 @@ export function atomicJson(file: string, value: unknown): void {
   replaceAtomic(temp, file);
 }
 export class Store {
+  readonly decisionParticipant?: { participantId: 'a' | 'b'; discussionStage: string };
   readonly dir: string;
   constructor(runtime: string, readonly id: string) {
     if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('Invalid run ID');
@@ -78,6 +87,7 @@ export class Store {
     if (existsSync(this.file('state.json'))) {
       const old = JSON.parse(readFileSync(this.file('state.json'), 'utf8'));
       if (JSON.stringify(old.decisionAgent ?? { backend: 'claude-code' }) !== JSON.stringify(state.decisionAgent ?? { backend: 'claude-code' })) throw new Error('Immutable Decision Agent identity changed');
+      if (JSON.stringify(old.config.decisionDiscussion) !== JSON.stringify(state.config.decisionDiscussion) || JSON.stringify(old.discussion?.config) !== JSON.stringify(state.discussion?.config) || JSON.stringify(old.discussion?.participants.map((p: any) => ({id:p.id,agent:p.agent}))) !== JSON.stringify(state.discussion?.participants.map(p => ({id:p.id,agent:p.agent})))) throw new Error('Immutable discussion identity changed');
     }
     state.config = normalizeConfig(state.config); state.updatedAt = new Date().toISOString(); validate(stateSchema, state); atomicJson(this.file('state.json'), state);
   }

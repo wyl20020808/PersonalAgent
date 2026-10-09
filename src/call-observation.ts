@@ -22,6 +22,7 @@ export function sumTokens(rows: Tokens[]): Tokens {
   return result;
 }
 export interface CallUsage extends Tokens {
+  participantId?: 'a' | 'b'; discussionStage?: string;
   callId: string; runId: string; taskId: string | null; phase: CallPhase; agent: 'claude' | 'codex' | 'opencode'; workspace: string;
   manifestPath: string; mode: string; controllerCall: number; rework: boolean; resumed: boolean;
   model: string | null; models: string[]; modelRequests: number | null; source: string;
@@ -61,11 +62,13 @@ export class CallObservation {
     const callId = navigation?.callId ?? randomUUID(), agent = phase === 'execute' ? 'codex' : decisionBackend ?? 'claude';
     mkdirSync(store.file('context'), { recursive: true });
     const manifestPath = store.file(`context/${callId}.manifest.json`);
-    if (!navigation) writeFileSync(manifestPath, JSON.stringify({ callId, runId: state.id, phase, targetWorkspace: state.workspace, enabled: false, prompt: { hash: contextHash(prompt), bytes: Buffer.byteLength(prompt) }, note: 'Project Context 未启用；仅记录调用归属与提示词字节，不复制提示词正文。' }), { flag: 'wx' });
+    if (navigation && store.decisionParticipant) atomicJson(manifestPath, { ...JSON.parse(readFileSync(manifestPath, 'utf8')), ...store.decisionParticipant });
+    if (!navigation) writeFileSync(manifestPath, JSON.stringify({ callId, ...store.decisionParticipant, runId: state.id, phase, targetWorkspace: state.workspace, enabled: false, prompt: { hash: contextHash(prompt), bytes: Buffer.byteLength(prompt) }, note: 'Project Context 未启用；仅记录调用归属与提示词字节，不复制提示词正文。' }), { flag: 'wx' });
     this.readsFile = store.file(`context/${callId}.reads.jsonl`); this.usageFile = store.file(`context/${callId}.usage.json`);
     // A fresh call ID is mandatory. Never truncate a historical receipt.
     writeFileSync(this.readsFile, '', { flag: 'wx' }); writeFileSync(this.usageFile, '', { flag: 'wx' });
     this.usage = { ...empty(), callId, runId: state.id, taskId: phase === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase, agent, workspace: state.workspace, manifestPath, mode: state.config.mode, controllerCall: agent !== 'codex' ? state.claudeCalls ?? 0 : state.loops, rework: phase !== 'plan' && state.reworks > 0, resumed, model: null, models: [], perModel: [], modelRequests: null, source: agent === 'opencode' ? 'opencode-sdk-native-messages' : agent === 'claude' ? 'claude-cli-stream-json' : 'codex-sdk-0.161.0-turn.completed', completeness: 'unknown', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, durationMs: null, promptBytes: Buffer.byteLength(prompt), notes: [] };
+    if (store.decisionParticipant) Object.assign(this.usage, store.decisionParticipant);
     store.audit('observation-call-start', this.usage);
     this.record('coverage', { note: agent === 'claude' ? '仅配对本次 CLI Read 调用和可确认的文本结果；未识别的格式、子工具及 Shell 文件 I/O 不可观测。' : 'SDK 不暴露原生 Read、实际模型和内部请求数；仅观察命令与回合用量。Shell/MCP 不推断文件读取。' });
     const assembly = JSON.parse(prompt);
@@ -80,7 +83,7 @@ export class CallObservation {
   }
 
   private record(kind: string, data: object): void {
-    const receipt = { callId: this.usage.callId, runId: this.usage.runId, taskId: this.usage.taskId, phase: this.usage.phase, agent: this.usage.agent, workspace: this.usage.workspace, manifestPath: this.usage.manifestPath, time: new Date().toISOString(), kind, ...data };
+    const receipt = { callId: this.usage.callId, ...this.store.decisionParticipant, runId: this.usage.runId, taskId: this.usage.taskId, phase: this.usage.phase, agent: this.usage.agent, workspace: this.usage.workspace, manifestPath: this.usage.manifestPath, time: new Date().toISOString(), kind, ...data };
     const key = contextHash(JSON.stringify({ ...receipt, time: null })); if (this.seen.has(key)) return; this.seen.add(key);
     const clean = JSON.parse(redact(JSON.stringify(receipt)));
     appendFileSync(this.readsFile, JSON.stringify(clean) + '\n', { flush: true });

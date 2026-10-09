@@ -22,7 +22,9 @@ export class SessionStore {
  update(session:Saved){const items=this.read(),index=items.findIndex(s=>s.id===session.id);if(index<0)throw Error('会话不存在');items[index]=session;this.save(items);}
  create(r:Request):Conversation {
   const project=this.service.inspectProject(r.projectPath!);
-  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{decisionAgent:r.decisionAgent??{backend:'claude-code'},mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
+  const primary=r.decisionDiscussion?.participants.find(p=>p.id===r.decisionDiscussion?.primary)?.agent;
+  if(primary&&r.decisionAgent&&JSON.stringify(primary)!==JSON.stringify(r.decisionAgent))throw Error('主决策者配置不匹配');
+  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{decisionAgent:structuredClone(primary??r.decisionAgent??{backend:'claude-code'}),...(r.decisionDiscussion?{decisionDiscussion:structuredClone(r.decisionDiscussion)}:{}),mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
 
   if(session.selectedTests.some(t=>!project.testCommands.includes(t)))throw Error('测试命令与项目检测不匹配');
   const items=this.read();items.push(session);this.save(items);return this.public(session);
@@ -105,6 +107,7 @@ export class SessionStore {
     // Revalidate immutable, hashed config and project identity before launching another run.
     const {config}=this.service.config(session.profileId);
     if(JSON.stringify(config.decisionAgent??{backend:'claude-code'})!==JSON.stringify(session.settings.decisionAgent??{backend:'claude-code'}))throw Error('会话决策后端已改变，拒绝启动');
+    if(JSON.stringify(config.decisionDiscussion)!==JSON.stringify(session.settings.decisionDiscussion))throw Error('会话讨论参与者已改变，拒绝启动');
     if(config.mode!==session.settings.mode||config.projectMode!==session.settings.projectMode||config.allowedRepositories.length!==1||config.allowedRepositories[0].toLowerCase()!==session.projectPath.toLowerCase())throw Error('会话项目授权已改变，拒绝启动');
     await this.service.start({operation:'start',profileId:session.profileId,mode:session.settings.mode,repository:session.projectPath,goal,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
    }

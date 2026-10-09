@@ -9,6 +9,13 @@ import {DesktopService,validateRequest} from './service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});
+test('dual audit output keeps same-backend instances separate, mixed brands accurate, and Controller statuses distinct',()=>{
+ const discussion={config:{participants:[{id:'a',agent:{backend:'opencode',opencode:{providerID:'p',modelID:'m'}}},{id:'b',agent:{backend:'claude-code'}}],primary:'a',rounds:1},participants:[{id:'a',agent:{backend:'opencode',opencode:{providerID:'p',modelID:'m'}}},{id:'b',agent:{backend:'claude-code'}}],closed:false,steps:[]};
+ const dual={...state,config:{mode:'mock'},decisionAgent:{backend:'opencode',providerID:'p',modelID:'m'},discussion} as unknown as State;
+ const meta={participantId:'b',participantAgent:{backend:'claude-code'},primary:false,discussionStage:'draft',mode:'mock'};
+ const messages=projectMessages(dual,[event('b-public','agent-activity',{...meta,agent:'claude',kind:'output',title:'public',text:'actual CLI output'}),event('b-draft','discussion-output',{...meta,output:{humanDecision:null,tasks:[]}}),event('a-summary','discussion-output',{...meta,participantId:'a',participantAgent:discussion.participants[0].agent,primary:true,discussionStage:'synthesis',output:{humanDecision:null,tasks:[]}}),event('validated','plan',{tasks:[]}),event('retry','discussion-replan-output',{...meta,output:{humanDecision:null,tasks:[]}})],[]);
+ assert.deepEqual(messages.map(m=>m.role),['claude','claude','opencode','controller','claude']);assert.equal(messages[0].participantName,'Claude Code B');assert.equal(messages[2].participantName,'OpenCode A');assert.equal(messages[2].participantRole,'主决策者');assert.match(messages[3].title,/Controller 校验通过/);assert.match(messages[4].title,/非双决策讨论/);
+});
 test('historical agent identity uses immutable Run first, trusted config second, never message text',()=>{
  const configured={...state,config:{decisionAgent:{backend:'opencode',opencode:{providerID:'fixture',modelID:'dynamic'}}}} as State;
  const events=[event('identity-plan','plan',{tasks:[]}),event('identity-public','agent-activity',{agent:'claude',kind:'output',title:'Legacy event',text:'Codex Claude Code OpenCode'}),event('identity-codex','agent-activity',{agent:'codex',kind:'output',title:'Execution',text:'OpenCode review'})];

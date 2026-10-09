@@ -54,6 +54,21 @@ test('decision backend: dynamic sanitized discovery, latest selection validation
   assert.equal(service.sessions.get(session.id).runs.length,1);
  }finally{await service.stopOwned();}
 });
+test('dual decision session binds two identities and primary configuration; IPC refuses unsupported roles and executable injection',async()=>{
+ const {service,data,project}=fixture();
+ const decisionDiscussion={participants:[{id:'a' as const,agent:{backend:'claude-code' as const,model:'sonnet'}},{id:'b' as const,agent:{backend:'claude-code' as const,model:'opus'}}],primary:'b' as const,rounds:1 as const};
+ const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',decisionDiscussion}) as Conversation;
+ assert.equal(session.settings.decisionAgent?.backend,'claude-code');assert.deepEqual(session.settings.decisionAgent,decisionDiscussion.participants[1].agent);
+ await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'双决策本地夹具',directAcknowledged:true});
+ try{
+  const run=await done(service,session.id);assert.equal(run.phase,'completed',run.reason);assert.equal(run.mode,'mock');assert.equal(run.discussion?.participants.length,2);assert.equal(run.claudeCalls,7);assert.equal(run.loops,2);
+  const messages=service.thread(run.profileId,run.id).messages.filter(m=>m.kind==='discussion');assert.deepEqual(messages.map(m=>[m.participantId,m.decisionStage]),[['a','draft'],['b','draft'],['a','discussion'],['b','discussion'],['b','synthesis']]);assert.ok(messages.every(m=>m.text.includes('Mock')));
+  const restored=new DesktopService(root,data,process.execPath).sessions.detail(session.id);assert.deepEqual(restored.runs[0].discussion?.config,decisionDiscussion);
+  const saved=service.sessions.get(session.id);saved.settings.decisionDiscussion!.rounds=0;service.sessions.update(saved);
+  await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'拒绝篡改讨论配置'}),/讨论参与者已改变/);assert.equal(service.sessions.get(session.id).runs.length,1);
+ }finally{await service.stopOwned();}
+ for(const agent of [{backend:'codex'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
+});
 function fixture(){const data=path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
 async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return run;await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}
 test('ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist',async()=>{

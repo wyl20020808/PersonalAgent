@@ -5,6 +5,7 @@ import type { State, Store } from './store.js';
 import { applyEdits } from './workspace.js';
 import { contextPath, loadProjectContext, mockContextDocuments, stampContext, stampEligible } from './project-context.js';
 import { projectFiles } from './project-files.js';
+import { discussPlan, mockParticipantSession, withParticipant } from './decision-discussion.js';
 
 export interface Agents {
   readonly executionMode?: 'native' | 'proposal';
@@ -15,7 +16,12 @@ export interface Agents {
 export class MockAgents implements Agents {
   get executionMode(): 'native' | 'proposal' {return this.config.executionMode ?? 'proposal';}
   constructor(readonly config: Config) {}
-  async plan(state: State): Promise<Plan> {
+  async plan(state: State, store?: Store, signal = new AbortController().signal): Promise<Plan> {
+    if (state.discussion && store) return discussPlan(state, store, signal, (id, stage) => withParticipant(state, store, id, stage, async (view, scoped) => {
+      mockParticipantSession(view, scoped);
+      if (stage === 'discussion') return { summary: `Mock ${id.toUpperCase()} 补充意见；仅本地夹具`, disagreements: ['独立意见不代表达成共识'], amendments: ['由主决策者汇总并交 Controller 校验'] };
+      return this.plan(view);
+    }));
     state.claudeSessionId ??= 'mock-claude-session';
     if (state.purpose === 'context-onboarding') return { humanDecision: null, tasks: [{ id: 'context', instruction: '本地 Mock 建档夹具，仅生成约定文档', acceptance: ['格式有效，源目录不变；不是付费 Agent 验收'] }] };
     return { humanDecision: null, tasks: [{ id: 'hello', instruction: 'Create hello.txt containing hello', acceptance: ['hello.txt must contain hello followed by a newline', 'Independent tests pass'] }, { id: 'done', instruction: 'Create done.txt containing done', acceptance: ['done.txt must contain done followed by a newline'] }] };
@@ -50,7 +56,8 @@ export class MockAgents implements Agents {
     }
     return edits;
   }
-  async review(state: State): Promise<Review> {
+  async review(state: State, store?: Store): Promise<Review> {
+    if (state.discussion && store) return withParticipant(state, store, state.discussion.config.primary, 'review', async (view, scoped) => { mockParticipantSession(view, scoped); return this.review(view); });
     if (this.config.mockScenario === 'human' && !state.feedback) return { verdict: 'human', reason: 'Need user decision' };
     return { verdict: state.evidence?.passed ? 'pass' : 'rework', reason: state.evidence?.passed ? 'Verified' : 'Fix failed checks' };
   }

@@ -1,19 +1,24 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Check,Settings2,X} from 'lucide-react';
 import {agentCapabilities,supportsPool,type AgentId,type AgentPoolRole} from '../../src/agent-capabilities.js';
-import type {DecisionAgent} from './types.js';
-import {useDecisionModels} from './DecisionAgentSelect.js';
+import type {DecisionAgent,DecisionDiscussion} from './types.js';
+import DecisionAgentSelect,{useDecisionModels} from './DecisionAgentSelect.js';
 import AgentLogo from './AgentLogo.js';
 import './role-board.css';
 
-export default function AgentRoleBoard({value,onChange,onValid,projectPath,disabled=false}: {
- value?:DecisionAgent;onChange:(value:DecisionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean;
+export default function AgentRoleBoard({value,discussion,onDiscussion,onChange,onValid,projectPath,disabled=false}: {
+ value?:DecisionAgent;discussion?:DecisionDiscussion;onDiscussion?:(value:DecisionDiscussion|undefined)=>void;onChange:(value:DecisionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean;
 }) {
- const {backend,selection,models,loading,provider,valid,refresh}=useDecisionModels(value,projectPath);
+ const first=discussion?.participants.find(p=>p.id==='a')?.agent??value;
+ const second=discussion?.participants.find(p=>p.id==='b')?.agent;
+ const {backend,selection,models,loading,provider,valid,refresh}=useDecisionModels(first,projectPath);
+ const [secondValid,setSecondValid]=useState(true);
+ const changeFirst=(agent:DecisionAgent)=>{if(discussion)onDiscussion?.({...discussion,participants:discussion.participants.map(p=>p.id==='a'?{...p,agent}:p)});else onChange(agent);};
  const [settings,setSettings]=useState<AgentId|null>(null);
  const settingsButton=useRef<HTMLButtonElement|null>(null),panel=useRef<HTMLDivElement|null>(null);
  const close=()=>{setSettings(null);settingsButton.current?.focus();};
- useEffect(()=>onValid(valid),[valid,onValid]);
+ const modelValid=first?.backend!=='claude-code'||!first.model||/^[a-zA-Z0-9._:/-]{1,200}$/.test(first.model);
+ useEffect(()=>onValid(valid&&modelValid&&(!discussion||secondValid)),[valid,modelValid,discussion,secondValid,onValid]);
  useEffect(()=>{
   if(!settings)return;
   panel.current?.querySelector<HTMLElement>('select:not(:disabled),button:not(:disabled)')?.focus();
@@ -23,12 +28,13 @@ export default function AgentRoleBoard({value,onChange,onValid,projectPath,disab
  const select=(id:AgentId)=>{
   if(id===backend)return;
   onValid(id==='claude-code');
-  onChange(id==='opencode'?{backend:'opencode',opencode:{providerID:'',modelID:''}}:{backend:'claude-code'});
+  changeFirst(id==='opencode'?{backend:'opencode',opencode:{providerID:'',modelID:''}}:{backend:'claude-code'});
   setSettings(id==='opencode'?'opencode':null);
  };
- const modelText=(id:AgentId)=>id==='opencode'?(selection?.modelID||'选择 Provider 与模型'):id==='claude-code'?'本机默认模型':'SDK 默认模型';
+ const modelText=(id:AgentId)=>id==='opencode'?(selection?.modelID||'选择 Provider 与模型'):id==='claude-code'?(first?.backend==='claude-code'?first.model||'本机默认模型':'本机默认模型'):'SDK 默认模型';
  const pool=(role:AgentPoolRole)=><section className={'agent-pool '+role} aria-label={role==='decision'?'决策池':'执行池'}>
-  <header><h4>{role==='decision'?'决策池':'执行池'}</h4></header>
+  <header><h4>{role==='decision'?'决策池':'执行池'}</h4>{role==='decision'&&onDiscussion&&<select aria-label="决策者模式" disabled={disabled} value={discussion?'dual':'single'} onChange={e=>{setSecondValid(true);if(e.target.value==='single'){onDiscussion(undefined);}else onDiscussion({participants:[{id:'a',agent:first??{backend:'claude-code'}},{id:'b',agent:{backend:'claude-code'}}],primary:'a',rounds:1});}}><option value="single">单决策者</option><option value="dual">双决策者</option></select>}</header>
+  {role==='decision'&&discussion&&<p className="participant-label">决策者 A</p>}
   <div className="agent-cards">{agentCapabilities.map(agent=>{
    const supported=supportsPool(agent,role),selected=role==='decision'?backend===agent.id:agent.id==='codex';
    const status=!supported?'尚未支持':agent.id==='opencode'?(backend!=='opencode'?'实验性 · V1':loading?'正在发现模型':!models?.available?'不可用':valid?'实验性 · 已就绪':'待配置'):'可用';
@@ -42,12 +48,13 @@ export default function AgentRoleBoard({value,onChange,onValid,projectPath,disab
   {settings&&(role==='decision'?settings!=='codex':settings==='codex')&&<div className="agent-config" ref={panel} role="region" aria-label={`${agentCapabilities.find(agent=>agent.id===settings)!.name} 配置`}>
    <div className="agent-config-heading"><strong>{agentCapabilities.find(agent=>agent.id===settings)!.name} 设置</strong><button type="button" aria-label="关闭 Agent 设置" onClick={close}><X size={14}/></button></div>
    {settings==='opencode'?<>
-    <label>Provider<select aria-label="OpenCode Provider" disabled={disabled||loading||!models?.available} value={selection?.providerID??''} onChange={event=>onChange({backend:'opencode',opencode:{providerID:event.target.value,modelID:''}})}><option value="">请选择 Provider</option>{models?.providers.map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-    <label>Model<select aria-label="OpenCode Model" disabled={disabled||loading||!models?.available||!provider} value={selection?.modelID??''} onChange={event=>onChange({backend:'opencode',opencode:{providerID:selection!.providerID,modelID:event.target.value}})}><option value="">请选择 Model</option>{provider?.models.map(item=><option value={item.id} key={item.id} disabled={item.capabilities.tools!==true||item.capabilities.structuredOutput!==true}>{item.name}{item.capabilities.tools!==true||item.capabilities.structuredOutput!==true?'（能力不足或未知）':''}</option>)}</select></label>
+    <label>Provider<select aria-label="OpenCode Provider" disabled={disabled||loading||!models?.available} value={selection?.providerID??''} onChange={event=>changeFirst({backend:'opencode',opencode:{providerID:event.target.value,modelID:''}})}><option value="">请选择 Provider</option>{models?.providers.map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+    <label>Model<select aria-label="OpenCode Model" disabled={disabled||loading||!models?.available||!provider} value={selection?.modelID??''} onChange={event=>changeFirst({backend:'opencode',opencode:{providerID:selection!.providerID,modelID:event.target.value}})}><option value="">请选择 Model</option>{provider?.models.map(item=><option value={item.id} key={item.id} disabled={item.capabilities.tools!==true||item.capabilities.structuredOutput!==true}>{item.name}{item.capabilities.tools!==true||item.capabilities.structuredOutput!==true?'（能力不足或未知）':''}</option>)}</select></label>
     <p>实验性 V1；远端 Plan / Review 尚未验证。模型动态发现，启动时再次核验。</p>
     <button type="button" className="text-button" disabled={disabled||loading} onClick={refresh}>刷新模型</button>
-   </>:<p>{settings==='claude-code'?'沿用本机 Claude Code 配置与默认模型。':'沿用当前 Codex SDK 配置与默认模型。'}当前没有独立模型选择接口。</p>}
+   </>:settings==='claude-code'?<><label>Provider<select aria-label="Claude Code Provider" disabled><option>本机 Claude Code 配置</option></select></label><label>Model<input aria-label="Claude Code Model" disabled={disabled} placeholder="本机默认；或 sonnet / opus / 完整模型 ID" value={first?.backend==='claude-code'?first.model??'':''} onChange={e=>changeFirst({backend:'claude-code',...(e.target.value?{model:e.target.value}:{})})}/></label><p>独立 Session；模型通过 CLI --model 绑定，空值沿用本机默认。</p></>:<p>沿用当前 Codex SDK 配置与默认模型。当前没有独立模型选择接口。</p>}
   </div>}
+  {role==='decision'&&discussion&&<div className="second-decision" aria-label="决策者 B 配置"><p className="participant-label"><AgentLogo agent={second?.backend??'claude-code'}/>决策者 B</p><DecisionAgentSelect value={second} projectPath={projectPath} disabled={disabled} onValid={setSecondValid} onChange={agent=>{setSecondValid(agent.backend==='claude-code');onDiscussion?.({...discussion,participants:discussion.participants.map(p=>p.id==='b'?{...p,agent}:p)});}}/><div className="discussion-options"><label>主决策者<select aria-label="主决策者" disabled={disabled} value={discussion.primary} onChange={e=>onDiscussion?.({...discussion,primary:e.target.value as 'a'|'b'})}><option value="a">决策者 A</option><option value="b">决策者 B</option></select></label><label>讨论轮数<select aria-label="讨论轮数" disabled={disabled} value={discussion.rounds} onChange={e=>onDiscussion?.({...discussion,rounds:Number(e.target.value) as 0|1})}><option value="0">0 轮 · 独立初稿后汇总</option><option value="1">1 轮 · 交换初稿后汇总</option></select></label></div></div>}
  </section>;
  return <div className="role-board"><div className="role-pools">{pool('decision')}{pool('execution')}</div>{backend==='opencode'&&<div className={`discovery-status ${!loading&&!models?.available?'unavailable':''}`} role="status">{loading?'正在查询已连接的 Provider 与模型…':!models?.available?models?.reason||'模型发现失败，请打开设置刷新。':!valid?'请选择支持原生工具与结构化输出的模型。':`OpenCode · ${selection?.providerID} / ${selection?.modelID}`}</div>}</div>;
 }

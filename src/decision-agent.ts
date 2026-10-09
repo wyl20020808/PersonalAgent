@@ -4,7 +4,7 @@ import type { Config } from './schema.js';
 import type { State, Store } from './store.js';
 import type { CallUsage } from './call-observation.js';
 
-export type DecisionIdentity = { backend: 'claude-code' } | { backend: 'opencode'; providerID: string; modelID: string };
+export type DecisionIdentity = { backend: 'claude-code'; model?: string } | { backend: 'opencode'; providerID: string; modelID: string };
 export interface DecisionSession { backend: DecisionIdentity['backend']; sessionId: string; runId: string; workspace: string; directory: string }
 export interface DecisionRequest {
   state: State; store: Store; role: 'plan' | 'review'; prompt: string; schema: object;
@@ -15,7 +15,7 @@ export interface DecisionResult<T> { output: T; sessionId: string; usage: CallUs
 export interface DecisionAgent { structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> }
 export function decisionIdentity(config: Config): DecisionIdentity {
   const choice = config.decisionAgent;
-  if (!choice || choice.backend === 'claude-code') return { backend: 'claude-code' };
+  if (!choice || choice.backend === 'claude-code') return { backend: 'claude-code', ...(choice?.model ? { model: choice.model } : {}) };
   if (!choice.opencode?.providerID || !choice.opencode.modelID) throw new FlowError('supervisor', 'OpenCode providerID/modelID required');
   return { backend: 'opencode', providerID: choice.opencode.providerID, modelID: choice.opencode.modelID };
 }

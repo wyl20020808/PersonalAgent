@@ -47,3 +47,7 @@
 @media(max-width:1000px){.conversation-header{gap:8px}.conversation-header .group-avatar{display:none}.conversation-actions{max-width:230px}.conversation-actions .work-folder-button{font-size:11px}.bound-project{max-width:230px}.conversation-header .group-members{font-size:11px;gap:5px}}
 .kind-error .message-content,.status-failed .message-content,.status-fail .message-content{background:#fff7f5;border-color:#edc7c0}.kind-error .message-title,.status-failed .message-title,.status-fail .message-title{color:#923829}.system-message.status-paused summary,.system-message.status-stopped summary{color:#79541e;background:#fff9ed;border:1px solid #ead9b7;border-radius:8px;padding:8px 12px}.system-message.status-completed summary{color:#285f4e;background:#f0f8f3;border:1px solid #d5e7db;border-radius:8px;padding:8px 12px}.system-message.status-failed summary{color:#923829;background:#fff7f5;border:1px solid #edc7c0;border-radius:8px;padding:8px 12px}
 .source-reference>summary{color:#526174}.draft-recent-projects{justify-content:center;margin:14px auto;max-width:650px}
+/* All Agent messages use the accepted right-side chat alignment. */
+.group-message.role-claude,.group-message.role-opencode{align-self:flex-end;flex-direction:row-reverse}
+.role-claude .message-meta,.role-opencode .message-meta{flex-direction:row-reverse}
+.role-claude .message-meta time,.role-opencode .message-meta time{margin-right:auto;margin-left:0}

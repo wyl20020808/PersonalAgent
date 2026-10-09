@@ -17,6 +17,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const env = nativeAgentEnv();
     const streaming = this.config.claudeStreaming !== false;
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules];
+    if (this.config.decisionAgent?.backend === 'claude-code' && this.config.decisionAgent.model) args.push('--model', this.config.decisionAgent.model);
     const resumed = !!state.claudeSessionId;
     if (state.claudeSessionId) args.push('--resume', state.claudeSessionId);
     else { state.claudeSessionId = crypto.randomUUID(); store.save(state); args.push('--session-id', state.claudeSessionId); }
