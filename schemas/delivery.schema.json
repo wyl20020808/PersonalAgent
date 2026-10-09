@@ -2,6 +2,30 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
+  "anyOf": [
+    {
+      "properties": {
+        "changes": {
+          "type": "array",
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "required": [
+        "kind",
+        "verificationScope"
+      ],
+      "properties": {
+        "kind": {
+          "const": "direct"
+        },
+        "verificationScope": {
+          "const": "未验证全量项目变更：Git Diff 仅含 Git 跟踪内容，包含任务前已有修改；未跟踪、忽略文件及非 Git 文件不提供完整 Diff。Project Context 仅检查文档和 checked_files；不提供全项目备份、恢复或自动 Apply 保证。"
+        }
+      }
+    }
+  ],
   "required": [
     "version",
     "id",
@@ -19,6 +43,9 @@
     "changes"
   ],
   "properties": {
+    "verificationScope": {
+      "type": "string"
+    },
     "kind": {
       "const": "direct"
     },
@@ -73,7 +100,6 @@
     },
     "changes": {
       "type": "array",
-      "minItems": 1,
       "maxItems": 50,
       "items": {
         "type": "object",

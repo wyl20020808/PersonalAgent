@@ -1,9 +1,10 @@
+import { observationScope } from './project-observation.js';
 import { closeSync, existsSync, fsyncSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store, assertD, atomicJson, type State } from './store.js';
-import { git, safeTarget, snapshot, collectEvidence, workspaceHead, workspaceBaseHead } from './workspace.js';
+import { git, safeTarget, snapshot, observeWorkspace, collectEvidence, workspaceHead, workspaceBaseHead } from './workspace.js';
 import { readProject, loadProject, projectTarget, projectFiles, lockProject, projectFileHash, projectFingerprint, hashFile } from './project-files.js';
 import { editSchema, validate } from './schema.js';
 import { acceptanceRulesHash } from './rules.js';
@@ -25,7 +26,7 @@ function destination(repo: string, file: string): string {
 type FileMap = Record<string, string>;
 interface Change { path: string; content: string; before: string | null; after: string | null }
 export interface Delivery {
-  kind?: 'direct';
+  kind?: 'direct'; verificationScope?: string;
   version: 1; id: string; runId: string; target: string; branch: string; head: string;
   baseline: FileMap; targetStatus: string; indexHash: string; workspaceSnapshot: string; rulesHash: string; proofHash: string;
   diff: string; changes: Change[];
@@ -36,10 +37,10 @@ export interface DeliveryState {
   written: string[]; intent: string | null; reason: string;
 }
 const str = { type: 'string' }, sha = { type: 'string', pattern: '^[0-9a-f]{64}$' }, uuid = { type: 'string', pattern: '^[0-9a-f-]{36}$' };
-export const deliverySchema = { type: 'object', additionalProperties: false, required: ['version', 'id', 'runId', 'target', 'branch', 'head', 'baseline', 'targetStatus', 'indexHash', 'workspaceSnapshot', 'rulesHash', 'proofHash', 'diff', 'changes'], properties: {
-  kind: { const: 'direct' }, version: { const: 1 }, id: uuid, runId: uuid, target: str, branch: str, head: str,
+export const deliverySchema = { type: 'object', additionalProperties: false, anyOf: [{ properties: { changes: { type: 'array', minItems: 1 } } }, { required: ['kind', 'verificationScope'], properties: { kind: { const: 'direct' }, verificationScope: { const: observationScope } } }], required: ['version', 'id', 'runId', 'target', 'branch', 'head', 'baseline', 'targetStatus', 'indexHash', 'workspaceSnapshot', 'rulesHash', 'proofHash', 'diff', 'changes'], properties: {
+  verificationScope: str, kind: { const: 'direct' }, version: { const: 1 }, id: uuid, runId: uuid, target: str, branch: str, head: str,
   baseline: { type: 'object', additionalProperties: sha }, targetStatus: { const: '' }, indexHash: sha, workspaceSnapshot: sha, rulesHash: sha, proofHash: sha, diff: str,
-  changes: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'object', additionalProperties: false, required: ['path', 'content', 'before', 'after'], properties: { path: str, content: str, before: { anyOf: [sha, { type: 'null' }] }, after: { anyOf: [sha, { type: 'null' }] } } } }
+  changes: { type: 'array', maxItems: 50, items: { type: 'object', additionalProperties: false, required: ['path', 'content', 'before', 'after'], properties: { path: str, content: str, before: { anyOf: [sha, { type: 'null' }] }, after: { anyOf: [sha, { type: 'null' }] } } } }
 } };
 export const deliveryStateSchema = { type: 'object', additionalProperties: false, required: ['version', 'id', 'digest', 'phase', 'approval', 'written', 'intent', 'reason'], properties: {
   version: { const: 1 }, id: uuid, digest: sha, phase: { enum: ['preview', 'approved', 'applying', 'applied', 'invalidated', 'blocked'] }, written: { type: 'array', uniqueItems: true, items: str }, intent: { type: ['string', 'null'] }, reason: str,
@@ -54,6 +55,7 @@ function save(store: Store, state: DeliveryState): void {
   store.audit('delivery-transition', { deliveryId: state.id, digest: state.digest, phase: state.phase, written: state.written, intent: state.intent, reason: state.reason });
 }
 function render(delivery: Delivery, digest: string): string {
+  if (delivery.verificationScope) return `# Direct 成果确认\n\nRun: ${delivery.runId}\n项目: ${delivery.target}\n\n${delivery.verificationScope}\n\nApproval digest: ${digest}\n\n文件已在原目录修改。changes 为空表示未建立完整文件清单，不表示没有修改。此确认只确认现有成果，不执行文件复制或恢复。\n`;
   const scope = delivery.changes.some(change => change.after === null) ? 'Additions, modifications and explicitly listed Context document deletions only. No commit, merge or push.' : 'Only additions and modifications. No commit, merge, push or deletion.';
   if (delivery.kind === 'direct') return `# 直接开发成果确认\n\nRun：${delivery.runId}\n项目：${delivery.target}\n审批摘要：${digest}\n\n文件已经由 Agent 在项目目录中修改。此审批确认已发生的成果，不会再次写入、提交、合并、推送或部署。\n\n${delivery.changes.map(c => `${c.path}: ${c.before ?? '新增'} -> ${c.after}`).join('\n')}\n\n完整 Diff 见 diff.patch。\n`;
 
@@ -105,7 +107,7 @@ async function fullDiff(repo: string, base: string): Promise<string> {
 async function completionProof(store: Store, state: State): Promise<string> {
   if (state.purpose === 'context-onboarding') { assertOnboardingScope(state, store); loadProjectContext(state.workspace, true); }
   if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !state.evidence?.passed || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
-  if (await snapshot(state.workspace,undefined,!!state.config.projectMode) !== state.evidence.snapshotDigest || await workspaceHead(state) !== workspaceBaseHead(state)) throw new Error('Completed workspace changed');
+  if (await observeWorkspace(state) !== state.evidence.snapshotDigest || await workspaceHead(state) !== workspaceBaseHead(state)) throw new Error('Completed workspace changed');
   const rules = await acceptanceRulesHash(state, true);
   if (rules !== state.evidence.acceptanceRulesHash) throw new Error('Acceptance rules changed since verification');
   const approvals = new Map<number, unknown>(); let previous = '', taskIndex = 0; let check: State['evidence'] = null;
@@ -134,6 +136,7 @@ async function repositoryCheck(target: string, branch: string, head: string): Pr
 }
 async function validateCurrent(store: Store, delivery: Delivery, journal: DeliveryState): Promise<void> {
   const run = store.load();
+  if (run.snapshotPolicy === 'none' && (delivery.kind !== 'direct' || delivery.verificationScope !== observationScope)) throw new Error('Snapshot-free delivery requires explicit limited-scope direct confirmation');
 
   const generic=delivery.branch==='project-files';
   if (!run.config.allowedRepositories.some(repo => realpathSync(repo).toLowerCase() === delivery.target.toLowerCase())) throw new Error('Target is not in persisted allowed repositories');
@@ -164,10 +167,20 @@ export async function previewDelivery(store: Store, target: string, branch: stri
   try {
     const run = store.load();
 
+    if (run.snapshotPolicy === 'none' && run.config.projectMode !== 'direct') throw new Error('Snapshot-free isolated Run cannot safely Apply to source. Inspect the Git diff and integrate manually after approval.');
     const proofHash = await completionProof(store, run);
     if (run.config.projectMode === 'direct') {
       target = realpathSync(target);
       if (target !== run.workspace || branch !== 'direct') throw new Error('Direct delivery requires the current source directory and direct branch marker');
+      if (run.snapshotPolicy === 'none') {
+        const delivery: Delivery = { kind: 'direct', verificationScope: observationScope, version: 1, id: randomUUID(), runId: run.id, target, branch: 'direct', head: run.base, baseline: {}, targetStatus: '', indexHash: hash('direct'), workspaceSnapshot: run.evidence!.snapshotDigest, rulesHash: run.evidence!.acceptanceRulesHash!, proofHash, diff: run.evidence!.diff, changes: [] };
+        validate(deliverySchema, delivery);
+        const digest = hash(JSON.stringify(delivery)), dir = directory(store, delivery.id); mkdirSync(dir, { recursive: true });
+        atomicJson(path.join(dir, 'manifest.json'), delivery); writeFileSync(path.join(dir, 'diff.patch'), delivery.diff);
+        writeFileSync(path.join(dir, 'preview.md'), render(delivery, digest));
+        save(store, { version: 1, id: delivery.id, digest, phase: 'preview', approval: null, written: [], intent: null, reason: observationScope });
+        return { id: delivery.id, digest, directory: dir };
+      }
       const baselineFile = loadProject(store.file('project-baseline.json'));
       if (hash(JSON.stringify(baselineFile.files)) !== baselineFile.digest) throw new Error('Direct baseline hash mismatch');
       const baseline: FileMap = {}, changes: Change[] = [];
@@ -279,7 +292,7 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       atomicJson(path.join(directory(store, id), 'final-check.json'), evidence);
       store.audit('delivery-independent-check', { deliveryId: id, kind: 'direct', ...evidence, sourceWrites: 0 });
       if (!evidence.passed || evidence.snapshotDigest !== delivery.workspaceSnapshot || evidence.acceptanceRulesHash !== delivery.rulesHash) throw new Error('Direct delivery final independent verification failed');
-      journal.phase = 'applied'; journal.reason = '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
+      journal.phase = 'applied'; journal.reason = run.snapshotPolicy === 'none' ? `配置测试已通过，现有成果已确认；${observationScope}` : '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
     }
     const projectRelease=lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}});
     try {const legacyRelease=delivery.branch==='project-files'?()=>{}:targetLock(delivery.target,options.resume??false);release=()=>{try{legacyRelease();}finally{projectRelease();}};}catch(error){projectRelease();throw error;}

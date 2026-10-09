@@ -133,6 +133,7 @@ export function projectTarget(root: string, name: string): string {
 // Explicit recovery is conflict-safe: current bytes must match the recorded
 // checkpoint. Never overwrite changes made after that checkpoint.
 export function restoreProject(store: Store, checkpoint: string, decision: string): void {
+  if (store.load().snapshotPolicy === 'none') throw new Error('This Run has no project backup; automatic project restore is unavailable. Existing changes are preserved.');
   const unlock=store.lock();let release:(()=>void)|undefined;
   try {
     const state=store.load();

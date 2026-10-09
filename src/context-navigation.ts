@@ -1,12 +1,13 @@
+import { contextObservation, observationScope } from './project-observation.js';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { contextHash, contextPath, loadProjectContext, stampEligible, belongsToModule, type ContextDocument } from './project-context.js';
 import { atomicJson, type State, type Store } from './store.js';
-import { workspaceHead, snapshot } from './workspace.js';
+import { workspaceHead, observeWorkspace } from './workspace.js';
 import { taskContextBaseline } from './context-review.js';
-import { readProject, projectFileHash } from './project-files.js';
+import { projectFileHash } from './project-files.js';
 
 interface Omission { count: number; reason: string; path?: string }
 export function matchesContextTerm(search: string, term: string): boolean {
@@ -40,13 +41,14 @@ export async function callContext(state: State, store: Store, phase: 'plan' | 'e
   function walk(relative: string, depth: number) {
     const entries = readdirSync(path.join(root, relative), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
+      if (state.snapshotPolicy === 'none' && tree.length >= 300) { omitted.push({ count: entries.length - tree.length, reason: '根目录导航达到限额；其余路径按需读取' }); break; }
       const name = relative ? `${relative}/${entry.name}` : entry.name;
       if (!contextPath(name, true) || /(^|\/)(?:\.validation|\.desktop-data|\.v03e-tests|coverage|artifacts|runtime|logs)(?:\/|$)/i.test(name)) { omitted.push({ count: 1, reason: '依赖、缓存、构建产物或敏感路径子树排除', path: name }); continue; }
       const stat = lstatSync(path.join(root, name));
       if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) { omitted.push({ count: 1, reason: '链接路径排除', path: name }); continue; }
       if (depth > 3 || tree.length >= 300) { omitted.push({ count: 1, reason: depth > 3 ? '文件树深度超过 3 层，目录按子树计数' : '文件树超过 300 节点，目录按子树计数', path: name }); continue; }
       tree.push({ path: name, kind: stat.isDirectory() ? 'directory' : 'file' });
-      if (stat.isDirectory()) walk(name, depth + 1);
+      if (stat.isDirectory() && state.snapshotPolicy !== 'none') walk(name, depth + 1);
       else if (/\.(?:md|rst|txt)$/i.test(name) && !name.startsWith('docs/project-context/')) documents.push(path.join(root, name));
     }
   }
@@ -54,14 +56,14 @@ export async function callContext(state: State, store: Store, phase: 'plan' | 'e
   const stampExample = context.modules.flatMap(module => [...Object.keys(module.metadata.checked_files), ...tree.filter(entry => entry.kind === 'file').map(entry => entry.path)]
     .filter(file => stampEligible(file) && belongsToModule(module, file) && existsSync(path.join(root, file)))
     .slice(0, 1).map(file => ({ module: module.metadata.id, file })))[0];
-  const version = { head: existsSync(path.join(root, '.git')) ? await workspaceHead(state, signal) : null, snapshot: await snapshot(root, signal, !!state.config.projectMode) };
-  const sourceFiles = readProject(root);
+  const version = { head: existsSync(path.join(root, '.git')) ? await workspaceHead(state, signal) : null, snapshot: await observeWorkspace(state, signal) };
+  const sourceFiles = contextObservation(state);
   const freshness = modules.flatMap(module => Object.entries(module.metadata.checked_files).flatMap(([file, expected]) => {
     const actual = projectFileHash(sourceFiles,file);
     return actual === expected ? [] : [{ moduleId: module.metadata.id, path: file, expected, actual, code: 'MODULE_HASH_MISMATCH', instruction: '当前目标工作区源码与说明盖章不一致；必须核对当前源码，不盲信旧文档，不从历史 manifest 复用索引。' }];
   }));
   const navigation: Record<string, any> = {
-    callId, workspace: root, version, freshness, enabled: context.enabled, purpose: state.purpose ?? 'development',
+    callId, workspace: root, version, freshness, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, enabled: context.enabled, purpose: state.purpose ?? 'development',
     overview: context.overview ? { path: context.overview.path, content: context.overview.content } : null,
     moduleCatalog: catalog,
     fileTree: phase === 'plan' || state.purpose === 'context-onboarding' ? tree : [], existingDocumentPaths: state.purpose === 'context-onboarding' ? documents : [],

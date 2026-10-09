@@ -9,6 +9,7 @@ import { FlowError } from './failure.js';
 
 export async function captureBaseline(store: Store, state: State, name: string, signal: AbortSignal): Promise<void> {
   if (existsSync(store.file(name))) return;
+  if (state.snapshotPolicy === 'none') return; // No content baseline or full-project scan.
   if (state.config.projectMode) {
     atomicJson(store.file(name), captureProject(state.workspace, store.file('snapshot-objects'), signal));
     store.audit('snapshot-baseline', { name, format: 2, coverage: 'all project files except .git and node_modules', content: 'deduplicated external objects' });
@@ -17,7 +18,7 @@ export async function captureBaseline(store: Store, state: State, name: string, 
   atomicJson(store.file(name), captureProject(state.workspace, store.file('snapshot-objects'), signal, await workspaceFiles(state.workspace,signal)));
 }
 export async function baselineDiff(store: Store, state: State, name: string, signal: AbortSignal): Promise<string | undefined> {
-  if (!existsSync(store.file(name))) return undefined;
+  if (state.snapshotPolicy === 'none' || !existsSync(store.file(name))) return undefined;
   const baseline = loadProject(store.file(name));
   if (createHash('sha256').update(JSON.stringify(baseline.files)).digest('hex') !== baseline.digest) throw new FlowError('safety', 'Baseline hash mismatch');
   const current = state.config.projectMode ? projectFiles(state.workspace) : await workspaceFiles(state.workspace,signal);
@@ -67,5 +68,5 @@ export function reviewEvidence(evidence: Evidence | null): unknown {
   const selectedSource = sourceDiff(selected);
   const additional = taskDiff === selected ? undefined : taskDiff === undefined ? undefined : sourceDiff(taskDiff);
   const limit = 120000;
-  return { ...checks, roundDiff: selectedSource.slice(0, limit), taskDiff: additional?.slice(0, limit), artifactDiffs, diffOmitted: selectedSource.length > limit || (additional?.length ?? 0) > limit, fullDiffHash: createHash('sha256').update(diff).digest('hex'), taskDiffHash: taskDiff === undefined ? null : createHash('sha256').update(taskDiff).digest('hex'), roundDiffHash: createHash('sha256').update(selected).digest('hex'), note: 'Compiled dist/ and generated validation/*-result.json artifact sections are summarized with hashes; read the full result files when reviewing browser evidence. Full artifacts and source evidence remain in Controller state/audit. Source and dependency lock diffs remain subject to the context limit. Missing source diff requires human review; do not pass.' };
+  return { ...checks, roundDiff: selectedSource.slice(0, limit), taskDiff: additional?.slice(0, limit), artifactDiffs, diffOmitted: selectedSource.length > limit || (additional?.length ?? 0) > limit, fullDiffHash: createHash('sha256').update(diff).digest('hex'), taskDiffHash: taskDiff === undefined ? null : createHash('sha256').update(taskDiff).digest('hex'), roundDiffHash: createHash('sha256').update(selected).digest('hex'), note: 'Compiled dist/ and generated validation/*-result.json artifact sections are summarized with hashes; read the full result files when reviewing browser evidence. Full artifacts and source evidence remain in Controller state/audit. Source and dependency lock diffs remain subject to the context limit. For snapshot-free runs, verificationScope defines omitted coverage; inspect needed files with native tools. Never claim full change verification. Legacy missing source diff requires human review.' };
 }
