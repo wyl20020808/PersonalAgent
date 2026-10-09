@@ -13,7 +13,7 @@ export function manualAcceptanceDigest(state: State): string | null {
 export async function acceptManual(store: Store, digest: string, observations: string): Promise<State> {
   const unlock=store.lock();let release:(()=>void)|undefined;
   try {
-    const state=store.load();release=lockProject(state);
+    const state=store.load();release=lockProject({...state,source:state.workspace,config:{...state.config,projectMode:'direct'}});
     if(!observations.trim() || !digest || manualAcceptanceDigest(state)!==digest) throw new Error('Manual acceptance requires exact current digest and observations');
     const evidence=await collectEvidence(state,new AbortController().signal);
     const checked={...state,evidence};

@@ -11,6 +11,13 @@ import {mockContextDocuments,loadProjectContext} from '../../dist/src/project-co
 import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
+test('DEV rejects writable external runtimes while explicit historical replay remains read-only',()=>{
+ const previous=process.env.PERSONALAGENT_INSTANCE,localData=path.join(data,'dev-ownership');
+ try{process.env.PERSONALAGENT_INSTANCE='dev';const local=new DesktopService(root,localData,process.execPath);
+  const file=path.join(data,'external-runtime.json');fs.writeFileSync(file,JSON.stringify({allowedRepositories:[data],runtimeDir:path.join(data,'outside-dev'),mode:'mock',claudeExecutable:'unused',timeoutMs:30000,maxLoops:2,maxReworks:1,tests:[],mockScenario:'pass'}));
+  assert.throws(()=>local.register(file),/DEV writable Controller runtime/);const replay=local.register(file,true);assert.equal(replay.profiles.length,1);assert.equal(replay.profiles[0]!.readOnly,true);
+ }finally{if(previous===undefined)delete process.env.PERSONALAGENT_INSTANCE;else process.env.PERSONALAGENT_INSTANCE=previous;}
+});
 test('formal document decision service binds request, rejects stale digest and preserves isolated Delivery boundary',async()=>{
  const directory=path.join(data,'context2'),source=path.join(directory,'source');fs.mkdirSync(path.join(source,'src'),{recursive:true});fs.writeFileSync(path.join(source,'src/main.ts'),'export const fixture=true;\n');
  for(const [relative,content] of Object.entries(mockContextDocuments(randomUUID(),'src/main.ts'))){const file=path.join(source,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,content);}

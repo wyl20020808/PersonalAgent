@@ -6,6 +6,7 @@ import { configSchema, editSchema, nativeResultSchema, planSchema, reviewSchema,
 import { Store, atomicJson, type Evidence, type Phase, type State } from './store.js';
 import { collectEvidence, prepare, snapshot, git, workspaceHead, workspaceStatus } from './workspace.js';
 import { lockProject, readProject } from './project-files.js';
+import { reserveSharedCall, sharedBudgetPolicy } from './shared-budget.js';
 import type { Agents } from './adapters.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
 import { assertClaudeBudget } from './budget.js';
@@ -46,14 +47,14 @@ export async function createRun(config: Config, source: string, goal: string, op
   if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
   state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal }); return store;
 }
-export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; maxClaudeCalls?: number }): Promise<State> {
+export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; maxClaudeCalls?: number }, policyFile = sharedBudgetPolicy): Promise<State> {
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
   try {
     state = store.load();
     if(state.phase==='failed' && state.failure?.stage==='prepare' && !state.failure.recoverable){unlock();return state;}
     if(state.config.projectMode==='direct' && agents.executionMode!=='native') throw new Error('Direct project mode requires native execution adapter');
     if (state.workspace !== (state.config.projectMode === 'direct' ? realpathSync(state.source) : store.file('workspace')) || realpathSync(state.workspace).toLowerCase() !== path.resolve(state.workspace).toLowerCase()) throw new Error('Persisted workspace path mismatch or junction redirect');
-    releaseProject=lockProject(state);
+    releaseProject=lockProject({...state, source: state.workspace, config: {...state.config, projectMode: 'direct'}});
   }
   catch (error) { unlock(); throw error; }
   const stop = new AbortController();
@@ -68,6 +69,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
     await captureBaseline(store, state, baseline, stop.signal);
     store.audit('agent-start', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops });
+    reserveSharedCall(state, store, agent, role, policyFile);
     try { return await timed(operation); }
     finally {
       // Processes have exited (or been killed) before recording their real diff.

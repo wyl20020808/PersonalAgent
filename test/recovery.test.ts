@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createRun, drive } from '../src/controller.js';
+import { createRun, drive as controllerDrive } from '../src/controller.js';
+import { initializeGlobalBudget } from '../src/global-budget.js';
 import { Store, type State } from '../src/store.js';
 import { git, snapshot } from '../src/workspace.js';
 import { prepareApplication } from '../src/application.js';
@@ -15,6 +16,17 @@ import type { Config, Review } from '../src/schema.js';
 import { RealAgents } from '../src/real-agents.js';
 
 const root = path.resolve('.validation', `v02a-${randomUUID()}`); mkdirSync(root, { recursive: true });
+// Synthetic real-mode adapters never call paid services. They still exercise
+// the production shared-budget gate with durable, isolated test authorization.
+async function drive(store:Store,agents:Agents,decision?:string,signal?:AbortSignal,limits?:Parameters<typeof controllerDrive>[4]) {
+  const file=store.file('test-shared-policy.json');
+  if(!existsSync(file)){
+    const claude={file:store.file('test-shared-claude.json'),limit:100},codex={file:store.file('test-shared-codex.json'),limit:100};
+    initializeGlobalBudget(claude.file,claude.limit);initializeGlobalBudget(codex.file,codex.limit);
+    writeFileSync(file,JSON.stringify({version:1,claude,codex}),{flag:'wx'});
+  }
+  return controllerDrive(store,agents,decision,signal,limits,file);
+}
 async function fixture(label: string, options: Partial<Config> = {}) {
   const dir = path.join(root, label); mkdirSync(dir);
   const repo = path.join(dir, 'source'); mkdirSync(repo); await git(repo, ['init']);

@@ -281,7 +281,8 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       if (!evidence.passed || evidence.snapshotDigest !== delivery.workspaceSnapshot || evidence.acceptanceRulesHash !== delivery.rulesHash) throw new Error('Direct delivery final independent verification failed');
       journal.phase = 'applied'; journal.reason = '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
     }
-    release = delivery.branch==='project-files' ? lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}}) : targetLock(delivery.target, options.resume ?? false);
+    const projectRelease=lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}});
+    try {const legacyRelease=delivery.branch==='project-files'?()=>{}:targetLock(delivery.target,options.resume??false);release=()=>{try{legacyRelease();}finally{projectRelease();}};}catch(error){projectRelease();throw error;}
     await validateCurrent(store, delivery, journal);
     if (journal.phase === 'applied') {
       if (delivery.branch!=='project-files' && await fullDiff(delivery.target, delivery.head) !== delivery.diff) throw new Error('Applied target diff changed');

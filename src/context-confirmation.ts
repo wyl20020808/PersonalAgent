@@ -58,7 +58,7 @@ function confirmedContent(doc: ContextDocument, status: ConfirmationAction, refe
 export function decideContextConfirmation(store: Store, id: string, requestHash: string, decision: string, cancel = false, response?: 'accepted' | 'rejected'): ContextConfirmationRequest {
   const unlock = store.lock(); let release: (() => void) | undefined;
   try {
-    const state = store.load(); release = lockProject(state);
+    const state = store.load(); release = lockProject({...state,source:state.workspace,config:{...state.config,projectMode:'direct'}});
     if (state.phase !== 'paused' || !decision.trim()) throw Error('文档正式决策需要暂停 Run 和明确意见');
     const request = readRequest(store, id);
     if (response !== undefined && (!['accepted', 'rejected'].includes(response) || request.currentStatus !== 'proposed')) throw Error('只有 proposed 提议可以直接接受或拒绝');

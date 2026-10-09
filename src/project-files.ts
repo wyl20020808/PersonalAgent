@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync, unlinkSync, openSync, closeSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync, unlinkSync, openSync, closeSync, fsyncSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { assertD, atomicJson, type State, type Store } from './store.js';
@@ -79,17 +79,16 @@ export function lockProject(state: State): () => void {
   if(state.config.projectMode!=='direct') return () => {};
   const directory=process.platform==='win32' ? 'D:/PersonalAgent-data/project-locks' : path.resolve('.project-locks'); mkdirSync(directory,{recursive:true});
   const file=path.join(directory,`${hashBytes(realpathSync(state.source).toLowerCase())}.json`);
-  if(existsSync(file)) {
-    const guard=openSync(`${file}.recovery`,'wx');
-    try {
+  const guard=openSync(`${file}.recovery`,'wx');
+  try {
       if(existsSync(file)) {
         const owner=JSON.parse(readFileSync(file,'utf8')) as {pid:number};
+        if(!Number.isInteger(owner.pid)||owner.pid<1)throw new Error('Invalid project lock; manual inspection required');
         let alive=true;try{process.kill(owner.pid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')alive=false;}
         if(alive)throw new Error('Project is already running in direct mode');
         unlinkSync(file);
       }
-    } finally {closeSync(guard);unlinkSync(`${file}.recovery`);}
-  }
-  const fd=openSync(file,'wx');try{writeFileSync(fd,JSON.stringify({pid:process.pid,runId:state.id}));}finally{closeSync(fd);}
+  const fd=openSync(file,'wx');try{writeFileSync(fd,JSON.stringify({pid:process.pid,runId:state.id}));fsyncSync(fd);}finally{closeSync(fd);}
+  } finally {closeSync(guard);unlinkSync(`${file}.recovery`);}
   return () => unlinkSync(file);
 }

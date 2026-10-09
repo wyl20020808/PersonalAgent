@@ -4,11 +4,13 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {DesktopService,validateRequest,redact} from './service.js';
 import {assertD} from '../../dist/src/store.js';
+import {instanceId,instanceData,claimInstanceData} from '../../dist/src/instance-runtime.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-const data=process.env.PERSONAL_AGENT_DESKTOP_DATA??path.join(root,'.desktop-data');
+const id=instanceId(),data=instanceData(root),title='PersonalAgent '+id.toUpperCase();
+process.env.PERSONALAGENT_INSTANCE=id;claimInstanceData(data);
 if(!/^D:[\\/]/i.test(data))throw Error('Desktop data must be on D drive');
 assertD(data);assertD(root);
-fs.mkdirSync(path.join(data,'tmp'),{recursive:true});process.env.TEMP=path.join(data,'tmp');process.env.TMP=process.env.TEMP;process.env.XDG_CACHE_HOME=path.join(data,'cache');process.env.npm_config_cache=path.join(root,'.cache/npm');
+fs.mkdirSync(path.join(data,'tmp'),{recursive:true});process.env.TEMP=path.join(data,'tmp');process.env.TMP=process.env.TEMP;process.env.XDG_CACHE_HOME=path.join(data,'cache');process.env.npm_config_cache=path.join(data,'cache/npm');
 app.setPath('userData',path.join(data,'electron'));app.setPath('sessionData',path.join(data,'electron/session'));app.setPath('crashDumps',path.join(data,'crash-dumps'));app.setAppLogsPath(path.join(data,'logs'));app.setName('PersonalAgent');app.enableSandbox();
 protocol.registerSchemesAsPrivileged([{scheme:'personalagent',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const locked=app.requestSingleInstanceLock();if(!locked)app.quit();
@@ -20,7 +22,11 @@ if(locked)app.whenReady().then(async()=>{
  protocol.handle('personalagent',request=>{try{const url=new URL(request.url);if(url.host!=='app'||request.method!=='GET')return new Response('Forbidden',{status:403});const evidence=url.pathname.match(/^\/evidence\/([a-f0-9-]{36})\/([a-f0-9-]{36})\/([a-f0-9]{64})\.png$/);if(evidence)return new Response(new Uint8Array(service.image(evidence[1]!,evidence[2]!,evidence[3]!)),{headers:{'content-type':'image/png','x-content-type-options':'nosniff','cache-control':'no-store'}});const relative=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname).slice(1),file=path.resolve(renderer,relative);if(file!==renderer&&!file.startsWith(renderer+path.sep))return new Response('Forbidden',{status:403});const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};return new Response(new Uint8Array(fs.readFileSync(file)),{headers:{'content-type':mime[path.extname(file)]??'application/octet-stream','x-content-type-options':'nosniff'}});}catch{return new Response('Not found',{status:404});}});
  session.defaultSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));session.defaultSession.setPermissionCheckHandler(()=>false);
  session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('personalagent://app/')&&!details.url.startsWith('devtools://')}));
- window=new BrowserWindow({width:1440,height:900,minWidth:1024,minHeight:680,title:'PersonalAgent',backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
+ const windowFile=path.join(data,'window.json');let bounds:{width:number;height:number;x?:number;y?:number}={width:1440,height:900};
+ if(fs.existsSync(windowFile))try{const saved=JSON.parse(fs.readFileSync(windowFile,'utf8'));if(Number.isInteger(saved.width)&&saved.width>=1024&&saved.width<=7680&&Number.isInteger(saved.height)&&saved.height>=680&&saved.height<=4320)bounds={width:saved.width,height:saved.height,...(Number.isInteger(saved.x)&&Number.isInteger(saved.y)?{x:saved.x,y:saved.y}:{})};}catch{}
+ window=new BrowserWindow({...bounds,minWidth:1024,minHeight:680,title,backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
+ window.on('page-title-updated',event=>event.preventDefault());
+ window.on('close',()=>{fs.writeFileSync(windowFile,JSON.stringify(window.getNormalBounds()),{flush:true});});
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());window.webContents.on('will-attach-webview',e=>e.preventDefault());
  ipcMain.handle('personalagent:request',async(event,raw)=>{
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
