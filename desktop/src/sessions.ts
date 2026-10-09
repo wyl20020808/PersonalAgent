@@ -22,7 +22,7 @@ export class SessionStore {
  update(session:Saved){const items=this.read(),index=items.findIndex(s=>s.id===session.id);if(index<0)throw Error('会话不存在');items[index]=session;this.save(items);}
  create(r:Request):Conversation {
   const project=this.service.inspectProject(r.projectPath!);
-  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),settings:{mode:r.mode??'mock',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
+  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
   if(session.selectedTests.some(t=>!project.testCommands.includes(t)))throw Error('测试命令与项目检测不匹配');
   const items=this.read();items.push(session);this.save(items);return this.public(session);
  }
@@ -30,21 +30,43 @@ export class SessionStore {
   const items=this.read(),known=new Set(items.flatMap(s=>s.runs.map(r=>r.id)));let changed=false;
   for(const run of this.service.overview().runs){if(known.has(run.id))continue;
    // Historical runs remain separate, inspectable records; no implicit continuation authorization.
-   items.push({id:randomUUID(),title:run.goal.slice(0,32),manualTitle:false,projectPath:run.source,projectName:path.basename(run.source),createdAt:run.updatedAt,updatedAt:run.updatedAt,settings:{mode:run.mode as 'mock'|'real',projectMode:run.projectMode??'isolated',...run.config},selectedTests:[],directAuthorized:false,profileId:run.profileId,runs:[{id:run.id,profileId:run.profileId}],messages:[],legacy:true});changed=true;
+   items.push({id:randomUUID(),title:run.goal.slice(0,32),manualTitle:false,projectPath:run.source,projectName:path.basename(run.source),createdAt:run.updatedAt,updatedAt:run.updatedAt,settings:{mode:run.mode as 'mock'|'real',projectMode:run.projectMode??'isolated',...run.config},selectedTests:[],directAuthorized:false,profileId:run.profileId,runs:[{id:run.id,profileId:run.profileId,runtimeDir:this.service.config(run.profileId).config.runtimeDir}],messages:[],legacy:true});changed=true;
   }if(changed)this.save(items);
  }
- run(ref:{id:string;profileId:string}){return this.service.publicRun(this.service.store(ref.profileId,ref.id).load(),ref.profileId);}
+ run(ref:Conversation['runs'][number],session?:Saved){
+  // Runtime provenance is fixed at creation. Never use the UI's selected profile.
+  const read=(profileId:string)=>{
+   const {config}=this.service.config(profileId);
+   if(ref.runtimeDir&&path.resolve(ref.runtimeDir).toLowerCase()!==path.resolve(config.runtimeDir).toLowerCase())throw Error('历史记录不可用：Profile 的 runtime 已改变，拒绝串用运行数据');
+   const store=this.service.store(profileId,ref.id),state=store.load();
+   if(session&&path.resolve(state.source).toLowerCase()!==path.resolve(session.projectPath).toLowerCase())throw Error('历史记录不可用：Run 与会话项目不匹配');
+   return {store,run:this.service.publicRun(state,profileId)};
+  };
+  try{return read(ref.profileId).run;}catch(original){
+   // Recovery is read-only and limited to already registered history profiles.
+   // New references carry durable provenance; legacy ones require a verified audit link.
+   const matches:Run[]=[];
+   for(const entry of this.service.registry().profiles){if(entry.id===ref.profileId||!entry.readOnly)continue;try{
+    const candidate=read(entry.id);
+    if(ref.runtimeDir||session&&this.service.audit(candidate.store).some(e=>e.event==='desktop-session-link'&&e.data.sessionId===session.id&&session.messages.some(m=>m.id===e.data.messageId&&m.runId===ref.id)))matches.push(candidate.run);
+   }catch{/* Unverified candidates never become fallback data. */}}
+   if(matches.length===1)return matches[0]!;
+   if(matches.length>1)throw Error('历史记录不可用：存在多个原始归属候选，拒绝猜测');
+   throw original;
+  }
+ }
+ resolve(session:Saved){const runs:Run[]=[],unavailableRuns:NonNullable<Conversation['unavailableRuns']>=[];for(const ref of session.runs)try{runs.push(this.run(ref,session));}catch(error){unavailableRuns.push({...ref,reason:redact((error as Error).message)});}return {runs,unavailableRuns};}
  public(session:Saved):Conversation {
-  const runs=session.runs.map(r=>this.run(r)),last=runs.at(-1);
+  const {runs,unavailableRuns}=this.resolve(session),last=runs.find(r=>r.id===session.runs.at(-1)?.id);
   const claudeUsed=runs.reduce((n,r)=>n+r.claudeCalls,0),loopsUsed=runs.reduce((n,r)=>n+r.loops,0);
   // An interrupted launch is never silently retried: locate its durable Controller link.
   let changed=false;
   for(const message of session.messages){if(message.status==='starting'&&message.runId){message.status='executed';changed=true;}else if(message.status==='starting'&&!this.inFlight.has(session.id)&&!this.lockAlive(this.lockPath(session))){message.status='failed';message.error='启动中断；请检查运行记录后明确重试。';changed=true;}}
   if(changed)this.update(session);
-  return {...session,title:redact(session.title),messages:session.messages.map(m=>({...m,text:redact(m.text),error:m.error?redact(m.error):undefined})),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,session.settings.maxLoops-loopsUsed)},status:last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
+  return {...session,runs:session.runs.map(ref=>({...ref,profileId:runs.find(r=>r.id===ref.id)?.profileId??ref.profileId})),unavailableRuns,title:redact(session.title),messages:session.messages.map(m=>({...m,text:redact(m.text),error:m.error?redact(m.error):undefined})),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,session.settings.maxLoops-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
  }
  list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
- detail(id:string){const session=this.public(this.get(id));return {session,runs:session.runs.map(r=>this.run(r))};}
+ detail(id:string){const session=this.public(this.get(id));return {session,runs:this.resolve(this.get(id)).runs};}
  rename(id:string,title:string){const session=this.get(id),release=this.acquire(session);try{session.title=title.trim();if(!session.title)throw Error('会话名称不能为空');session.manualTitle=true;session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);}finally{release();}}
  edit(r:Request,cancel=false){const session=this.get(r.sessionId!),release=this.acquire(session);try{const message=session.messages.find(m=>m.id===r.messageId);if(!message||!['pending','failed'].includes(message.status))throw Error('仅可修改或取消尚未生效的需求');if(cancel)message.status='cancelled';else{message.text=r.text!.trim();if(!message.text)throw Error('消息不能为空');message.error=undefined;message.status='pending';}session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);}finally{release();}}
  async send(r:Request,process=false){
@@ -60,7 +82,8 @@ export class SessionStore {
   if(process&&(!message||!['pending','failed'].includes(message.status)))throw Error('需求已处理或已取消');
   if(!message){if(session.messages.length>=1000)throw Error('会话消息已达上限');message={id:r.messageId!,time:new Date().toISOString(),text:r.text!.trim(),status:'pending'};if(!message.text)throw Error('消息不能为空');session.messages.push(message);if(!session.manualTitle&&session.messages.length===1)session.title=message.text.replace(/\s+/g,' ').slice(0,32);}
   session.updatedAt=new Date().toISOString();this.update(session);
-  const current=session.runs.map(ref=>this.run(ref)),last=current.at(-1);
+  if(session.settings.mode==='mock'&&!session.mockExplicit){message.status='failed';message.error='旧会话未记录明确的 Mock 测试选择；请新建真实会话，或明确选择 Mock 测试新建会话';this.update(session);return this.public(session);}
+  const {runs:current,unavailableRuns}=this.resolve(session),last=current.at(-1);if(unavailableRuns.length){message.status='failed';message.error='会话关联的历史 Run 不可用；请查看具体原因，新建会话前确认项目状态';this.update(session);return this.public(session);}
   const projectRuns=this.service.overview().runs.filter(run=>run.source.toLowerCase()===session.projectPath.toLowerCase());
   if(projectRuns.some(run=>run.active||active.includes(run.phase))||last&&last.phase!=='completed'){message.status='pending';this.update(session);return this.public(session);}
   if(acknowledgement.test(message.text)){message.status='recorded';this.update(session);return this.public(session);}
@@ -73,14 +96,14 @@ export class SessionStore {
    let goal=message.text;
    if(last)goal+='\n\n[前轮项目状态，仅供上下文，不重复执行历史任务]\n'+JSON.stringify({runId:last.id,goal:session.messages.find(m=>m.runId===last.id)?.text??last.goal.slice(0,5000),completedTaskIds:last.completedTaskIds,reason:last.reason.slice(0,2000),evidence:last.evidence?{passed:last.evidence.passed,issues:last.evidence.issues.slice(0,20)}:null})+'\n请读取当前项目文件，只规划本条新要求。';
    message.status='starting';this.update(session);
-   const linked=(run:Run)=>{session.profileId=run.profileId;session.runs.push({id:run.id,profileId:run.profileId});message!.runId=run.id;message!.status='executed';session.directAuthorized=true;this.update(session);this.service.store(run.profileId,run.id).audit('desktop-session-link',{sessionId:session.id,messageId:message!.id});};
+   const linked=(run:Run)=>{session.profileId=run.profileId;session.runs.push({id:run.id,profileId:run.profileId,runtimeDir:this.service.config(run.profileId).config.runtimeDir});message!.runId=run.id;message!.status=run.phase==='failed'?'failed':'executed';message!.error=run.phase==='failed'?run.reason:undefined;session.directAuthorized=true;this.update(session);this.service.store(run.profileId,run.id).audit('desktop-session-link',{sessionId:session.id,messageId:message!.id});};
    if(!session.profileId){
     await this.service.startProject({operation:'startProject',projectPath:session.projectPath,goal,...session.settings,maxLoops:session.settings.maxLoops,selectedTests:session.selectedTests,directAcknowledged:r.directAcknowledged===true||session.directAuthorized,realAcknowledged:r.realAcknowledged},linked);
    }else{
     // Revalidate immutable, hashed config and project identity before launching another run.
     const {config}=this.service.config(session.profileId);
     if(config.mode!==session.settings.mode||config.projectMode!==session.settings.projectMode||config.allowedRepositories.length!==1||config.allowedRepositories[0].toLowerCase()!==session.projectPath.toLowerCase())throw Error('会话项目授权已改变，拒绝启动');
-    await this.service.start({operation:'start',profileId:session.profileId,repository:session.projectPath,goal,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
+    await this.service.start({operation:'start',profileId:session.profileId,mode:session.settings.mode,repository:session.projectPath,goal,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
    }
   }catch(error){if(!message.runId){message.status='failed';message.error=(error as Error).message;this.update(session);}throw error;}
   return this.public(session);

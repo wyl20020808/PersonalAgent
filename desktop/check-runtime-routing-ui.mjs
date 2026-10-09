@@ -1,0 +1,28 @@
+import {build} from 'esbuild';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+const root=path.dirname(fileURLToPath(import.meta.url));
+const result=await build({stdin:{contents:`
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import assert from 'node:assert/strict';
+import GroupWorkspace from './src/GroupWorkspace.tsx';
+import ProjectCreate from './src/ProjectCreate.tsx';
+const noop=()=>{};
+const overview={profiles:[],runs:[],warnings:[],paths:{},recentProjects:[]};
+const props={run:null,onDetails:noop,onDelivery:noop,onGoal:noop};
+const initial=renderToStaticMarkup(<GroupWorkspace {...props}/>);
+assert.match(initial,/<option value="real" selected="">/);
+const create=renderToStaticMarkup(<ProjectCreate overview={overview} onStart={noop} onImport={noop}/>);
+assert.match(create,/<option value="real" selected="">/);
+const session={id:'session',title:'Historical fixture',projectPath:'D:/fixture',projectName:'fixture',settings:{mode:'mock'},messages:[{id:'message'}],runs:[],budget:{claudeUsed:0,loopsUsed:0},unavailableRuns:[{id:'missing',profileId:'profile',reason:'所属 runtime 中不存在此 Run'}]};
+const missing=renderToStaticMarkup(<GroupWorkspace {...props} conversation={session}/>);
+assert.match(missing,/历史 Run missing/);assert.match(missing,/所属 runtime 中不存在此 Run/);assert.match(missing,/此会话为 Mock 测试模式/);
+const run={id:'mock-run',profileId:'profile',mode:'mock',phase:'completed',goal:'Formal goal',source:'D:/fixture',workspace:'D:/fixture',tasks:[],completedTaskIds:[],taskIndex:0,config:{maxLoops:4,maxReworks:1},loops:2,claudeCalls:0,reworks:0,reason:''};
+const completed=renderToStaticMarkup(<GroupWorkspace {...props} run={run}/>);
+assert.match(completed,/Mock 演练完成 · 未完成真实开发目标/);
+console.log('PASS: 4 Renderer cases (default Real, project default Real, missing history, honest Mock completion). No effects, IPC or Agent calls.');
+`,resolveDir:root,loader:'tsx'},bundle:true,write:false,format:'esm',platform:'node',packages:'external',loader:{'.css':'empty'}});
+const child=spawnSync(process.execPath,['--input-type=module'],{cwd:root,input:result.outputFiles[0].text,encoding:'utf8',windowsHide:true});
+process.stdout.write(child.stdout);process.stderr.write(child.stderr);if(child.error)throw child.error;process.exitCode=child.status??1;
