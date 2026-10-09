@@ -48,3 +48,5 @@ DEV 核心 TypeScript 与正式 Desktop 构建通过。首次真实大型项目�
 - Git 克隆会执行 Git 的检出规则，可能使 checked_files 显示既有行尾差异，应按实际工作区核对；不保证复制原目录全部字节。
 
 验证结果见 `docs/REMOVE_MANDATORY_PROJECT_SNAPSHOT_V1_VALIDATION.md`。这次不创建新的备份、缓存、监听或版本数据库。当前授权只提交独立 fix 分支，不合入 dev/main、不 push。下一步等待用户批准合入 dev，再实际使用验证。
+
+收尾时并行任务已将 dev 更新到 `4ac263e`。本修复保持创建时最新 dev `86a5f91` 的基线，没有自行合并其他任务。后续合入应核对 `desktop/src/GroupWorkspace.tsx` 和 `desktop/src/thread.ts` 的重叠变化；本次独立分支测试不代表与更新后的 dev 组合验收通过。

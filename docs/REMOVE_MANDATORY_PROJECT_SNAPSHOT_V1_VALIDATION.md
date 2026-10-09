@@ -54,3 +54,9 @@
 `problems/2026-10-10-large-project-snapshot-limit.md` 已更新为强制机制决定取消、实现完成等待合入 dev；保留旧修复及合入记录。旧回归夹具问题状态为暂缓。源码、测试、契约和问题记录只提交本任务分支；main/dev 的用户修改、历史 Run、Snapshot、其他项目和并行 Worktree 不改动。
 
 本次没有真实大型项目端到端付费验收，没有新增备份系统、缓存、监听器或数据库，没有重新建立大规模测试工程。完成后停止，等待用户批准合入 dev。
+
+## 收尾时的并行 dev 更新
+
+实现提交为 `5cd1a266072d39d19a5dea2ae647547389f8259b`。提交后只读核对发现并行任务已将 dev 更新到 `4ac263eadb280b4f52ebafea0b23ff89e9d15e87`（已批准的 multi-agent role board P1 合入）；这不是本任务执行的合并。任务创建时 dev 为上述 `86a5f91`，没有改用 main 或重复整合 Snapshot 分支。
+
+新 dev 与本修复在 `desktop/src/GroupWorkspace.tsx`、`desktop/src/thread.ts` 有文件重叠。按本任务“不修改其他并行任务、完成后等待合入 dev”的要求，不在本分支重放或合并其他 UI 成果。后续获得合入授权时应核对并组合新的 UI 与本次未验证范围提示，并补做相应桌面验证。本次测试只证明独立 fix 的当前内容，不代表与新 dev 组合后已通过。
