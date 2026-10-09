@@ -30,3 +30,5 @@
 本次兼容性回归：Snapshot、Project Context、Controller 审查、direct Delivery 与 OpenCode 环境适配共 62/62 通过。桌面专项发现旧准备失败夹具仍使用 101 MiB 触发已移除的限制；保留原失败审计断言，改为不安全硬链接触发，并新增大型项目准备成功及 Run Runtime 来源绑定测试。修正后 Run Routing、OpenCode 选择持久化、实例隔离和 Delivery 边界专项 9/9 通过。此处只修改确定性夹具，没有改动生产适配器、Routing 或 Controller 规则。
 
 DEV 核心 TypeScript 与正式 Desktop 构建通过。首次真实大型项目使用仍应选择正确项目根，并预留独有内容备份和 isolated 工作区空间；完整内容检查存在全项目读取开销。下一步在 DEV 正常使用时核验真实大型项目；本次不对 OpenWorld 做完整快照或资源修改测试，不推送或发布 MAIN。验证与启动证据目录：`D:\PersonalAgent-data\large-project-snapshot-dev-v1\2026-10-09T16-47-42-781Z`。
+
+正式 `Start-DEV.ps1` 已恢复窗口，启动 stderr 为空。profiles、sessions 和原失败 Run 状态的 SHA-256 保持不变；旧的缺少 state.json 的历史目录仍显示不可用，未删除、修补或自动重跑。最终 DEV 桌面专项再次 9/9 通过。启动正常不代表真实大型项目端到端验收完成。

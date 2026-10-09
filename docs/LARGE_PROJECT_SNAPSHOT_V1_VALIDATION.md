@@ -53,3 +53,7 @@ Project Context 规划与任务基线使用指纹比较，checked_files 仍核�
 证据目录为 `D:\PersonalAgent-data\large-project-snapshot-dev-v1\2026-10-09T16-47-42-781Z`：`before.json` 保存 DEV profiles、sessions 和原失败 Run 状态文件的 SHA-256；`desktop-routing-tests.log` 保留首轮失败；`desktop-routing-fixed-tests.log` 保留修正后通过。核心测试日志位于任务 Worktree `.validation/dev-integration-core-tests.log`。合入后通过 `Start-DEV.ps1` 恢复窗口；实际启动结果与状态保留检查写入该证据目录的 `startup.json`。
 
 问题状态为“已合入 DEV，待真实大型项目验证”。本次未创建付费 Agent Run，未对 OpenWorld 执行完整快照或资源修改，没有宣称真实大型项目端到端验收完成。首次备份磁盘占用、隔离副本空间和全内容扫描性能限制仍适用。
+
+实际正式入口启动成功：窗口标题为 `PersonalAgent DEV`，启动 stderr 为空，服务可读取原失败 Run。profiles.json、sessions.json 和原 Run 的 state.json 与合入前 SHA-256 完全一致；最终 DEV 上桌面专项再次 9/9 通过。`startup.json` 的 passed=true 仅表示窗口、服务和历史保留检查通过。
+
+历史边界：Run `095e9ba9-afa5-4735-9a6e-39ba772273dc` 的目录在本次集成前已存在但没有 state.json，目录创建及最后变更时间均为 2026-10-09 21:42:21（北京时间）。服务继续明确标记该记录不可用；未把它当作本次新增故障，未修补、删除或重建历史数据。旧有已失败 Snapshot Run 也未自动恢复或启动真实 Agent。
