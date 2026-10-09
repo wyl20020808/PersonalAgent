@@ -1,5 +1,6 @@
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
 import { codexPublicEvent } from './telemetry.js';
+import { codexObservation } from './call-observation.js';
 import { editSchema, nativeResultSchema, validate, type ExecutionResult } from './schema.js';
 
 // Collaboration rules; native tools remain owned by the CLI/SDK.
@@ -16,6 +17,7 @@ export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThr
   const { events } = await thread.runStreamed(request.prompt, native ? {} : { outputSchema: editSchema });
   let final = '', completed = false;
   for await (const event of events) {
+    const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
     const activity = codexPublicEvent(event); if (activity) emit({ type: 'activity', data: activity });
     if (event.type === 'thread.started') emit({ type: 'thread', id: event.thread_id });
     if (event.type === 'error') throw new Error(event.message);

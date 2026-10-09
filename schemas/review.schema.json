@@ -27,6 +27,7 @@
         },
         "checkedContracts": {
           "type": "array",
+          "description": "实际已核对的精确契约 ID，例如 [\"hud\",\"geometry\"]；不填标题或文件名，不编造核对。旧输出的精确相对路径仅由 Controller 按本轮安全清单兼容。",
           "items": {
             "type": "string",
             "minLength": 1,

@@ -166,13 +166,22 @@ test('real Plan/Execute/Review assembly and resume/proposal retain evidence and 
   }
   const review = prompts.find(p => p.role === 'review')!.prompt;
   assert.deepEqual(review.evidence, reviewEvidence(state.evidence)); assert.deepEqual(review.evidence.tests, state.evidence.tests); assert.deepEqual(review.evidence.issues, ['SAFETY_SENTINEL']); assert.equal(review.evidence.executorExitCode, 7);
-  assert.equal(fs.readdirSync(f.store.file('context')).length, 4); assert.equal(fs.existsSync(f.store.file('indexes')), false); assert.equal(fs.existsSync(f.store.file('reads.jsonl')), false); assert.equal(fs.existsSync(f.store.file('usage.json')), false);
+  const receipts = fs.readdirSync(f.store.file('context'));
+  assert.equal(receipts.filter(name => name.endsWith('.manifest.json')).length, 4);
+  assert.equal(receipts.filter(name => name.endsWith('.reads.jsonl')).length, 4);
+  assert.equal(receipts.filter(name => name.endsWith('.usage.json')).length, 4);
+  assert.equal(fs.existsSync(f.store.file('indexes')), false); assert.equal(fs.existsSync(f.store.file('reads.jsonl')), false); assert.equal(fs.existsSync(f.store.file('usage.json')), false);
 });
 test('legacy real prompts still include repository, no new task declarations required', async () => {
   const f = await fixture(false), captured: any[] = [], state = f.store.load();
   const fake: typeof runProcess = async (_exe, _args, options) => { captured.push(JSON.parse(options.input!)); options.onLine!(JSON.stringify({ type: 'result', structured_output: { tasks: [{ id: 'old', instruction: '旧任务', acceptance: ['通过'] }], humanDecision: null } })); return { exitCode: 0, stdout: '', stderr: '' }; };
   await new RealAgents(f.config, fake).plan(state, f.store, new AbortController().signal);
-  assert.ok(JSON.stringify(captured[0].repository).includes('SOURCE_SENTINEL_NEVER_INJECTED')); assert.equal('context' in captured[0], false); assert.equal(fs.existsSync(f.store.file('context')), false);
+  assert.ok(JSON.stringify(captured[0].repository).includes('SOURCE_SENTINEL_NEVER_INJECTED')); assert.equal('context' in captured[0], false);
+  const manifests = fs.readdirSync(f.store.file('context')).filter(name => name.endsWith('.manifest.json'));
+  assert.equal(manifests.length, 1);
+  const receipt = JSON.parse(fs.readFileSync(f.store.file(`context/${manifests[0]}`), 'utf8'));
+  assert.equal(receipt.enabled, false); assert.equal('assembled' in receipt, false);
+  assert.equal(JSON.stringify(receipt).includes('SOURCE_SENTINEL_NEVER_INJECTED'), false);
 });
 test('live directory reparses between calls and uses only one-hop dependency/association navigation', async () => {
   const f = await fixture(), state = f.store.load(); docs(f.workspace, ['core', 'dep', 'far']);

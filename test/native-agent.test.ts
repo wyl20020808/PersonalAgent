@@ -70,8 +70,8 @@ test('SDK stream consumer allows failed test then repair and success within one 
   const result = await runCodexTurn(sdk, { workspace, threadId: null, prompt: '本地夹具' }, e => emitted.push(e));
   assert.deepEqual(exits, [0, 1, 0, 0]); assert.equal((result as NativeResult).mode, 'native');
   assert.equal(fs.readFileSync(path.join(workspace, 'result.txt'), 'utf8'), 'fixed\n');
-  assert.ok(emitted.some(e => e.data?.text.includes('exit_code=1')));
-  assert.ok(emitted.some(e => e.data?.text.includes('agent fixture test passed')));
+  assert.ok(emitted.some(e => e.type === 'activity' && e.data?.text.includes('exit_code=1')));
+  assert.ok(emitted.some(e => e.type === 'activity' && e.data?.text.includes('agent fixture test passed')));
   fs.writeFileSync(path.join(f.dir, 'local-turn-events.json'), JSON.stringify({ service: 'local fixture', exits, emitted }, null, 2));
 });
 

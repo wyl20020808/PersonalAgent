@@ -15,7 +15,7 @@ import { orderTasks, assertPrerequisites } from './dependencies.js';
 import { captureBaseline, baselineDiff, reviewEvidence } from './incremental.js';
 import { assertOnboardingScope, assertRunContext } from './context-onboarding.js';
 import { loadProjectContext } from './project-context.js';
-import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, taskContextBaseline } from './context-review.js';
+import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, normalizeContractReferences, reviewContractCatalog, taskContextBaseline } from './context-review.js';
 import { prepareUnlocked, pendingContextConfirmations } from './context-confirmation.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
@@ -242,7 +242,10 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         }
         else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
         else if (review.verdict === 'pass' && state.evidence?.passed) {
-          const contextProblems = contextReviewProblems(state.evidence.contextReport, review);
+          const catalog = state.evidence.contextReport ? reviewContractCatalog(state) : [];
+          const references = normalizeContractReferences(review.contextReview?.checkedContracts ?? [], catalog);
+          if (state.evidence.contextReport) store.audit('context-review-references', { receipt, snapshot: state.evidence.snapshotDigest, baselineDigest: state.evidence.contextReport.baselineDigest, raw: review.contextReview?.checkedContracts ?? [], ...references, catalog, catalogHash: createHash('sha256').update(JSON.stringify(catalog)).digest('hex') });
+          const contextProblems = contextReviewProblems(state.evidence.contextReport, review, references);
           if (contextProblems.length) {
             store.audit('review-vetoed', { reason: 'Project Context 审查缺少正式处理', contextProblems });
             state.feedback = contextProblems.join('\n'); state.nextPhase = 'execute'; state.reworkPending = true;

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicJson, type State, type Store } from './store.js';
 import { readProject, hashBytes, type ProjectSnapshot } from './project-files.js';
-import { belongsToModule, contextRoot, contextHash, loadProjectContext, type ProjectContext, type ModuleDocument } from './project-context.js';
+import { belongsToModule, contextRoot, contextHash, contextPath, parseContextDocument, loadProjectContext, type ProjectContext, type ModuleDocument } from './project-context.js';
 import type { Review } from './schema.js';
 import { verifyConfirmation } from './context-trust.js';
 import { FlowError } from './failure.js';
@@ -115,9 +115,45 @@ export function checkTaskContext(state: State, store: Store): ContextReport | un
   if (!existsSync(reportPath)) atomicJson(reportPath, report);
   store.audit('context-task-check', { taskId: report.taskId, path: reportPath, snapshot: current.digest, expandedModules: report.expandedModules, findings }); return report;
 }
-export function contextReviewProblems(report: ContextReport | undefined, review: Review): string[] {
+export interface ReviewContractReference { id: string; path: string; title?: string; status?: string; source?: string; contentHash?: string; required?: boolean; valid?: boolean }
+export function reviewContractCatalog(state: State): ReviewContractReference[] {
+  const required = state.evidence?.contextReport?.contracts ?? [];
+  const catalog: ReviewContractReference[] = required.map(entry => {
+    try {
+      const doc = parseContextDocument(state.workspace, entry.path, 'contract', Buffer.from(entry.content));
+      return { id: entry.id, path: entry.path, title: doc.metadata.title, status: entry.status, source: entry.source, contentHash: doc.hash, required: true, valid: doc.metadata.id === entry.id };
+    } catch { return { id: entry.id, path: entry.path, status: entry.status, source: entry.source, required: true, valid: false }; }
+  });
+  // Only the live, safely loaded workspace catalog can provide optional references.
+  // Invalid documents remain subject to the existing report/trust veto.
+  try {
+    const live = loadProjectContext(state.workspace, true, { runtimeDir: state.config.runtimeDir, source: state.source });
+    for (const doc of live.contracts) if (!catalog.some(entry => entry.path === doc.relative && entry.contentHash === doc.hash)) catalog.push({ id: doc.metadata.id, path: doc.relative, title: doc.metadata.title, status: doc.trust?.effectiveStatus, source: 'current', contentHash: doc.hash, required: required.some(entry => entry.id === doc.metadata.id), valid: true });
+  } catch { /* checkTaskContext already records invalid live documents. */ }
+  return catalog;
+}
+export function normalizeContractReferences(references: string[], catalog: ReviewContractReference[]) {
+  const checkedContracts: string[] = [], mappings: { reference: string; id: string; via: 'id' | 'exact-relative-path' }[] = [], problems: string[] = [];
+  const ids = new Map<string, Set<string>>(), paths = new Map<string, Set<string>>();
+  for (const entry of catalog) {
+    if (entry.valid === false || !/^[a-zA-Z0-9_-]{1,64}$/.test(entry.id) || !contextPath(entry.path) || !entry.path.startsWith(`${contextRoot}/contracts/`) || !entry.path.endsWith('.md')) { problems.push(`契约引用清单无法验证：${entry.path}`); continue; }
+    const named = ids.get(entry.id) ?? new Set<string>(); named.add(entry.path); ids.set(entry.id, named);
+    const located = paths.get(entry.path) ?? new Set<string>(); located.add(entry.id); paths.set(entry.path, located);
+  }
+  for (const [id, locations] of ids) if (locations.size !== 1) problems.push(`契约 ID 映射冲突：${id}`);
+  for (const [relative, names] of paths) if (names.size !== 1) problems.push(`契约路径映射冲突：${relative}`);
+  for (const reference of references) {
+    const exactId = ids.has(reference), candidates = exactId ? [reference] : [...(paths.get(reference) ?? [])];
+    const id = candidates[0];
+    if (candidates.length !== 1 || !id || ids.get(id)?.size !== 1 || [...ids.get(id)!].some(p => paths.get(p)?.size !== 1)) { problems.push(`未知或歧义的契约引用：${reference}`); continue; }
+    mappings.push({ reference, id, via: exactId ? 'id' : 'exact-relative-path' });
+    if (!checkedContracts.includes(id)) checkedContracts.push(id);
+  }
+  return { checkedContracts, mappings, problems };
+}
+export function contextReviewProblems(report: ContextReport | undefined, review: Review, references = normalizeContractReferences(review.contextReview?.checkedContracts ?? [], report?.contracts ?? [])): string[] {
   if (!report || review.verdict !== 'pass') return [];
-  const errors: string[] = [];
+  const errors: string[] = [...references.problems];
   if (report.findings.some(f => f.code === 'CONTEXT_INVALID' || f.code === 'CONFIRMATION_UNVERIFIABLE' && f.origin === 'task')) errors.push('本轮文档格式或确认依据无效，不能通过');
   for (const finding of report.findings.filter(item => item.code === 'CONFIRMATION_UNVERIFIABLE' && item.origin === 'preexisting')) if (!review.contextReview?.confirmationNotes?.some(note => note.path === finding.path && note.reason.trim())) errors.push(`任务前已有不可验证依据 ${finding.path}，必须明确记录边界，不得当作 accepted 使用`);
   if (report.expandedModules.length && !review.contextReview?.expansionReason?.trim()) errors.push('跨模块扩展必须说明理由');
@@ -127,6 +163,6 @@ export function contextReviewProblems(report: ContextReport | undefined, review:
     if (!decision || decision.documentUpdated !== module.documentUpdated || !decision.disposition.trim() || (!module.documentUpdated && !decision.noUpdateReason?.trim()) || module.checkedFiles.some(file => !decision.checkedFiles.includes(file))) errors.push(`模块 ${module.moduleId} 缺少文档、核心哈希和约束判断`);
     if (decision?.constraintsChanged && !module.documentUpdated) errors.push(`模块 ${module.moduleId} 约束发生变化，不能仅声明无需更新文档`);
   }
-  for (const contract of report.contracts) if (!review.contextReview?.checkedContracts.includes(contract.id)) errors.push(`契约 ${contract.id} 未完成核对`);
+  for (const contract of report.contracts) if (!references.checkedContracts.includes(contract.id)) errors.push(`契约 ${contract.id} 未完成核对`);
   return errors;
 }
