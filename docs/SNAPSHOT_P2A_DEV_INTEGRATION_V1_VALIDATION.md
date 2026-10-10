@@ -47,3 +47,15 @@ Electron 脚本：`desktop/validate-decision-discussion-electron.mjs`；证据�
 无完整变化清单、精确任务/轮次 Diff、全项目备份或自动恢复；非 Git/忽略/未跟踪/二进制内容未完整自动验证。clean Git isolated 可克隆；非 Git/dirty Git 自动复制和隔离建档不可用；isolated 不自动 Apply，Direct Delivery 人工审批只确认已有文件。Project Context 限定文档和 checked_files。较深 Windows Git Runtime 可能克隆失败。
 
 正式更新前必须再次检查 DEV 前进和活跃写入，只用 `git merge --ff-only`。正式 DEV 构建后调用原 `Start-DEV.ps1`；最终 SHA、窗口及 MAIN/历史数据保留证据完成后补记。完成后停止，等待用户在 DEV 启动真实任务。
+
+## 正式 DEV 更新完成
+
+再次核对 DEV 仍为初始 `c3b37c6`，没有新提交、活跃 Run 锁或 Controller 子进程；现场没有需要关闭的旧 DEV 窗口，没有强制终止任务。执行 `git merge --ff-only integration/personalagent-snapshot-p2a-v1`，更新至功能整合提交 `87b434bd4eda7971f1becfd3d2edfc69043108be`。两来源提交均保留为祖先。
+
+正式 DEV 核心 build、Desktop check/build 再次通过，随后运行原 `D:/PersonalAgent-worktrees/dev/Start-DEV.ps1`。脚本本身只启动，重建由前述显式构建完成；没有修改启动脚本。实际 Electron 父进程 PID 3300，窗口标题 `PersonalAgent DEV`，非零窗口句柄；命令路径是正式 DEV desktop，renderer user-data-dir 是 `D:/PersonalAgent-data/instances/dev/electron`，stdout/stderr 为空。未启动或重启 MAIN。
+
+`D:/PersonalAgent-data/snapshot-p2a-integration-v1/formal-dev-check.json` 保存关键 11 个 Controller/Desktop/renderer 编译文件摘要，全部与独立验证 Worktree 一致。正式服务 overview 与 sessions.detail 成功读取原两 Session、已失败 Run；一个原缺失 state.json 的历史目录仍为 unavailable，未补造状态、删除或自动重跑。前后 8 个历史数据文件和 24 个 DEV 未跟踪文件摘要全部相同，MAIN HEAD、原 Diff 及未跟踪清单不变。保留证据为 `before.json`、`pre-ff.json`、`post-ff.json`、`post-start.json` 和最终核验文件。
+
+启动后只补记本报告和两项问题状态，通过文档提交快进进入 DEV；不改变源码、构建产物或运行数据，不需要重启。最终 DEV SHA 由交付回复与 `formal-dev-check.json` 给出，其功能代码仍是已验证的 `87b434b`。所有任务 Worktree 与测试失败证据保留，无 push/main 合并。
+
+本地确定性验收通过；真实远端双 Agent 组合尚未验收。完成后停止，等待用户在 DEV 启动真实任务。

@@ -1,7 +1,7 @@
 # 大型项目快照固定上限阻断开发
 
 - 归属：PersonalAgent，项目准备、快照、轮次基线与变更验收。
-- 状态：取消强制 Snapshot 与 P2A 已在获批整合分支组合验证通过，等待本次正式 DEV 快进及启动核验。以下原记录作为历史证据保留。未调用真实付费 Agent，也未对 OpenWorld 做全项目快照或端到端验收。
+- 状态：取消强制 Snapshot 与 P2A 已组合验证并正式进入本机 DEV，正式窗口启动正常。以下原记录作为历史证据保留。未调用真实付费 Agent，也未对 OpenWorld 做全项目快照或端到端验收。
 - 现象：用户反馈真实项目出现 `Project snapshot limit exceeded (100 MiB / 20000 files)`，无法开始正常开发。
 - 影响：Unreal Engine 源项目和资源目录即使只修改少量源码，也被项目总容量或文件数量阻断。
 
@@ -58,3 +58,5 @@ DEV 核心 TypeScript 与正式 Desktop 构建通过。首次真实大型项目�
 大型 Git/非 Git Direct、20,001 文件、512 MiB 资源、硬链接、Plan/Execute/Review、人工 Delivery 及恢复均经本地夹具验证。核心 65/65、Desktop 83/83、实际 Electron 8 组通过；P2A 没有重新引入强制内容 Snapshot、备份或每轮全库扫描/fsck。旧 13 项失败已处理，见 `2026-10-10-snapshot-era-regression-fixtures.md`。
 
 上述无全量 Diff/自动恢复/isolated 自动 Apply 限制继续存在；较深 Windows Git isolated Runtime 可能报 `$GIT_DIR too big`，另有问题记录。付费调用 0；正式 DEV 更新与启动结果由本次整合报告收尾记录。本次未扫描、备份或执行 OpenWorld 项目。
+
+正式 DEV 已 `git merge --ff-only` 至功能整合提交 `87b434bd4eda7971f1becfd3d2edfc69043108be`；正式核心构建、Desktop check/build 再次通过，原 `Start-DEV.ps1` 启动 `PersonalAgent DEV` 窗口，stderr 为空。关键编译产物与独立验证版本相同，原两 Session、一个失败 Run、历史不可用目录和未跟踪文件全部保留。MAIN HEAD、原修改与未跟踪状态未变。最后仅补记文档，不重启 MAIN，也不启动用户项目任务；最终 DEV SHA 见交付报告及 `formal-dev-check.json`。
