@@ -6,6 +6,7 @@ import { applyEdits } from './workspace.js';
 import { contextPath, loadProjectContext, mockContextDocuments, stampContext, stampEligible } from './project-context.js';
 import { projectFiles } from './project-files.js';
 import { discussPlan, mockParticipantSession, withParticipant } from './decision-discussion.js';
+import { bindDecisionSession } from './decision-agent.js';
 
 export interface Agents {
   readonly executionMode?: 'native' | 'proposal';
@@ -22,7 +23,9 @@ export class MockAgents implements Agents {
       if (stage === 'discussion') return { summary: `Mock ${id.toUpperCase()} 补充意见；仅本地夹具`, disagreements: ['独立意见不代表达成共识'], amendments: ['由主决策者汇总并交 Controller 校验'] };
       return this.plan(view);
     }));
-    state.claudeSessionId ??= 'mock-claude-session';
+    if (state.decisionAgent?.backend === 'codex') {
+      if (store && !state.decisionSession) { bindDecisionSession(state, store, `mock-decision-${state.id}`); store.audit('mock-decision-session', { sessionId: state.decisionSession!.sessionId, note: '本地 Mock 决策 Thread；没有真实模型调用' }); }
+    } else state.claudeSessionId ??= 'mock-claude-session';
     if (state.purpose === 'context-onboarding') return { humanDecision: null, tasks: [{ id: 'context', instruction: '本地 Mock 建档夹具，仅生成约定文档', acceptance: ['格式有效，源目录不变；不是付费 Agent 验收'] }] };
     return { humanDecision: null, tasks: [{ id: 'hello', instruction: 'Create hello.txt containing hello', acceptance: ['hello.txt must contain hello followed by a newline', 'Independent tests pass'] }, { id: 'done', instruction: 'Create done.txt containing done', acceptance: ['done.txt must contain done followed by a newline'] }] };
   }

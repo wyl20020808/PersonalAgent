@@ -33,3 +33,13 @@ T2 Review 辅助断言同步使用 Controller 文档/checked_files 观测及 `pr
 P2A 决策夹具改为明确授权 Direct，保留独立 Session、模型、调用、失败恢复与禁止提前 Execute；加入旧全项目捕获会拒绝的硬链接，仍完成讨论，并断言没有 project-baseline/snapshot-objects。Desktop 逐段更新非 Git isolated 明确失败、Direct 摘要审批零重复写入、大型准备无快照、准备失败消息/Run/审计绑定等前提；clean Git isolated 历史和下一轮保护保留。长 Git Runtime 限制另见 `2026-10-10-isolated-git-long-runtime-path.md`。
 
 最终核心组合 65/65、Desktop 83/83、实际 Electron 8 组检查通过。证据：`D:/PersonalAgent-data/snapshot-p2a-integration-v1/core-final.log`、`desktop-final.log`；`D:/PersonalAgent-data/multi-decision-discussion-p2a/electron-f7abd572/result.json`。付费调用 0；这是独立 Codex Desktop 自主确定性验证，不是远端 Agent 或 Controller 独立开发验收。
+
+## 2026-10-10：P3A 发现另外 3 项历史 Native 回归失败
+
+- 当前状态：原 13 项已解决；另外 3 项待处理，本次没有修改或跳过其断言。
+- 证据：P3A 分支和从 `ddb098aedff7a40dc4a161f2e8eda8722bf32598` 导出的原始源码均运行 `native-agent.test.js`，均为 16/19 通过，以下 3 项失败及断言结果一致。原始源码在 P3A 工作目录的 `.validation/p3a-baseline` 单独编译，测试工作目录与 P3A 相同；没有修改运行中的 DEV。
+- 失败项目：`native controller includes planning, executor and reviewer modifications and revalidates review` 的 Diff 缺少 `plan-note.txt`；`interrupted native changes survive resume with same thread and task baseline` 的预期 Diff 值为 undefined；`repeated CC review modifications are bounded by repair control across recovery` 得到 `Rework limit reached`，原断言期望 `Review repair limit reached`。
+- 已确认事实：三项失败不是 P3A 新增代码引入。是否全部仅需迁移旧快照断言，仍需专项核查，不能据此断言生产流程无问题。
+- 日志：`D:/PersonalAgent-worktrees/tasks/codex-decision-agent-p3a/.validation/p3a-native.log`、`.validation/p3a-native-baseline.log`。
+- 影响：历史 Native 回归仍未全绿；P3A 新增功能和必要的决策/审计组合检查结果另见验收报告。
+- 下一步：另行核对无强制 Snapshot 后的有限 Diff、恢复证据和 Review 修改语义，保留审查及恢复保护，不为了旧断言恢复全项目快照。

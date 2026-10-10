@@ -58,7 +58,7 @@ export class CallObservation {
   private initModel: string | null = null;
   private freshModelUsage = false;
 
-  constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'opencode') {
+  constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'opencode' | 'codex') {
     const callId = navigation?.callId ?? randomUUID(), agent = phase === 'execute' ? 'codex' : decisionBackend ?? 'claude';
     mkdirSync(store.file('context'), { recursive: true });
     const manifestPath = store.file(`context/${callId}.manifest.json`);
@@ -67,7 +67,7 @@ export class CallObservation {
     this.readsFile = store.file(`context/${callId}.reads.jsonl`); this.usageFile = store.file(`context/${callId}.usage.json`);
     // A fresh call ID is mandatory. Never truncate a historical receipt.
     writeFileSync(this.readsFile, '', { flag: 'wx' }); writeFileSync(this.usageFile, '', { flag: 'wx' });
-    this.usage = { ...empty(), callId, runId: state.id, taskId: phase === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase, agent, workspace: state.workspace, manifestPath, mode: state.config.mode, controllerCall: agent !== 'codex' ? state.claudeCalls ?? 0 : state.loops, rework: phase !== 'plan' && state.reworks > 0, resumed, model: null, models: [], perModel: [], modelRequests: null, source: agent === 'opencode' ? 'opencode-sdk-native-messages' : agent === 'claude' ? 'claude-cli-stream-json' : 'codex-sdk-0.161.0-turn.completed', completeness: 'unknown', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, durationMs: null, promptBytes: Buffer.byteLength(prompt), notes: [] };
+    this.usage = { ...empty(), callId, runId: state.id, taskId: phase === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase, agent, workspace: state.workspace, manifestPath, mode: state.config.mode, controllerCall: phase === 'execute' ? state.loops : state.claudeCalls ?? 0, rework: phase !== 'plan' && state.reworks > 0, resumed, model: null, models: [], perModel: [], modelRequests: null, source: agent === 'opencode' ? 'opencode-sdk-native-messages' : agent === 'claude' ? 'claude-cli-stream-json' : 'codex-sdk-0.161.0-turn.completed', completeness: 'unknown', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, durationMs: null, promptBytes: Buffer.byteLength(prompt), notes: [] };
     if (store.decisionParticipant) Object.assign(this.usage, store.decisionParticipant);
     store.audit('observation-call-start', this.usage);
     this.record('coverage', { note: agent === 'claude' ? '仅配对本次 CLI Read 调用和可确认的文本结果；未识别的格式、子工具及 Shell 文件 I/O 不可观测。' : 'SDK 不暴露原生 Read、实际模型和内部请求数；仅观察命令与回合用量。Shell/MCP 不推断文件读取。' });

@@ -12,6 +12,24 @@ import type {ChatMessage,Conversation} from './types.js';
 import type {State} from '../../src/store.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+
+test('Codex single/dual models and primary persist across Desktop restart; Mock routes locally with separate identity',async()=>{
+ for(const dual of [false,true]){
+  const {service,data,project}=fixture();
+  const decisionAgent:DecisionAgent={backend:'codex',model:'fixture-model'};
+  const decisionDiscussion=dual?{participants:[{id:'a' as const,agent:{backend:'codex' as const,model:'fixture-other'}},{id:'b' as const,agent:decisionAgent}],primary:'b' as const,rounds:0 as const}:undefined;
+  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',decisionAgent,...(decisionDiscussion?{decisionDiscussion}:{})}) as Conversation;
+  assert.deepEqual(new DesktopService(root,data,process.execPath).sessions.get(session.id).settings.decisionAgent,decisionAgent);
+  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Codex local Mock fixture',directAcknowledged:true});
+  try{
+   const run=await done(service,session.id);assert.equal(run.phase,'completed',run.reason);assert.deepEqual(run.decisionAgent,decisionAgent);assert.equal(run.claudeSessionId,null);assert.equal(run.decisionSession?.backend,'codex');assert.notEqual(run.decisionSession?.sessionId,run.codexThreadId);
+   const restored=new DesktopService(root,data,process.execPath).sessions.detail(session.id);assert.deepEqual(restored.session.settings.decisionAgent,decisionAgent);
+   if(dual){assert.deepEqual(run.discussion?.config,decisionDiscussion);assert.notEqual(run.discussion!.participants[0].session!.sessionId,run.discussion!.participants[1].session!.sessionId);}
+  }finally{await service.stopOwned();}
+ }
+ assert.throws(()=>validateRequest({operation:'createSession',projectPath:'D:/fixture',decisionAgent:{backend:'codex',model:'invalid model'}}));
+ assert.throws(()=>validateRequest({operation:'createSession',projectPath:'D:/fixture',executionAgents:[{backend:'codex'},{backend:'codex'}]}));
+});
 test('decision backend: dynamic sanitized discovery, latest selection validation, immutable Run and restart persistence',async()=>{
  const {data,project}=fixture();
  let discovery:DecisionModels={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};
@@ -68,7 +86,7 @@ test('dual decision session binds two identities and primary configuration; IPC 
   const saved=service.sessions.get(session.id);saved.settings.decisionDiscussion!.rounds=0;service.sessions.update(saved);
   await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'拒绝篡改讨论配置'}),/讨论参与者已改变/);assert.equal(service.sessions.get(session.id).runs.length,1);
  }finally{await service.stopOwned();}
- for(const agent of [{backend:'codex'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
+ for(const agent of [{backend:'unsupported'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
 });
 function fixture(shortPath=false){const data=shortPath?path.join('D:/pa-si',randomUUID().slice(0,8)):path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
 async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return run;await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}

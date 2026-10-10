@@ -9,6 +9,14 @@ import {DesktopService,validateRequest} from './service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});
+
+test('Codex decision and executor messages retain official identity and distinct role; dual Codex A/B never group',()=>{
+ const single={...state,decisionAgent:{backend:'codex',model:'fixture'}} as State;
+ const messages=projectMessages(single,[event('plan','plan',{tasks:[]}),event('decision','agent-activity',{agent:'codex',phase:'plan',kind:'output',title:'Decision',text:'local',scope:'decision-call'}),event('execution','agent-activity',{agent:'codex',phase:'execute',kind:'output',title:'Execute',text:'local',scope:'execution-call'}),event('review','review',{verdict:'pass',reason:'local'})],[]);
+ assert.ok(messages.every(m=>m.role==='codex'));assert.equal(messages[0].participantRole,'决策者');assert.equal(messages[1].participantRole,'决策者');assert.equal(messages[2].participantRole,undefined);assert.equal(messages[3].participantRole,'决策者');
+ const draft=(id:'a'|'b')=>event(id,'discussion-output',{participantId:id,participantAgent:{backend:'codex'},primary:id==='b',discussionStage:'draft',mode:'mock',output:{humanDecision:null,tasks:[]}});
+ const dual=projectMessages(single,[draft('a'),draft('b')],[]);assert.deepEqual(dual.map(m=>m.participantName),['Codex A','Codex B']);assert.deepEqual(dual.map(m=>m.participantRole),['决策者','主决策者']);
+});
 test('dual audit output keeps same-backend instances separate, mixed brands accurate, and Controller statuses distinct',()=>{
  const discussion={config:{participants:[{id:'a',agent:{backend:'opencode',opencode:{providerID:'p',modelID:'m'}}},{id:'b',agent:{backend:'claude-code'}}],primary:'a',rounds:1},participants:[{id:'a',agent:{backend:'opencode',opencode:{providerID:'p',modelID:'m'}}},{id:'b',agent:{backend:'claude-code'}}],closed:false,steps:[]};
  const dual={...state,config:{mode:'mock'},decisionAgent:{backend:'opencode',providerID:'p',modelID:'m'},discussion} as unknown as State;
