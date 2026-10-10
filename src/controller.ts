@@ -21,6 +21,7 @@ import { decisionIdentity, assertDecisionState } from './decision-agent.js';
 import { assertExecutionState } from './opencode-execution-agent.js';
 import { initializeDiscussion, assertDiscussion, assertDiscussionPlan } from './decision-discussion.js';
 import { timeoutSignal } from './timeout.js';
+import { assertDeliveryAcceptanceRules } from './rules.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
@@ -31,14 +32,20 @@ export async function createRun(config: Config, source: string, goal: string, op
   if(config.mode==='mock' && config.projectMode && !options.purpose) for(const marker of ['hello','done']) { const file=path.join(source,marker+'.txt'); if(existsSync(file) && readFileSync(file,'utf8')!==marker+'\n') throw new Error('Mock 标记文件已存在且内容不同，拒绝覆盖'); }
   const store = new Store(config.runtimeDir, randomUUID());
   const isolated = store.file('workspace');
-  const releasePreparation = lockProject({ source: realpathSync(source), config } as State);
+  let releasePreparation: (() => void) | undefined;
+  let canonicalSource = path.resolve(source);
   let base: string;
-  try { base = await prepare(source, isolated, config); }
+  try {
+    canonicalSource = realpathSync(source);
+    releasePreparation = lockProject({ source: canonicalSource, config } as State);
+    base = await prepare(source, isolated, config);
+    assertDeliveryAcceptanceRules({ config, workspace: config.projectMode === 'direct' ? canonicalSource : isolated });
+  }
   catch (error) {
     // Keep a durable, inspectable failure even when clone/preparation never completes.
     {
       const failure=classifyFailure(error,'prepare');
-      const failed:State={version:1,id:store.id,goal,source:realpathSync(source),workspace:config.projectMode==='direct'?realpathSync(source):isolated,base:'',config,phase:'failed',nextPhase:'planning',tasks:[],taskIndex:0,loops:0,reworks:0,totalReworks:0,claudeCalls:0,completedTaskIds:[],reworkPending:false,claudeSessionId:null,codexThreadId:null,feedback:'',reason:failure.message,failure,evidence:null,executorExitCode:-1,updatedAt:'',beforeExecution:''};
+      const failed:State={version:1,id:store.id,goal,source:canonicalSource,workspace:config.projectMode==='direct'?canonicalSource:isolated,base:'',config,phase:'failed',nextPhase:'planning',tasks:[],taskIndex:0,loops:0,reworks:0,totalReworks:0,claudeCalls:0,completedTaskIds:[],reworkPending:false,claudeSessionId:null,codexThreadId:null,feedback:'',reason:failure.message,failure,evidence:null,executorExitCode:-1,updatedAt:'',beforeExecution:''};
       failed.snapshotPolicy = 'none';
       failed.decisionAgent = decisionIdentity(config);
       initializeDiscussion(failed);
@@ -47,7 +54,7 @@ export async function createRun(config: Config, source: string, goal: string, op
       else { const durable = new FlowError(failure.kind, failure.message); durable.runId=store.id; throw durable; }
     }
     throw error;
-  } finally { releasePreparation(); }
+  } finally { releasePreparation?.(); }
   const workspace = config.projectMode === 'direct' ? realpathSync(source) : isolated;
   const state: State = { version: 1, id: store.id, goal, source: realpathSync(source), workspace, base, config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: null, codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
   state.snapshotPolicy = 'none';

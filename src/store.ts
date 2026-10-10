@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, fstatSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { configSchema, taskSchema, decisionAgentSchema, decisionDiscussionSchema, planSchema, normalizeConfig, validate, type Config, type Task } from './schema.js';
@@ -81,6 +81,33 @@ export function atomicJson(file: string, value: unknown): void {
   try { writeFileSync(fd, JSON.stringify(value, null, 2)); fsyncSync(fd); } finally { closeSync(fd); }
   replaceAtomic(temp, file);
 }
+// Read only the final nonempty record. Do not cache it: other Store instances
+// may append between calls. Decode after joining bytes to preserve UTF-8.
+function auditTail(file: string): string | undefined {
+  if (!existsSync(file)) return undefined;
+  const fd = openSync(file, 'r');
+  try {
+    let position = fstatSync(fd).size;
+    let suffix = Buffer.alloc(0);
+    while (position > 0) {
+      const size = Math.min(position, 64 * 1024);
+      position -= size;
+      const chunk = Buffer.alloc(size);
+      let read = 0;
+      while (read < size) {
+        const count = readSync(fd, chunk, read, size - read, position + read);
+        if (!count) throw new Error('Audit changed while reading tail');
+        read += count;
+      }
+      suffix = Buffer.concat([chunk, suffix]);
+      let end = suffix.length;
+      while (end && [10, 13, 32, 9].includes(suffix[end - 1]!)) end--;
+      const start = suffix.lastIndexOf(10, end - 1);
+      if (end && (start >= 0 || position === 0)) return suffix.subarray(start + 1, end).toString('utf8').trim();
+    }
+    return undefined;
+  } finally { closeSync(fd); }
+}
 export class Store {
   readonly decisionParticipant?: { participantId: 'a' | 'b'; discussionStage: string };
   readonly dir: string;
@@ -102,7 +129,7 @@ export class Store {
   load(): State { const state = JSON.parse(readFileSync(this.file('state.json'), 'utf8')); state.config = validate<Config>(configSchema, state.config); return validate<State>(stateSchema, state); }
   audit(event: string, data: unknown = {}): void {
     const file = this.file('audit.jsonl');
-    const previous = existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').at(-1) : undefined;
+    const previous = auditTail(file);
     const previousHash = previous ? (JSON.parse(previous) as { hash: string }).hash : '';
     const record = { time: new Date().toISOString(), event, data, previousHash };
     const hash = createHash('sha256').update(JSON.stringify(record)).digest('hex');

@@ -31,18 +31,25 @@ export function runProcess(executable: string, args: string[], options: {
     child.stdout.on('error', kill); child.stderr.on('error', kill);
     child.stdout.on('data', (chunk: string) => {
       if (failure) return;
-      stdout += chunk; pending += chunk;
+      stdout += chunk;
       // Streaming callers persist events as they arrive. Bound memory without
       // terminating a long native development loop for cumulative tool output.
       if (options.streamOutput) stdout = stdout.slice(-1024 * 1024);
       if (stdout.length + stderr.length > 8 * 1024 * 1024) kill(new Error('Process output limit exceeded'));
+      if (!options.onLine) return;
+      pending += chunk;
       let index: number;
       while ((index = pending.indexOf('\n')) >= 0) {
         const line = pending.slice(0, index); pending = pending.slice(index + 1);
         try { options.onLine?.(line); } catch (error) { kill(error as Error); }
       }
     });
-    child.stderr.on('data', (chunk: string) => { if (failure) return; stderr += chunk; if (stdout.length + stderr.length > 8 * 1024 * 1024) kill(new Error('Process output limit exceeded')); });
+    child.stderr.on('data', (chunk: string) => {
+      if (failure) return;
+      stderr += chunk;
+      if (options.streamOutput) stderr = stderr.slice(-1024 * 1024);
+      if (stdout.length + stderr.length > 8 * 1024 * 1024) kill(new Error('Process output limit exceeded'));
+    });
     const cleanup = () => { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); };
     child.on('error', error => { cleanup(); reject(error); });
     child.on('close', async code => { cleanup(); await termination; if (failure) reject(failure); else resolve({ exitCode: code ?? -1, stdout, stderr }); });

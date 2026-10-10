@@ -110,8 +110,9 @@ test('SDK stream consumer allows failed test then repair and success within one 
   fs.writeFileSync(path.join(f.dir, 'local-turn-events.json'), JSON.stringify({ service: 'local fixture', exits, emitted }, null, 2));
 });
 
-test('native controller includes planning, executor and reviewer modifications and revalidates review', async () => {
-  const f = await fixture('all-agent-changes'), state = await drive(f.store, agents());
+test('legacy snapshot: native controller includes planning, executor and reviewer modifications and revalidates review', async () => {
+  const f = await fixture('all-agent-changes');const legacy=f.store.load();delete legacy.snapshotPolicy;f.store.save(legacy);
+  const state = await drive(f.store, agents());
   assert.equal(state.phase, 'completed'); assert.equal(state.loops, 1); assert.equal(state.claudeCalls, 3);
   assert.match(state.evidence!.diff, /plan-note.txt/); assert.match(state.evidence!.diff, /reviewed/); assert.match(state.evidence!.diff, /fixed/);
   assert.equal(fs.existsSync(f.store.file('application-1.json')), false);
@@ -130,8 +131,9 @@ test('native mode rejects old file proposal without duplicate application', asyn
   assert.equal(fs.readFileSync(path.join(state.workspace, 'result.txt'), 'utf8'), 'native\n'); assert.equal(fs.existsSync(f.store.file('application-1.json')), false);
 });
 
-test('interrupted native changes survive resume with same thread and task baseline', async () => {
+test('legacy snapshot: interrupted native changes survive resume with same thread and task baseline', async () => {
   const f = await fixture('interruption'), a = agents(), original = a.execute;
+  const legacy=f.store.load();delete legacy.snapshotPolicy;f.store.save(legacy);
   a.execute = async (state, store, signal) => { await original(state, store, signal); fs.writeFileSync(path.join(state.workspace, 'partial.txt'), 'preserved\n'); throw new FlowError('executor', 'Injected local interruption'); };
   const paused = await drive(f.store, a); assert.equal(paused.phase, 'paused'); assert.equal(paused.loops, 1);
   assert.equal((await drive(f.store, a)).loops, 1);
@@ -154,11 +156,24 @@ test('Claude review repair finishes beyond historical call limit after independe
   assert.equal(state.phase, 'completed'); assert.equal(state.claudeCalls, 3); assert.equal(state.reworks, 0);
   assert.equal(state.evidence?.passed, true); assert.equal(state.taskIndex, 1); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
 });
-test('repeated CC review modifications are bounded by repair control across recovery', async () => {
+test('legacy snapshot: repeated CC review modifications are bounded by repair control across recovery', async () => {
   const f = await fixture('review-repair-loop', {maxClaudeCalls:1,maxReworks:1}), adapter=agents();
+  const legacy=f.store.load();delete legacy.snapshotPolicy;f.store.save(legacy);
   adapter.review=async(state,store)=>{recordClaudeCall(state,store,'review');fs.writeFileSync(path.join(state.workspace,'review-note.txt'),String(state.claudeCalls));return {verdict:'pass',reason:'local changing fixture'};};
   const state=await drive(f.store,adapter);assert.equal(state.phase,'paused');assert.equal(state.reason,'Review repair limit reached');assert.equal(state.claudeCalls,3);assert.equal(state.reviewRepairs,1);assert.equal(state.nextPhase,'verify');
   assert.equal((await drive(f.store,adapter)).claudeCalls,3);
+});
+
+test('snapshot-free Run preserves native files and explicitly reports limited verification',async()=>{
+  const f=await fixture('limited-observation'),state=await drive(f.store,agents());
+  assert.equal(state.snapshotPolicy,'none');assert.equal(state.phase,'completed');
+  assert.match(state.evidence!.verificationScope!,/未验证全量项目变更/);
+  assert.doesNotMatch(state.evidence!.diff,/plan-note.txt|result.txt/);
+  assert.equal(state.evidence!.taskDiff,undefined);assert.match(state.beforeExecution,/^[a-f0-9]{64}$/);
+  for(const name of ['plan-note.txt','result.txt'])assert.ok(fs.existsSync(path.join(state.workspace,name)));
+  assert.equal(fs.existsSync(f.store.file('snapshot-objects')),false);
+  assert.equal(fs.existsSync(f.store.file('task-0-baseline.json')),false);
+  assert.equal(fs.existsSync(f.store.file('round-1-baseline.json')),false);
 });
 
 test('native CLI inherits configuration and session with no turn/tool restrictions', async () => {

@@ -163,8 +163,42 @@ export function lockProject(state: State): () => void {
   if(state.config.projectMode!=='direct') return () => {};
   const directory=process.platform==='win32' ? 'D:/PersonalAgent-data/project-locks' : path.resolve('.project-locks'); mkdirSync(directory,{recursive:true});
   const file=path.join(directory,`${hashBytes(realpathSync(state.source).toLowerCase())}.json`);
-  const guard=openSync(`${file}.recovery`,'wx');
+  // Unique claims serialize stale-guard recovery among new versions. Never
+  // reuse a claim name: deleting a dead claim cannot delete a successor's claim.
+  const claimPrefix = `${path.basename(file)}.claim-`;
+  const claim = path.join(directory, `${claimPrefix}${randomUUID()}`);
+  const claimFd = openSync(claim, 'wx');
+  try { writeFileSync(claimFd, JSON.stringify({pid:process.pid})); fsyncSync(claimFd); }
+  catch (error) { closeSync(claimFd); unlinkSync(claim); throw error; }
+  closeSync(claimFd);
+  const alive = (ownerFile: string): boolean => {
+    let owner: {pid:number};
+    try {owner=JSON.parse(readFileSync(ownerFile,'utf8'));}
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw new Error('Invalid project recovery lock; manual inspection required');
+    }
+    if(!Number.isSafeInteger(owner?.pid)||owner.pid<1)throw new Error('Invalid project recovery lock; manual inspection required');
+    try { process.kill(owner.pid,0); return true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code==='ESRCH') return false; return true; }
+  };
+  let guard: number | undefined;
   try {
+      for(const name of readdirSync(directory).filter(name=>name.startsWith(claimPrefix))) {
+        const other=path.join(directory,name);
+        if(other!==claim) {
+          if(alive(other))throw new Error('Project lock recovery is already running');
+          try {unlinkSync(other);} catch(error) {if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+        }
+      }
+      if(existsSync(`${file}.recovery`)) {
+        if(alive(`${file}.recovery`))throw new Error('Project lock recovery is already running');
+        // Old empty/malformed guards deliberately fail closed in alive().
+        // Claim serialization prevents another new recovery from replacing it.
+        try {unlinkSync(`${file}.recovery`);} catch(error) {if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+      }
+      guard=openSync(`${file}.recovery`,'wx');
+      writeFileSync(guard,JSON.stringify({pid:process.pid}));fsyncSync(guard);
       if(existsSync(file)) {
         const owner=JSON.parse(readFileSync(file,'utf8')) as {pid:number};
         if(!Number.isInteger(owner.pid)||owner.pid<1)throw new Error('Invalid project lock; manual inspection required');
@@ -173,6 +207,9 @@ export function lockProject(state: State): () => void {
         unlinkSync(file);
       }
   const fd=openSync(file,'wx');try{writeFileSync(fd,JSON.stringify({pid:process.pid,runId:state.id}));fsyncSync(fd);}finally{closeSync(fd);}
-  } finally {closeSync(guard);unlinkSync(`${file}.recovery`);}
+  } finally {
+    try {if(guard!==undefined){closeSync(guard);unlinkSync(`${file}.recovery`);}}
+    finally {unlinkSync(claim);}
+  }
   return () => unlinkSync(file);
 }

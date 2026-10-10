@@ -84,8 +84,10 @@ test('reject forbidden paths, duplicate targets, traversal and deletion payloads
   assert.equal(existsSync(path.join(workspace, 'ok.txt')), false);
   const bad = { ...store.load().config, tests: [{executable:'',args:[]}] }; assert.throws(() => validate(configSchema, bad));
 });
-test('no change cannot pass', async () => {
-  const { store, config } = await fixture('nochange', { maxReworks: 0 }); const state = await drive(store, new MockAgents(config));
+test('legacy snapshot: no change cannot pass', async () => {
+  const { store, config } = await fixture('nochange', { maxReworks: 0 });
+  const legacy=store.load();delete legacy.snapshotPolicy;store.save(legacy);
+  const state = await drive(store, new MockAgents(config));
   assert.equal(state.phase, 'paused'); assert.ok(state.evidence?.issues.includes('No verifiable diff'));
 });
 test('process runner captures nonzero exit and kills on timeout', async () => {
@@ -105,16 +107,17 @@ test('review schema failure cannot advance', async () => {
   agents.review = async () => ({ verdict: 'merge', reason: 'x' }) as never;
   assert.equal((await drive(store, agents)).phase, 'failed');
 });
-test('later task cannot pass using previous task diff', async () => {
+test('legacy snapshot: later task cannot pass using previous task diff', async () => {
   const { store, config } = await fixture('pass', { maxReworks: 0 }); const mock = new MockAgents(config), execute = mock.execute.bind(mock);
+  const legacy=store.load();delete legacy.snapshotPolicy;store.save(legacy);
   mock.execute = async (state, storage, signal) => state.taskIndex === 0 ? execute(state, storage, signal) : { summary: 'Nothing', changes: [] };
   const state = await drive(store, mock); assert.equal(state.phase, 'paused'); assert.equal(state.taskIndex, 1);
   assert.ok(state.evidence?.issues.includes('Current task made no changes'));
 });
-test('test mutating untracked content invalidates evidence', async () => {
+test('legacy snapshot: test mutating untracked content invalidates evidence', async () => {
   const { store, config } = await fixture('pass', { maxReworks: 0 });
   config.tests = [{ executable: process.execPath, args: ['-e', 'require("fs").writeFileSync("hello.txt","changed\\n")'] }];
-  const state = store.load(); state.config = config; store.save(state);
+  const state = store.load();delete state.snapshotPolicy; state.config = config; store.save(state);
   const result = await drive(store, new MockAgents(config)); assert.equal(result.phase, 'failed');
   assert.ok(result.evidence?.issues.includes('Tests modified workspace; review snapshot is invalid'));
 });

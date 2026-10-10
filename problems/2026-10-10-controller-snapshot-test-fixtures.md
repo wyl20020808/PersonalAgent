@@ -1,6 +1,6 @@
 # Controller 旧快照测试与新 Run 策略不一致
 
-状态：待处理，独立于本次决策返工恢复修复。
+状态：已报告的六项失败已在局部修复候选中迁移为明确的历史快照测试；尚未交付运行版。下文保留原失败证据，不表示全库回归通过。
 
 ## 现象与场景
 
@@ -35,3 +35,7 @@
 它们分别仍断言新 Run 的未跟踪 plan-note 等文件出现在完整差异、恢复保存 beforeExecution 内容基线，以及由完整内容比较检测重复审查写入。新 Run 的有限观察不提供这些历史快照保证。
 
 把相同测试切换为从原 dev 提取的未修改 Controller 后，三项同样失败，断言差异一致。只使用隔离生成的 dist/test/native-agent-baseline.test.js，不改写原测试。日志 .validation/unlimited-native-baseline.log；扩大回归 .validation/unlimited-controller-compat.log 共 74 项，68 通过、6 失败。此前三项 Controller 失败已另行对照基线。当前六项未修复，不宣称完整回归通过。
+
+## 后续局部修复候选
+
+用户授权继续处理后，上述六项以 `legacy snapshot:` 明确标识，夹具显式采用历史状态（无 snapshotPolicy 字段），原断言全部保留。新增 `snapshot-free Run` 用例确认新策略的有限观察提示、文件保留和未创建内容基线。最终明确过滤的 7/7 通过；恢复锁、预检及此前局部回归 20/20 通过。未跑全库、大型夹具或进程终止测试，未将本地自测称为 Controller 独立验收。详情见 `docs/SAFE_RELIABILITY_FOLLOWUP_V1_VALIDATION.md`；尚未交付运行版。

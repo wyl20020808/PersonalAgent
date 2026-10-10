@@ -41,7 +41,7 @@ node .\dist\src\cli.js --help
 
 ## 配置与真实运行
 
-参考 `config.example.json` 创建自己的配置，建议放在 D 盘并命名为 `config.local.json`。`allowedRepositories` 是用户明确允许的源仓库根目录列表；目录必须是有提交记录的干净 Git 仓库，不能含符号链接或子模块。不要把游戏工程加入列表。
+参考 `config.example.json` 创建自己的配置，建议放在 D 盘并命名为 `config.local.json`。`allowedRepositories` 是用户明确允许的项目根目录列表。Direct 支持 Git、Dirty Git 和普通文件夹，但需要明确写入授权，runtime 必须位于项目外。显式 isolated 仍要求干净且有提交记录的 Git 仓库。项目路径及文件链接保护继续生效。
 
 `tests` 可以为空：允许开发，但逐任务进入人工验收，不能自动声称测试通过或据此交付。统一模式契约见 `PROJECT_EXECUTION_CONTRACT.md`，验收证据见 `V03C_UNIFIED_VALIDATION.md`。测试程序和参数只能来自用户配置，Agent 输出不会被作为命令执行。Windows 下使用原生 `.exe`，不要配置 `.cmd` 或 `.ps1` 包装器；例如用 `node.exe` 执行固定的验收脚本。强烈建议把验收脚本放在目标仓库之外，让 Agent 无法修改验收标准。目标仓库中的项目测试可以作为额外检查。
 
@@ -52,7 +52,7 @@ node .\dist\src\cli.js --help
 | `mode` | `mock` 或 `real` |
 | `runtimeDir` | D 盘运行目录，默认示例为 `D:/PersonalAgent/.runtime` |
 | `claudeExecutable` | Claude Code 原生可执行文件名或绝对路径 |
-| `timeoutMs` | 每次规划、执行、审查以及每条验收命令的超时 |
+| `timeoutMs` | 每次规划、执行、审查以及每条验收命令的超时；`0` 表示不设执行时间上限，桌面新建真实任务默认使用 `0` |
 | `maxLoops` | 整个运行允许的 Codex 执行次数，包含返工和中断尝试 |
 | `maxReworks` | 每个任务允许的返工次数，不含首次执行 |
 | `maxClaudeCalls` | 历史兼容字段：不再限制真实调用。实际调用数仍落盘统计，失败/中断也记录 |
@@ -109,7 +109,22 @@ node .\dist\scripts\smoke-codex.js
 
 退出码：成功 `0`，错误 `1`，人工暂停 `2`，停止 `130`。`stop` 命令返回 `0` 只表示请求已经写入，可通过 `status` 确认最终状态。
 
-## 执行边界
+## 当前原生执行边界
+
+1. 默认原生执行允许 Agent 按项目授权读取、修改和测试。Direct 直接修改选定项目；isolated 在独立副本开发。完成开发不代表获准提交、合并、推送或发布。
+2. 原生执行 Codex 使用 `danger-full-access`、`approvalPolicy: never` 和可用网络工具。项目约定和提示词不是操作系统权限隔离，不能据此承诺不会执行影响桌面的操作。
+3. Work / Idle Mode 尚未集成到本开发基线；独立候选分支、全局 Codex Hook 的安装与 PersonalAgent 运行版能力应分别验收。不能把候选代码存在当作运行版已生效。
+4. 新 Run 不做全项目快照。配置测试通过不表示全部文件变化已验证，完整未验证范围见本文开头。无快照 Direct 交付确认已有成果，不再次写入项目。
+5. 独立检查失败时，模型返回 `pass` 也不能越过验收。新建 Run 在模型工作前检查验收可执行程序能否定位，并按正式交付规则拒绝位于 Agent 工作区内的验收文件。预检不执行测试，不证明其依赖或服务可信；项目自测可由 Agent 另行运行。`tests: []` 仍进入显式人工验收，不能自动记为测试通过。
+6. `timeoutMs: 0` 只取消时间限制。流式 stdout / stderr 返回值各保留最后 1 Mi 个字符，较早输出不会全部保留在返回值中；非流式输出仍有累计大小保护。带逐行回调的超长单行和桌面全量审计读取仍需后续优化。
+
+项目锁仍与旧版本共用同一位置。新恢复锁记录持有者 PID，以独有恢复声明避免多个新进程同时回收；仅 `ESRCH` 确认退出的持有者可自动回收。活动进程、无法查询的 PID、旧空锁和损坏锁都不会按时间强制清理；身份不明时提示人工检查。PID 复用可能保守地阻挡恢复，不宣称任意崩溃均可自动恢复。
+
+当前测试区分历史快照 Run 与新 Run：历史测试明确构造旧状态并保留原安全断言；新测试验证有限 Git/Context 观察与未验证范围提示。局部测试通过不表示全库回归、GUI 或 Work Mode 已通过。当前修复记录见 [局部修复验证](docs/SAFE_RELIABILITY_FIXES_V1_VALIDATION.md) 和 [后续三项验证](docs/SAFE_RELIABILITY_FOLLOWUP_V1_VALIDATION.md)。
+
+## 历史 MVP 设计记录（不代表当前实现）
+
+以下保留早期 MVP 设计，不代表当前默认原生模式或当前 `proposal` 模式的实际权限。当前 Codex 执行两种模式均使用原生 Thread 配置；`proposal` 只改变结构化输出和 Controller 写入方式，不能提供只读工具隔离。下列禁用工具、只读 sandbox 等描述不能作为当前安全保证；完整快照检查仅适用于仍有快照的历史 Run。
 
 1. Controller 只从允许的干净源仓库创建独立 Git 副本，禁用 Git hooks 和 fsmonitor，移除副本的 origin。源仓库不写入，结果不会自动应用、提交、推送或合并。
 2. Claude 使用 `-p --output-format json --json-schema`，禁用全部工具、hooks、skills 和外部工具配置。它只收到 Controller 提供的上下文与检查证据，不直接读取或修改目标仓库。

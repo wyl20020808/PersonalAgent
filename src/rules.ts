@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { State } from './store.js';
 
-export async function acceptanceRulesHash(state: State, externalOnly = false): Promise<string> {
+function acceptanceFiles(state: Pick<State, 'config' | 'workspace'>, externalOnly: boolean): string[] {
   const files = new Set<string>();
   for (const test of state.config.tests) {
     const names = process.platform === 'win32' && !path.extname(test.executable) ? [test.executable, `${test.executable}.exe`] : [test.executable];
@@ -16,9 +16,18 @@ export async function acceptanceRulesHash(state: State, externalOnly = false): P
       if (existsSync(file) && statSync(file).isFile()) files.add(realpathSync(file));
     }
   }
-  const digests = [];
   for (const file of [...files].sort()) {
     if (externalOnly && file.toLowerCase().startsWith(`${state.workspace.toLowerCase()}${path.sep}`)) throw new Error('Delivery acceptance rules must be outside Agent workspace');
+  }
+  return [...files].sort();
+}
+// Preflight only resolves paths; it does not run tests or hash executables.
+export function assertDeliveryAcceptanceRules(state: Pick<State, 'config' | 'workspace'>): void {
+  acceptanceFiles(state, true);
+}
+export async function acceptanceRulesHash(state: State, externalOnly = false): Promise<string> {
+  const digests = [];
+  for (const file of acceptanceFiles(state, externalOnly)) {
     const hash = createHash('sha256'); for await (const chunk of createReadStream(file)) hash.update(chunk);
     digests.push({ file, hash: hash.digest('hex') });
   }
