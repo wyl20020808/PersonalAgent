@@ -44,3 +44,17 @@ P2A 决策夹具改为明确授权 Direct，保留独立 Session、模型、调�
 - 影响：P3C 不能宣称全库回归通过；新增专项、Desktop 和本地原生闭环单独报告。本轮不合入 DEV，因此不扩展至整套 Snapshot 遗留迁移。
 - 下一步：按现有无 Snapshot、有限 Diff、Direct 审批和显式 isolated 规则逐项审查；获授权后修复夹具或确证的生产缺陷，不删除用例、降低保护或恢复强制 Snapshot。
 - 测试范围偏差：首次全量误包含既有 2 万文件、101 MB 文件及 512 MB 稀疏文件的夹具，违背本轮禁止压力测试的约束；后续排除 `large-project-snapshot.test` 和 `no-project-snapshot.test`，没有重跑。6 项大项目失败只静态比对，不宣称已运行复现。保留证据，不删除历史记录。
+
+## 2026-10-10：P3C 正式 DEV 集成定向对照
+
+本次从实际最新 DEV `ddb098aedff7a40dc4a161f2e8eda8722bf32598` 创建独立集成 Worktree，完整保留 P3C 的功能及报告提交。没有重跑全库或大型 Snapshot 夹具。
+
+定向 Controller 回归共 66 项，63 项通过、3 项失败；失败均来自既有 `native-agent.test`。在最新 DEV 的独立轻量副本复跑该文件，19 项中 16 项通过，3 个失败名称完全一致，没有新增或缺失失败：
+
+- `native controller includes planning, executor and reviewer modifications and revalidates review`
+- `interrupted native changes survive resume with same thread and task baseline`
+- `repeated CC review modifications are bounded by repair control across recovery`
+
+证据位于 `D:/PersonalAgent-data/p3c-dev-integration-v1/controller-targeted.log`、`baseline-targeted.log` 和 `baseline-comparison.json`。本次没有修复或删改这些用例，也不将对照相同解释为全库绿色。当前状态仍为历史回归待处理；不阻断本次已获授权、没有新增相关失败的 P3C 集成。
+
+新执行者及能力门禁 16/16、Desktop 84/84、静态双池 UI 检查、实际 V1 CLI 与本地确定性模型的 read/write/bash、独立测试、Review、未审批 Preview 闭环均通过。真实能力发现确认优先模型可用，本轮远端模型推理请求为 0。
