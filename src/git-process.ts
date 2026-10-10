@@ -1,5 +1,6 @@
 import { runProcess, type ProcessResult } from './process.js';
 import { FlowError } from './failure.js';
+import { InteractionPolicyError } from './interaction-policy.js';
 
 // All Git calls share Windows long-path support and disable executable hooks.
 const policy = ['-c', 'core.hooksPath=NUL', '-c', 'core.fsmonitor=false', '-c', 'core.longpaths=true'];
@@ -13,6 +14,7 @@ export async function gitProcess(cwd: string, args: string[], options: { signal?
   let result: ProcessResult;
   try { result = await runner('git', [...policy, ...args], { cwd, signal: options.signal, timeoutMs: options.timeoutMs ?? 30000 }); }
   catch (error) {
+    if (error instanceof InteractionPolicyError) throw error;
     if (options.signal?.aborted) throw new FlowError('interrupted', `Git command interrupted: ${args.join(' ')}\n${String(error)}`);
     throw new FlowError('git', `Git process failed: git ${args.join(' ')}\nWorking directory (${cwd.length} characters): ${cwd}\n${error instanceof Error ? error.message : String(error)}`);
   }

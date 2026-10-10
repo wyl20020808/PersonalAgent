@@ -83,8 +83,9 @@ for(const agent of ['claude','codex'] as const) for(const [message,kind] of [['4
 test('SDK stream consumer allows failed test then repair and success within one turn (local fixture)', async () => {
   const f = await fixture('single-turn'); const workspace = f.store.load().workspace; const emitted: any[] = [], exits: number[] = [];
   // This generator is explicitly a fixture, not evidence of a model/tool service call.
-  const thread = { async runStreamed(_prompt: string, options: object) {
-    assert.deepEqual(options, {});
+  const thread = { async runStreamed(_prompt: string, options: { signal?: AbortSignal }) {
+    assert.ok(options.signal instanceof AbortSignal);
+    assert.deepEqual(Object.keys(options), ['signal']);
     async function* events(): AsyncGenerator<ThreadEvent> {
       yield { type: 'thread.started', thread_id: 'fixture-native-thread' };
       yield { type: 'turn.started' };

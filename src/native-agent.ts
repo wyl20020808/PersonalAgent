@@ -1,4 +1,5 @@
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
+import { requireIdle, interactionAgentRules, watchInteractionPolicy, InteractionPolicyError } from './interaction-policy.js';
 import { codexPublicEvent } from './telemetry.js';
 import { codexObservation } from './call-observation.js';
 import { editSchema, nativeResultSchema, validate, type ExecutionResult } from './schema.js';
@@ -11,12 +12,17 @@ export function nativeThreadOptions(workspace: string): ThreadOptions {
 }
 export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; executionMode?: 'native' | 'proposal' }
 export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
+  requireIdle('Codex SDK 原生工具');
   const native = request.executionMode !== 'proposal';
   const options = nativeThreadOptions(request.workspace);
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
-  const { events } = await thread.runStreamed(request.prompt, native ? {} : { outputSchema: editSchema });
+  const stop = new AbortController();
+  const unwatch = watchInteractionPolicy(() => stop.abort(new InteractionPolicyError('Codex SDK 原生工具')));
+  try {
+  const { events } = await thread.runStreamed(request.prompt + interactionAgentRules, native ? { signal: stop.signal } : { outputSchema: editSchema, signal: stop.signal });
   let final = '', completed = false;
   for await (const event of events) {
+    stop.signal.throwIfAborted();
     const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
     const activity = codexPublicEvent(event); if (activity) emit({ type: 'activity', data: activity });
     if (event.type === 'thread.started') emit({ type: 'thread', id: event.thread_id });
@@ -28,4 +34,5 @@ export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThr
   }
   if (!completed || !final.trim()) throw new Error('Codex returned no completed result');
   return native ? validate(nativeResultSchema, { mode: 'native', summary: final }) : validate(editSchema, JSON.parse(final));
+  } finally { unwatch(); }
 }

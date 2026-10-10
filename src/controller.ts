@@ -10,6 +10,7 @@ import { observationScope, contextObservation, gitObservation } from './project-
 import type { Agents } from './adapters.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
 import { classifyFailure, FlowError } from './failure.js';
+import { requireIdle, readInteractionPolicy, InteractionPolicyError } from './interaction-policy.js';
 import { journalFile, prepareApplication, recoverApplication } from './application.js';
 import { orderTasks, assertPrerequisites } from './dependencies.js';
 import { captureBaseline, baselineDiff, reviewEvidence } from './incremental.js';
@@ -72,9 +73,11 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const stop = new AbortController();
   const abort = () => stop.abort(); externalSignal?.addEventListener('abort', abort, { once: true });
   if (externalSignal?.aborted) stop.abort();
-  const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
+  let policyPaused = false;
+  const poll = setInterval(() => { if (state.config.mode === 'real' && readInteractionPolicy().mode === 'work') { policyPaused = true; stop.abort(); } else if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
   async function agentOperation<T>(agent: 'claude' | 'codex', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (state.config.mode === 'real') requireIdle(`${agent} ${role} 原生工具`);
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
     if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
     const started = Date.now(), before = await observeWorkspace(state, stop.signal);
@@ -310,7 +313,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       }
     } else if (['planning', 'execute', 'applying', 'verify', 'review'].includes(stage)) state.nextPhase = stage === 'review' ? 'verify' : stage;
     if (stop.signal.aborted) state.failure = classifyFailure(new FlowError('interrupted', 'Stopped'), stage);
-    checkpoint(stop.signal.aborted ? 'stopped' : state.failure.recoverable ? 'paused' : 'failed', state.failure.message);
+    if (policyPaused) state.failure = classifyFailure(new InteractionPolicyError('受管理 Agent Run'), stage);
+    checkpoint(policyPaused ? 'paused' : stop.signal.aborted ? 'stopped' : state.failure.recoverable ? 'paused' : 'failed', state.failure.message);
     store.audit('error', state.failure);
   } finally {
     try {

@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
+const stage=path.resolve('validation/codex-install-stage-verified');
+const original=fs.readFileSync(path.join(stage,'AGENTS.md.backup'));
+assert.ok(fs.readFileSync(path.join(stage,'AGENTS.md')).subarray(0,original.length).equals(original));
+const policy=path.join(stage,'test-work-policy.json');fs.writeFileSync(policy,JSON.stringify({version:1,mode:'work'}));
+const invoke=input=>spawnSync(process.execPath,[path.join(stage,'interaction-hook.mjs'),policy],{input:JSON.stringify(input),encoding:'utf8',windowsHide:true,shell:false});
+const denied=invoke({tool_name:'Bash',tool_input:{command:'mock-reboot'},cwd:process.cwd()});
+assert.equal(denied.status,0);assert.equal(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecision,'deny');
+const allowed=invoke({tool_name:'apply_patch',tool_input:{command:'*** Begin Patch\n*** Add File: src/source-probe.ts\n+text\n*** End Patch'},cwd:process.cwd()});
+assert.equal(allowed.status,0);assert.equal(allowed.stdout,'');
+console.log('安装候选保留全局 AGENTS 原始字节；独立 bundle 结构化拒绝和源码 patch 放行通过。live 配置未写入。');

@@ -33,3 +33,11 @@ T2 Review 辅助断言同步使用 Controller 文档/checked_files 观测及 `pr
 P2A 决策夹具改为明确授权 Direct，保留独立 Session、模型、调用、失败恢复与禁止提前 Execute；加入旧全项目捕获会拒绝的硬链接，仍完成讨论，并断言没有 project-baseline/snapshot-objects。Desktop 逐段更新非 Git isolated 明确失败、Direct 摘要审批零重复写入、大型准备无快照、准备失败消息/Run/审计绑定等前提；clean Git isolated 历史和下一轮保护保留。长 Git Runtime 限制另见 `2026-10-10-isolated-git-long-runtime-path.md`。
 
 最终核心组合 65/65、Desktop 83/83、实际 Electron 8 组检查通过。证据：`D:/PersonalAgent-data/snapshot-p2a-integration-v1/core-final.log`、`desktop-final.log`；`D:/PersonalAgent-data/multi-decision-discussion-p2a/electron-f7abd572/result.json`。付费调用 0；这是独立 Codex Desktop 自主确定性验证，不是远端 Agent 或 Controller 独立开发验收。
+
+## 2026-10-10：Global Work / Idle V1 的整库核查
+
+原 13 项修复状态保持已解决；其他历史整库测试仍未全部迁移，剩余问题状态为待处理。本次 feature 阶段性整库 314 项中 194 通过、120 失败；DEV 归档副本 307 项中 148 通过、159 失败。119 个 feature 失败名称也出现在 DEV 失败集合；唯一额外跨进程 Mock 失败来自测试子进程未继承隔离 idle 夹具，修复测试启动后 dual-instance 5/5。归档副本目录较长，Windows 路径问题增加了基线失败，不能把数量差异当作功能改善证明。
+
+后续受影响 Agent 组合 49 项中 46 通过、3 项失败；失败为 planning/executor/reviewer 变更汇总、带同一 thread 的中断恢复、跨恢复的审查修复上限，均为既有失败。旧 no-verifiable-diff、untracked Snapshot 及旧预算前提等断言没有为本任务删除或恢复强制 Snapshot。Desktop 的模式夹具在测试子进程中显式注入后最终 84/84，通过；DEV Desktop 83/83。
+
+详细日志留在本次任务工作区 `validation/global-interaction-regression/`，提交中保存脱敏比较摘要。影响：不能将 Global Work / Idle 专项或 Desktop 成功称为根目录整库全绿或正式发布验收；后续应单独审查各失败断言的现行契约，而非扩大本功能任务修复全部历史问题。

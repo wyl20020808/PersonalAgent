@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node dist/scripts/export-schemas.js",
-    "test": "npm run build && node --test dist/test/*.test.js",
+    "test": "npm run build && node --import ./scripts/regression-policy.mjs --test dist/test/*.test.js",
     "start": "node dist/src/cli.js",
     "demo": "node dist/scripts/demo.js"
   },

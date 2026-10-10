@@ -28,3 +28,4 @@ h1,h2,h3{color:#19283c}.sidebar{background:#fcfdff;border-color:#e2e8f0}.brand{c
 .usage-summary th, .usage-summary td { padding: 10px 12px; border-bottom: 1px solid #e5eaf1; white-space: nowrap; }
 .usage-summary th { color: #64748b; font-weight: 500; }
 .usage-summary td small { display: block; margin-top: 4px; color: #64748b; font-size: 11px; }
+.setting-row select[aria-label="全局工作模式"] { width: 128px; flex-shrink: 0; }

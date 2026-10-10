@@ -1,4 +1,5 @@
 import { nativeAgentEnv } from './workspace.js';
+import { requireIdle, interactionAgentRules } from './interaction-policy.js';
 import { agentRules } from './native-agent.js';
 import { runProcess } from './process.js';
 import { validate, type Config } from './schema.js';
@@ -12,11 +13,12 @@ import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type De
 export class ClaudeCodeDecisionAgent implements DecisionAgent {
   constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
+    requireIdle('Claude Code 原生工具');
     assertDecisionRequest(request);
     const {state, store, signal, schema, prompt, role, context} = request;
     const env = nativeAgentEnv();
     const streaming = this.config.claudeStreaming !== false;
-    const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules];
+    const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules];
     if (this.config.decisionAgent?.backend === 'claude-code' && this.config.decisionAgent.model) args.push('--model', this.config.decisionAgent.model);
     const resumed = !!state.claudeSessionId;
     if (state.claudeSessionId) args.push('--resume', state.claudeSessionId);

@@ -15,3 +15,12 @@ desktop/validation-v03e/*/tmp/
 desktop/validation-v03e/*/ReadableProject/
 desktop/validation-v03e/*/AnotherProject/
 desktop/validation-v03e/*-data/
+
+# Local interaction-policy verification and private installation backups.
+validation/codex-install-stage*/
+validation/codex-protocol/
+validation/dev-baseline*/
+validation/dev-baseline.zip
+validation/global-interaction/
+validation/global-interaction-regression/
+runtime-env-*/
