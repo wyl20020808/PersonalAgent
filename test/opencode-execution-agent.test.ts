@@ -177,3 +177,28 @@ test('isolated workspace binding keeps source unchanged; missing authorization a
  const g=await fixture({decisionDiscussion:{participants:[{id:'a',agent:choice},{id:'b',agent:choice}],primary:'a',rounds:0}}),pendingState=pending(g);
  await assert.rejects(()=>new OpenCodeExecutionAgent(g.config,server.launcher).execute(pendingState,g.store,new AbortController().signal,'{}'),/Controller-validated/);
 });
+
+test('zero-timeout Execute finishes once and hanging Session still honors explicit stop', async () => {
+ const f=await fixture({timeoutMs:0}),server=fake();
+ const done=await drive(f.store,real(f,server));
+ assert.equal(done.phase,'completed');assert.equal(server.prompts,3);assert.equal(done.executionAttempt?.status,'success');
+ const stopped=await fixture({timeoutMs:0}),hanging=fake({hang:true}),state=pending(stopped);
+ const cancel=new AbortController(),result=new OpenCodeExecutionAgent(stopped.config,hanging.launcher).execute(state,stopped.store,cancel.signal,'{}');
+ const timer=setTimeout(()=>cancel.abort(),250);
+ try{await assert.rejects(result,/Stopped/);}finally{clearTimeout(timer);}
+ assert.equal(hanging.aborts,1);assert.equal(hanging.closes,1);assert.equal(hanging.prompts,1);
+ assert.equal(fs.readFileSync(path.join(stopped.source,'core.js'),'utf8'),'fixed\n');
+});
+
+test('existing adapters use persisted unlimited timeout after legacy Controller recovery',async()=>{
+ const f=await fixture({timeoutMs:150}),server=fake(),launcher=server.launcher;
+ server.launcher=async(executable,directory,signal,runtime)=>{
+  await new Promise<void>((resolve,reject)=>{const timer=setTimeout(resolve,250);signal.addEventListener('abort',()=>{clearTimeout(timer);reject(Error('legacy timeout still active'));},{once:true});});
+  return launcher(executable,directory,signal,runtime);
+ };
+ const state=pending(f);state.phase='paused';state.nextPhase='execute';f.store.save(state);
+ const result=await drive(f.store,real(f,server),'取消时长限制并继续当前任务',undefined,{timeoutMs:0});
+ assert.equal(result.phase,'completed');assert.equal(result.config.timeoutMs,0);
+ assert.equal(result.executionAttempt?.status,'success');assert.equal(server.prompts,2);
+ assert.equal(result.config.maxLoops,3);assert.equal(result.config.maxReworks,1);
+});

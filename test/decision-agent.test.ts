@@ -186,3 +186,31 @@ test('failed Run preparation still freezes the selected Decision Agent identity'
   await assert.rejects(()=>createRun({...f.config,projectMode:'isolated'},f.source,'corrupt fixture'),(error:any)=>{runId=error.runId;return /Git|git|bad object|revision/.test(error.message);});
   assert.ok(runId);const state=new Store(f.config.runtimeDir,runId).load();assert.deepEqual(state.decisionAgent,{backend:'opencode',providerID:'connected',modelID:'dynamic-model'});assertDecisionState(state);assert.equal(state.phase,'failed');
 });
+
+test('zero-timeout OpenCode decision completes and explicit cancellation remains authoritative',async()=>{
+ const f=await fixture(false,{timeoutMs:0}),server=fake(),adapter=new OpenCodeDecisionAgent(f.config,server.launcher);
+ const first=await adapter.structured(request(f));assert.deepEqual(first.output,plan);assert.equal(server.prompts,1);
+ const stopped=await fixture(false,{timeoutMs:0}),hanging=fake({hang:true}),cancel=new AbortController(),pending=new OpenCodeDecisionAgent(stopped.config,hanging.launcher).structured(request(stopped,'plan',cancel.signal));
+ const timer=setTimeout(()=>cancel.abort(),250);
+ try{await assert.rejects(pending,/Stopped/);}finally{clearTimeout(timer);}
+ assert.equal(hanging.aborts,1);assert.equal(hanging.closes,1);
+});
+
+test('Claude and Codex process adapters use the persisted unlimited duration',async()=>{
+ const f=await fixture(false,{decisionAgent:{backend:'claude-code'},timeoutMs:150,claudeStreaming:false});
+ const state=f.store.load();state.config.timeoutMs=0;f.store.save(state);
+ const claude=new ClaudeCodeDecisionAgent(f.config,async(_exe,args,options)=>{
+  assert.equal(options.timeoutMs,0);
+  const sessionId=args[args.indexOf('--session-id')+1];
+  return {exitCode:0,stderr:'',stdout:JSON.stringify({session_id:sessionId,structured_output:plan})};
+ });
+ const reply=await claude.structured({...request(f),state:f.store.load(),timeoutMs:0});assert.deepEqual(reply.output,plan);
+ const executing=f.store.load();executing.tasks=plan.tasks;executing.loops=1;executing.phase='executing';f.store.save(executing);
+ const agents=new RealAgents(f.config,async(_exe,_args,options)=>{
+  assert.equal(options.timeoutMs,0);assert.ok(options.onLine);
+  options.onLine!(JSON.stringify({type:'result',data:{mode:'native',summary:'LOCAL worker fixture'}}));
+  return {exitCode:0,stdout:'',stderr:''};
+ });
+ const output=await agents.execute(executing,f.store,new AbortController().signal);
+ assert.ok('mode' in output);assert.equal(output.mode,'native');
+});

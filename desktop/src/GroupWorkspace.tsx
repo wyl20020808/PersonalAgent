@@ -128,7 +128,7 @@ export default function GroupWorkspace({draft,onDraft,title,run,profile,conversa
    else{
     if(!canResume)throw Error('当前 Run 不允许恢复');
     if(mode==='visual'&&(!attest||!checked.length))throw Error('请查看本阶段截图并明确确认');
-    const prefix=mode==='visual'?'我已查看所选真实截图，确认本阶段视觉验收达标。本确认不包含成果交付批准。\n':mode==='rework'?(extraRework?'明确授权每任务返工上限增加一次，执行轮数上限不变；继续本阶段返工。\n':'本阶段需要修改，请 CC 按独立验收和剩余返工上限决定；遵守流程限制。\n'):'';
+    const prefix=mode==='visual'?'我已查看所选真实截图，确认本阶段视觉验收达标。本确认不包含成果交付批准。\n':mode==='rework'?(extraRework?'明确授权每任务返工上限增加一次，执行轮数上限不变；继续本阶段返工。\n':'本阶段需要修改，按以下意见继续当前任务返工；遵守执行轮数和返工上限。\n'):'';
     await window.personalAgent.invoke({operation:'resume',profileId:run.profileId,runId:run.id,decision:prefix+text.trim(),intent:mode,...(mode==='rework'&&extraRework?{maxReworks:run.config.maxReworks+1}:{}),...(mode==='visual'?{pictureIds:checked.slice(-12)}: {})});
     setNotice('恢复请求已提交；开始执行以实际派单事件为准，若再次暂停请查看最新原因。');onRunChange?.();
    }

@@ -23,7 +23,7 @@ export const configSchema = object({
   runtimeDir: text,
   mode: { type: 'string', enum: ['mock', 'real'] },
   claudeExecutable: text,
-  timeoutMs: { type: 'integer', minimum: 100, maximum: 3600000 },
+  timeoutMs: { anyOf: [{ const: 0 }, { type: 'integer', minimum: 100, maximum: 3600000 }], description: '0 disables elapsed-time limits; explicit stop remains available.' },
   maxLoops: { type: 'integer', minimum: 1, maximum: 100 },
   maxReworks: { type: 'integer', minimum: 0, maximum: 20 },
   tests: { type: 'array', minItems: 0, maxItems: 20, items: object({ executable: text, args: { type: 'array', items: { type: 'string' }, maxItems: 50 } }) },

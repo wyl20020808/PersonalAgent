@@ -19,6 +19,7 @@ import { callContext, recordContextPrompt } from './context-navigation.js';
 import { CallObservation } from './call-observation.js';
 import { reviewContractCatalog } from './context-review.js';
 import { discussPlan, withParticipant, type DiscussionStage } from './decision-discussion.js';
+import { timeoutSignal } from './timeout.js';
 
 export class RealAgents implements Agents {
   get executionMode(): 'native' | 'proposal' { return this.config.executionMode ?? 'native'; }
@@ -27,11 +28,11 @@ export class RealAgents implements Agents {
     if (state.discussion) return withParticipant(state, store, state.discussion.config.primary, role === 'review' ? 'review' : 'replan', (view, scoped) => this.claude(view, scoped, signal, schema, prompt, role, context));
     const identity = assertDecisionState(state, this.config.decisionDiscussion ? state.config : this.config);
     const adapter = identity.backend === 'codex' ? new CodexDecisionAgent(state.config, this.run) : identity.backend === 'opencode' ? (this.config.decisionDiscussion ? this.discussionOpenCode(state.config) : this.openCode) : new ClaudeCodeDecisionAgent(state.config, this.run);
-    return (await adapter.structured<T>({state, store, signal, schema, prompt, role, context, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, timeoutMs: this.config.timeoutMs})).output;
+    return (await adapter.structured<T>({state, store, signal, schema, prompt, role, context, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, timeoutMs: state.config.timeoutMs})).output;
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
     assertDecisionState(state, this.config);
-    if (state.discussion) return discussPlan(state, store, signal, (id, stage, schema, exchange) => withParticipant(state, store, id, stage, (view, scoped) => this.planCall(view, scoped, AbortSignal.any([signal, AbortSignal.timeout(state.config.timeoutMs)]), stage, schema, exchange)));
+    if (state.discussion) return discussPlan(state, store, signal, (id, stage, schema, exchange) => withParticipant(state, store, id, stage, (view, scoped) => this.planCall(view, scoped, AbortSignal.any([signal, timeoutSignal(state.config.timeoutMs)]), stage, schema, exchange)));
     return this.planCall(state, store, signal);
   }
   private async planCall(state: State, store: Store, signal: AbortSignal, stage?: DiscussionStage, schema: object = planSchema, exchange?: object): Promise<Plan> {
@@ -59,7 +60,7 @@ export class RealAgents implements Agents {
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
-      cwd: store.dir, env, signal, timeoutMs: this.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, executionMode: this.executionMode }),
+      cwd: store.dir, env, signal, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, executionMode: this.executionMode }),
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };

@@ -6,6 +6,8 @@ import type { State, Store } from './store.js';
 import { CallObservation } from './call-observation.js';
 import { activityRecorder, redact } from './telemetry.js';
 import { agentRules } from './native-agent.js';
+import { timeoutSignal } from './timeout.js';
+import { transportErrorDetails } from './opencode-transport.js';
 import { models, opencodePublicEvents, resolvedSchema, startOpencodeService, supportsStructuredOutput, type ModelDiscovery, type OpenCodeLauncher, type OpenCodeService } from './opencode-decision-agent.js';
 
 // Native permissions are a collaboration boundary, not a Windows sandbox.
@@ -73,7 +75,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         if (last < 0 || !events.slice(last + 1).some(e => e.event === 'human-decision')) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
       }
     }
-    const workspace = realpathSync(state.workspace), timeout = AbortSignal.timeout(this.config.timeoutMs), signal = AbortSignal.any([externalSignal, timeout]);
+    const workspace = realpathSync(state.workspace), timeout = timeoutSignal(state.config.timeoutMs), signal = AbortSignal.any([externalSignal, timeout]);
     await this.policy(structuredClone(state), signal); signal.throwIfAborted();
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.executionSession, 'opencode');
     const record = activityRecorder(state, store, 'opencode', `opencode-execute:${observation.usage.callId}`);
@@ -109,7 +111,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         if (part.sessionID === sessionID) observation.observeOpencodePart(part);
       };
       const stream = await client.global.event({ signal: AbortSignal.any([eventsStop.signal, signal]), sseMaxRetryAttempts: 0, fetch: async input => {
-        try { const response = await fetch(input, { redirect: 'error' }); if (!response.ok) throw new Error('OpenCode execution event subscription failed'); readyResolve(); return response; }
+        try { const response = await (service!.fetch ?? fetch)(input, { redirect: 'error' }); if (!response.ok) throw new Error('OpenCode execution event subscription failed'); readyResolve(); return response; }
         catch { const error = new Error('OpenCode execution event subscription failed'); readyReject(error); throw error; }
       } });
       eventTask = (async () => { for await (const event of stream.stream) {
@@ -145,8 +147,8 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         try { await service.client.session.abort({ sessionID, directory: workspace }, { signal: AbortSignal.timeout(5000), throwOnError: true }); }
         catch { store.audit('opencode-execute-abort-incomplete', { sessionId: sessionID }); }
       }
-      store.audit('opencode-execute-error', { callId: observation.usage.callId, sessionId: sessionID, taskId: task.id, message: redact((error as Error).message), interrupted: signal.aborted });
-      if (timeout.aborted) throw new FlowError('timeout', `OpenCode Execute Timeout after ${this.config.timeoutMs} ms`);
+      store.audit('opencode-execute-error', { callId: observation.usage.callId, sessionId: sessionID, taskId: task.id, message: redact((error as Error).message), interrupted: signal.aborted, ...transportErrorDetails(error) });
+      if (timeout.aborted) throw new FlowError('timeout', `OpenCode Execute Timeout after ${state.config.timeoutMs} ms`);
       if (externalSignal.aborted) throw new Error('Stopped');
       throw new FlowError(error instanceof FlowError ? error.kind : /JSON Schema/.test((error as Error).message) ? 'validation' : 'supervisor', redact((error as Error).message));
     } finally {

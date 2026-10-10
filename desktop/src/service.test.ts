@@ -109,3 +109,34 @@ test('concurrent delivery polling is serialized without bypassing Controller loc
  assert.ok(results.every(deliveries=>deliveries[0]?.phase==='applied'));
  assert.ok(service.detail(profileId,runId).auditVerified);
 });
+
+test('desktop real resume forwards unlimited duration without rewriting historical sessions',async()=>{
+ const folder=path.join(data,'unlimited-'+randomUUID().slice(0,8)),source=path.join(folder,'source'),fakeRoot=path.join(folder,'app');
+ fs.mkdirSync(source,{recursive:true});fs.mkdirSync(path.join(fakeRoot,'dist/src'),{recursive:true});
+ const capture=path.join(folder,'args.json');
+ fs.writeFileSync(path.join(fakeRoot,'dist/src/cli.js'),"import fs from 'node:fs';fs.writeFileSync("+JSON.stringify(capture)+",JSON.stringify(process.argv.slice(2)));");
+ const config={mode:'real' as const,allowedRepositories:[source],runtimeDir:path.join(folder,'runtime'),projectMode:'direct' as const,directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},executionMode:'native' as const,claudeExecutable:'NEVER-PAID',timeoutMs:600000,maxLoops:4,maxReworks:1,tests:[],mockScenario:'pass' as const};
+ const file=path.join(folder,'config.json');fs.writeFileSync(file,JSON.stringify(config));
+ const store=await createRun(config,source,'LOCAL WRAPPER ONLY'),state=store.load();
+ state.phase='paused';state.nextPhase='execute';state.codexThreadId='retained-thread';store.save(state);
+ const before=fs.readFileSync(store.file('state.json'));
+ const local=new DesktopService(fakeRoot,path.join(folder,'data'),process.execPath);
+ local.launch(store,file,'Continue existing task');
+ for(let n=0;n<200&&local.children.size;n++)await new Promise(resolve=>setTimeout(resolve,25));
+ assert.equal(local.children.size,0);assert.ok(fs.existsSync(capture));
+ const args=JSON.parse(fs.readFileSync(capture,'utf8'));
+ assert.equal(args[args.indexOf('--timeout-ms')+1],'0');assert.equal(args[args.indexOf('--id')+1],store.id);
+ assert.deepEqual(fs.readFileSync(store.file('state.json')),before);
+});
+
+test('CLI unlimited resume persists zero and finite Mock profile remains unchanged',async()=>{
+ const folder=path.join(data,'cli-unlimited-'+randomUUID().slice(0,8)),source=path.join(folder,'source');fs.mkdirSync(source,{recursive:true});
+ const config={mode:'mock' as const,allowedRepositories:[source],runtimeDir:path.join(folder,'runtime'),projectMode:'direct' as const,directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},executionMode:'native' as const,claudeExecutable:'NEVER-PAID',timeoutMs:30000,maxLoops:4,maxReworks:1,tests:[],mockScenario:'pass' as const};
+ const file=path.join(folder,'config.json');fs.writeFileSync(file,JSON.stringify(config));
+ const store=await createRun(config,source,'LOCAL CLI ONLY'),state=store.load();state.phase='paused';state.nextPhase='planning';store.save(state);
+ const {runProcess}=await import('../../dist/src/process.js');
+ const result=await runProcess(process.execPath,[path.join(root,'dist/src/cli.js'),'resume','--config',file,'--id',store.id,'--decision','Continue without elapsed-time limit','--timeout-ms','0'],{cwd:root,timeoutMs:10000});
+ assert.equal(result.exitCode,2);assert.equal(store.load().config.timeoutMs,0);
+ assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).timeoutMs,30000);
+ assert.match(fs.readFileSync(store.file('audit.jsonl'),'utf8'),/"timeoutMs":0/);
+});

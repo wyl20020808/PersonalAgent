@@ -20,6 +20,7 @@ import { prepareUnlocked, pendingContextConfirmations } from './context-confirma
 import { decisionIdentity, assertDecisionState } from './decision-agent.js';
 import { assertExecutionState } from './opencode-execution-agent.js';
 import { initializeDiscussion, assertDiscussion, assertDiscussionPlan } from './decision-discussion.js';
+import { timeoutSignal } from './timeout.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
@@ -58,10 +59,12 @@ export async function createRun(config: Config, source: string, goal: string, op
   store.audit('project-observation-policy', { policy: 'none', coverage: observationScope });
   return store;
 }
-export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number }): Promise<State> {
+export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; timeoutMs?: number }, intent: 'resume' | 'visual' | 'rework' = 'resume'): Promise<State> {
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
   try {
     state = store.load();
+    if (!['resume', 'visual', 'rework'].includes(intent)) throw new Error('Unknown resume intent');
+    if (intent === 'rework' && (!decision?.trim() || !['paused', 'failed', 'stopped'].includes(state.phase) || !state.tasks[state.taskIndex] || !['execute', 'verify', 'review'].includes(state.nextPhase))) throw new Error('返工需要明确修改意见、暂停的当前任务；规划或提案应用中断请先恢复原流程');
     assertDecisionState(state);
     assertDiscussion(state);
     assertExecutionState(state);
@@ -94,7 +97,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     }
   }
   async function timed<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs = state.config.timeoutMs): Promise<T> {
-    const timeout = AbortSignal.timeout(timeoutMs);
+    const timeout = timeoutSignal(timeoutMs);
     const signal = AbortSignal.any([stop.signal, timeout]);
     try { return await operation(signal); }
     catch (error) { if (timeout.aborted) throw new Error(`Timeout after ${timeoutMs} ms`); throw error; }
@@ -139,13 +142,14 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       }
       if (pendingContextConfirmations(store).length) { checkpoint('paused', '待确认契约必须通过正式文档决策入口处理；普通恢复指令不能确认'); return state; }
       state.feedback = [state.feedback, `User decision: ${decision}`].filter(Boolean).join('\n');
+      if (intent === 'rework') { state.nextPhase = 'execute'; state.reworkPending = true; }
       if (existsSync(store.file('stop.request'))) unlinkSync(store.file('stop.request'));
       if (state.phase === 'executing') { state.nextPhase = 'execute'; state.reworkPending = true; }
       // Legacy paused runs also retain the reason needed to enforce old limits.
       if (state.reason === 'Rework limit reached') state.reworkPending = true;
       state.failure = null;
       checkpoint(state.nextPhase === 'review' ? 'verify' : state.nextPhase);
-      store.audit('human-decision', { decision });
+      store.audit('human-decision', { decision, intent });
     }
     while (!['completed', 'paused', 'failed', 'stopped'].includes(state.phase)) {
       if (stop.signal.aborted) throw new Error('Stopped');

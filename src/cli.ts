@@ -15,7 +15,7 @@ import { loadProjectContext, stampContext } from './project-context.js';
 import { prepareContextConfirmation, decideContextConfirmation, pendingContextConfirmations, type ConfirmationAction } from './context-confirmation.js';
 
 const help = `PersonalAgent CLI MVP
-  start --config FILE --repo D:\\REPO --goal "GOAL"
+  start --config FILE --repo D:\\REPO --goal "GOAL" [--timeout-ms N] (0: unlimited)
   project-scan --repo DIRECTORY [--scan-max-files N] [--scan-max-manifest-bytes N] (read-only metadata diagnosis)
   decision-models [--executable PATH] [--workspace DIRECTORY]
   execution-models [--executable PATH] [--workspace DIRECTORY] (local capability discovery; no model prompt)
@@ -25,7 +25,7 @@ const help = `PersonalAgent CLI MVP
   context-request --config FILE --id UUID --document RELATIVE_PATH --action accepted|rejected|superseded
   context-decide --config FILE --id UUID --request UUID --approval SHA256 --decision "EXPLICIT DOCUMENT DECISION" [--cancel]
   context-pending --config FILE --id UUID
-  resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--max-loops N] [--max-reworks N]
+  resume --config FILE --id UUID [--decision "USER INSTRUCTIONS"] [--intent resume|visual|rework] [--max-loops N] [--max-reworks N] [--timeout-ms N] (0: unlimited)
   status --config FILE --id UUID
   stop --config FILE --id UUID
   manual-accept --config FILE --id UUID --approval SHA256 --decision "OBSERVATIONS"
@@ -37,8 +37,11 @@ const help = `PersonalAgent CLI MVP
 Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'scan-max-files': {type:'string'}, 'scan-max-manifest-bytes': {type:'string'}, executable: {type:'string'}, document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'scan-max-files': {type:'string'}, 'scan-max-manifest-bytes': {type:'string'}, executable: {type:'string'}, document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, intent: { type: 'string' }, 'timeout-ms': { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
+  if (values['timeout-ms'] !== undefined && !['start', 'context-start', 'resume'].includes(command ?? '')) throw new Error('--timeout-ms requires start or resume');
+  const timeoutMs = values['timeout-ms'] === undefined ? undefined : Number(values['timeout-ms']);
+  if (values.intent !== undefined && (command !== 'resume' || !['resume', 'visual', 'rework'].includes(values.intent))) throw new Error('--intent requires resume and resume|visual|rework');
   if (values.help || !command) { console.log(help); }
   else if (command === 'project-scan') {
     if (!values.repo) throw new Error('--repo is required');
@@ -64,7 +67,7 @@ try {
     let store: Store;
     if (command === 'start' || command === 'context-start') {
       if (!values.repo || !values.goal) throw new Error('--repo and --goal are required');
-      store = await createRun(config, values.repo, values.goal, command === 'context-start' ? { purpose: 'context-onboarding' } : {}); console.log(`Run ID: ${store.id}`);
+      store = await createRun(timeoutMs === undefined ? config : validate<Config>(configSchema, { ...config, timeoutMs }), values.repo, values.goal, command === 'context-start' ? { purpose: 'context-onboarding' } : {}); console.log(`Run ID: ${store.id}`);
     } else {
       if (!['context-request', 'context-decide', 'context-pending', 'resume', 'status', 'stop', 'manual-accept', 'project-restore', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
       if (!values.id) throw new Error('--id is required'); store = new Store(config.runtimeDir, values.id);
@@ -90,10 +93,11 @@ try {
     else if (command === 'status') console.log(JSON.stringify(store.load(), null, 2));
     else if (command === 'stop') { store.load(); writeFileSync(store.file('stop.request'), 'stop'); console.log('Stop requested; active process will terminate.'); }
     else {
-      const storedConfig = store.load().config;
+      const originalConfig = store.load().config;
+      const storedConfig = timeoutMs === undefined ? originalConfig : validate<Config>(configSchema, { ...originalConfig, timeoutMs });
       const agents = storedConfig.mode === 'mock' ? new MockAgents(storedConfig) : new RealAgents(storedConfig);
       const cancellation = new AbortController(); process.once('SIGINT', () => cancellation.abort()); process.once('SIGTERM', () => cancellation.abort());
-      const state = await drive(store, agents, values.decision, cancellation.signal, { maxLoops: values['max-loops'] === undefined ? undefined : Number(values['max-loops']), maxReworks: values['max-reworks'] === undefined ? undefined : Number(values['max-reworks']) });
+      const state = await drive(store, agents, values.decision, cancellation.signal, { timeoutMs: command === 'resume' ? timeoutMs : undefined, maxLoops: values['max-loops'] === undefined ? undefined : Number(values['max-loops']), maxReworks: values['max-reworks'] === undefined ? undefined : Number(values['max-reworks']) }, values.intent as 'resume' | 'visual' | 'rework' | undefined);
       console.log(JSON.stringify({ id: state.id, phase: state.phase, reason: state.reason, loops: state.loops, workspace: state.workspace, stateFile: store.file('state.json') }, null, 2));
       process.exitCode = state.phase === 'completed' ? 0 : state.phase === 'paused' ? 2 : state.phase === 'stopped' ? 130 : 1;
     }

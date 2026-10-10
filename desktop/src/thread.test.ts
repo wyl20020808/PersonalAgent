@@ -71,9 +71,26 @@ test('explicit one-extra-rework reaches Controller without resetting consumption
  try{
   await assert.rejects(service.dispatch({operation:'resume',profileId,runId,decision:'extra',maxReworks:before.config.maxReworks+2}),/只能增加一次/);
   await service.dispatch({operation:'resume',profileId,runId,decision:'authorize exactly one extra rework',intent:'rework',maxReworks:before.config.maxReworks+1});
-  assert.equal(received[3],before.config.maxReworks+1);assert.deepEqual(store.load(),before);
+  assert.equal(received[3],before.config.maxReworks+1);assert.equal(received[4],'rework');assert.deepEqual(store.load(),before);
   const action=JSON.parse(fs.readFileSync(path.join(data,'user-actions.jsonl'),'utf8').trim().split('\n').at(-1)!);assert.equal(action.maxReworks,before.config.maxReworks+1);
   const messages=projectMessages(before,[event('extra','limits-updated',{maxReworks:2}),event('decision','human-decision',{decision:'authorized'})],[]);
   assert.match(messages.find(m=>m.title==='授权预算已更新')!.text,/2/);const decision=messages.find(m=>m.kind==='decision')!;assert.equal(decision.status,'recorded');assert.match(decision.text,/不代表已开始执行/);
  }finally{service.launch=original;}
+});
+
+test('desktop rework reaches CLI and Controller at missing-tests pause instead of repeating verify',async()=>{
+ const entry=service.registry().profiles[0]!,config=JSON.parse(fs.readFileSync(entry.file,'utf8'));
+ const file=path.join(data,'rework.config.json');fs.writeFileSync(file,JSON.stringify({...config,runtimeDir:path.join(data,'rework-runtime'),tests:[],maxLoops:6,maxReworks:2}));
+ service.register(file,false);const profile=service.overview().profiles.find(p=>p.runtimeDir===path.join(data,'rework-runtime'))!;
+ const created=await service.dispatch({operation:'start',profileId:profile.id,repository:profile.repositories[0],goal:'Local missing-tests rework'}) as any;
+ const waitPaused=async()=>{for(let n=0;n<200;n++){const run=service.detail(profile.id,created.id).run;if(!run.active&&run.phase==='paused')return run;await new Promise(r=>setTimeout(r,50));}throw Error('Local Controller did not pause');};
+ const first=await waitPaused();assert.equal(first.loops,1);assert.match(first.reason,/No independent/);
+ const store=service.store(profile.id,created.id),before=store.load();
+ await service.dispatch({operation:'resume',profileId:profile.id,runId:created.id,decision:'Continue current task repair',intent:'rework'});
+ const repaired=await waitPaused();assert.equal(repaired.loops,2);assert.equal(repaired.reworks,1);assert.equal(repaired.totalReworks,1);
+ assert.equal(repaired.taskIndex,first.taskIndex);assert.deepEqual(repaired.completedTaskIds,[]);
+ assert.equal(repaired.config.maxLoops,6);assert.equal(repaired.config.maxReworks,2);
+ assert.equal(store.load().claudeSessionId,before.claudeSessionId);assert.equal(store.load().codexThreadId,before.codexThreadId);
+ assert.equal(repaired.evidence?.passed,false);assert.equal(repaired.evidence?.tests.length,0);
+ assert.ok(service.audit(store).some(e=>e.event==='human-decision'&&e.data.intent==='rework'));
 });

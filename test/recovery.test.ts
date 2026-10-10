@@ -13,6 +13,7 @@ import { FlowError, classifyFailure } from '../src/failure.js';
 import type { Agents } from '../src/adapters.js';
 import type { Config, Review } from '../src/schema.js';
 import { RealAgents } from '../src/real-agents.js';
+import { acceptManual, manualAcceptanceDigest } from '../src/manual-acceptance.js';
 
 const root = path.resolve('.validation', `v02a-${randomUUID()}`); mkdirSync(root, { recursive: true });
 // Local injected adapters exercise real mode without authorization or paid calls.
@@ -64,6 +65,59 @@ test('ASK_HUMAN stays paused; FAIL is terminal and cannot resubmit', async () =>
   const rejected = await drive(f.store, f.agents, 'Reject this objective'); assert.equal(rejected.phase, 'failed'); assert.equal(rejected.failure?.kind, 'rejected');
   assert.equal((await drive(f.store, f.agents, 'Retry')).claudeCalls, 3); assert.equal(f.executions(), 1);
 });
+
+for (const native of [false, true]) test(`explicit rework at missing-tests pause executes current task and retains sessions (${native ? 'native' : 'proposal'})`, async () => {
+  const f = await fixture(`human-rework-${native}`, { tests: [], executionMode: native ? 'native' : 'proposal' });
+  // The reported native Run predates snapshotPolicy; keep its recovery path covered.
+  if (native) { const legacy = f.store.load(); delete legacy.snapshotPolicy; f.store.save(legacy); }
+  let executions = 0;
+  const agents: Agents = { ...f.agents, executionMode: native ? 'native' : undefined };
+  agents.execute = async (state, storage) => {
+    executions++; state.codexThreadId ??= 'same-thread'; storage.save(state);
+    const content = executions === 1 ? 'needs repair\n\n' : 'ok\n';
+    if (executions > 1) assert.match(state.feedback, /repair current task/);
+    if (native) { for (const file of ['result.txt', 'seed.txt']) writeFileSync(path.join(state.workspace, file), content); return { mode: 'native', summary: 'Local repair fixture' }; }
+    return { summary: 'Local repair fixture', changes: [{ path: 'result.txt', content }, { path: 'seed.txt', content }] };
+  };
+  const paused = await drive(f.store, agents);
+  assert.equal(paused.nextPhase, 'verify'); assert.equal(paused.loops, 1); assert.equal(manualAcceptanceDigest(paused), null);
+  // Ordinary recovery remains verification, not implicit development or acceptance.
+  const checked = await drive(f.store, agents, 'repair current task');
+  assert.equal(checked.phase, 'paused'); assert.equal(executions, 1); assert.equal(checked.taskIndex, 0);
+  const repaired = await drive(new Store(f.config.runtimeDir, f.store.id), agents, 'repair current task', undefined, undefined, 'rework');
+  assert.equal(repaired.phase, 'paused'); assert.equal(repaired.nextPhase, 'verify'); assert.equal(executions, 2);
+  assert.equal(repaired.loops, 2); assert.equal(repaired.reworks, 1); assert.equal(repaired.totalReworks, 1);
+  assert.equal(repaired.claudeSessionId, paused.claudeSessionId); assert.equal(repaired.codexThreadId, paused.codexThreadId);
+  assert.equal(repaired.claudeCalls, paused.claudeCalls); assert.equal(repaired.taskIndex, 0); assert.deepEqual(repaired.completedTaskIds, []);
+  assert.equal(repaired.config.maxLoops, 4); assert.equal(repaired.config.maxReworks, 1);
+  assert.equal(readFileSync(path.join(repaired.workspace, 'result.txt'), 'utf8'), 'ok\n');
+  assert.equal(repaired.evidence?.passed, false); assert.deepEqual(repaired.evidence?.tests, []);
+  const digest = manualAcceptanceDigest(repaired); assert.ok(digest);
+  const done = await acceptManual(f.store, digest, 'Inspected local fixture contents and diff');
+  assert.equal(done.phase, 'completed'); assert.equal(done.evidence?.passed, false);
+  const audit = readFileSync(f.store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(audit.some(e => e.event === 'human-decision' && e.data.intent === 'rework'));
+});
+
+for (const limit of ['reworks', 'loops'] as const) test(`explicit rework respects exhausted ${limit} without calling an agent`, async () => {
+  const f = await fixture(`human-rework-limit-${limit}`, { tests: [], ...(limit === 'reworks' ? { maxReworks: 0 } : { maxLoops: 1 }) });
+  const paused = await drive(f.store, f.agents);
+  const blocked = await drive(f.store, f.agents, 'repair', undefined, undefined, 'rework');
+  assert.equal(blocked.phase, 'paused'); assert.equal(blocked.reason, limit === 'reworks' ? 'Rework limit reached' : 'Loop limit reached');
+  assert.equal(blocked.loops, paused.loops); assert.equal(blocked.claudeCalls, paused.claudeCalls); assert.equal(f.executions(), 1);
+  assert.equal(blocked.reworks, 0); assert.equal(blocked.totalReworks, 0);
+});
+
+test('rework rejects missing decision, planning, applying and active runs before changing state', async () => {
+  const f = await fixture('human-rework-invalid', { tests: [] });
+  const paused = await drive(f.store, f.agents);
+  for (const [phase, nextPhase, decision] of [['paused', 'verify', ''], ['paused', 'planning', 'repair'], ['paused', 'applying', 'repair'], ['verify', 'verify', 'repair']] as const) {
+    f.store.save({ ...paused, phase, nextPhase });
+    const before = readFileSync(f.store.file('state.json'));
+    await assert.rejects(drive(f.store, f.agents, decision, undefined, undefined, 'rework'), /返工需要/);
+    assert.deepEqual(readFileSync(f.store.file('state.json')), before); assert.equal(f.executions(), 1);
+  }
+});
 for (const kind of ['executor', 'authentication', 'timeout'] as const) test(`${kind} pauses, consumes attempt, requires explicit resume and keeps IDs`, async () => {
   const f = await fixture(`executor-${kind}`); const execute = f.agents.execute;
   f.agents.execute = async (state, storage, signal) => { await execute(state, storage, signal); throw new FlowError(kind, `Injected ${kind}`); };
@@ -109,8 +163,11 @@ test('application conflict fails closed before another file is written', async (
   prepareApplication(f.store, state, { summary: 'proposal', changes: [{ path: 'result.txt', content: 'ok\n' }, { path: 'extra.txt', content: 'extra\n' }] }); writeFileSync(path.join(state.workspace, 'result.txt'), 'unexpected human edit\n');
   const failed = await drive(f.store, f.agents); assert.equal(failed.phase, 'failed'); assert.equal(failed.failure?.kind, 'safety'); assert.equal(existsSync(path.join(state.workspace, 'extra.txt')), false); assert.equal(f.executions(), 0);
 });
-test('durable review receipt resumes after simulated crash without another CC call', async () => {
-  const f = await fixture('review-receipt', { maxClaudeCalls: 2 }); const complete = await drive(f.store, f.agents); assert.equal(complete.phase, 'completed');
+test('legacy durable review receipt resumes after simulated crash without another CC call', async () => {
+  const f = await fixture('review-receipt', { maxClaudeCalls: 2 });
+  // New Runs intentionally rerun review; only historical snapshot Runs reuse receipts.
+  const initial = f.store.load(); delete initial.snapshotPolicy; f.store.save(initial);
+  const complete = await drive(f.store, f.agents); assert.equal(complete.phase, 'completed');
   const crash: State = { ...complete, phase: 'review', taskIndex: 0 }; f.store.save(crash); const mtime = statSync(path.join(crash.workspace, 'result.txt')).mtimeMs;
   f.agents.review = async () => { throw new Error('Review must never be called again'); };
   const resumed = await drive(new Store(f.config.runtimeDir, f.store.id), f.agents); assert.equal(resumed.phase, 'completed'); assert.equal(resumed.claudeCalls, 2); assert.equal(resumed.loops, 1); assert.equal(statSync(path.join(crash.workspace, 'result.txt')).mtimeMs, mtime);
@@ -158,4 +215,33 @@ test('recovery cannot weaken proposal size limits through a corrupted journal', 
   prepareApplication(f.store, state, { summary: 'small', changes: [{ path: 'one.txt', content: 'small' }, { path: 'two.txt', content: 'small' }, { path: 'three.txt', content: 'small' }] });
   const file = f.store.file('application-1.json'); const journal = JSON.parse(readFileSync(file, 'utf8')); journal.edits.changes.forEach((change: { content: string }) => { change.content = 'x'.repeat(750000); }); writeFileSync(file, JSON.stringify(journal));
   const failed = await drive(f.store, f.agents); assert.equal(failed.phase, 'failed'); assert.equal(failed.failure?.kind, 'safety'); assert.equal(existsSync(path.join(state.workspace, 'one.txt')), false);
+});
+
+test('zero timeout survives controller waits and explicit stop still pauses work', async () => {
+  const f = await fixture('unlimited-time', { timeoutMs: 0 });
+  const plan = f.agents.plan;
+  f.agents.plan = async (state, store, signal) => { await delay(180, undefined, { signal }); return plan(state, store, signal); };
+  const done = await drive(f.store, f.agents);
+  assert.equal(done.phase, 'completed'); assert.equal(done.config.timeoutMs, 0);
+  const stopped = await fixture('unlimited-stop', { timeoutMs: 0 });
+  stopped.agents.execute = async (_state, store, signal) => {
+    writeFileSync(store.file('stop.request'), 'stop');
+    await delay(5000, undefined, { signal });
+    throw Error('stop must cancel before completion');
+  };
+  const result = await drive(stopped.store, stopped.agents);
+  assert.equal(result.phase, 'stopped'); assert.equal(result.loops, 1);
+});
+
+test('legacy timeout changes to unlimited during recovery without losing history', async () => {
+  const f = await fixture('unlimited-resume', { timeoutMs: 150 });
+  const state = f.store.load(); state.phase = 'paused'; state.nextPhase = 'planning';
+  state.claudeSessionId = 'existing-session'; state.codexThreadId = 'existing-thread'; f.store.save(state);
+  const plan = f.agents.plan;
+  f.agents.plan = async (state, store, signal) => { await delay(250, undefined, { signal }); return plan(state, store, signal); };
+  const result = await drive(f.store, f.agents, '取消时长限制并继续', undefined, { timeoutMs: 0 });
+  assert.equal(result.phase, 'completed'); assert.equal(result.config.timeoutMs, 0);
+  assert.equal(result.claudeSessionId, 'existing-session'); assert.equal(result.codexThreadId, 'existing-thread');
+  assert.equal(result.config.maxLoops, 4); assert.equal(result.config.maxReworks, 1);
+  assert.ok(readFileSync(f.store.file('audit.jsonl'), 'utf8').includes('"timeoutMs":0'));
 });

@@ -29,9 +29,17 @@
       "maxLength": 100000
     },
     "timeoutMs": {
-      "type": "integer",
-      "minimum": 100,
-      "maximum": 3600000
+      "anyOf": [
+        {
+          "const": 0
+        },
+        {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 3600000
+        }
+      ],
+      "description": "0 disables elapsed-time limits; explicit stop remains available."
     },
     "maxLoops": {
       "type": "integer",

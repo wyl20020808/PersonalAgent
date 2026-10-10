@@ -24,7 +24,7 @@ export function runProcess(executable: string, args: string[], options: {
       failure ??= error;
       if (!terminating && child.pid) { terminating = true; termination = terminateTree(child.pid); }
     };
-    const timer = setTimeout(() => kill(new Error(`Timeout after ${options.timeoutMs} ms`)), options.timeoutMs);
+    const timer = options.timeoutMs === 0 ? undefined : setTimeout(() => kill(new Error(`Timeout after ${options.timeoutMs} ms`)), options.timeoutMs);
     const abort = () => kill(new Error('Stopped'));
     options.signal?.addEventListener('abort', abort, { once: true });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
