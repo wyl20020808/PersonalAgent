@@ -18,6 +18,7 @@ import { loadProjectContext } from './project-context.js';
 import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, normalizeContractReferences, reviewContractCatalog, taskContextBaseline } from './context-review.js';
 import { prepareUnlocked, pendingContextConfirmations } from './context-confirmation.js';
 import { decisionIdentity, assertDecisionState } from './decision-agent.js';
+import { assertExecutionState } from './opencode-execution-agent.js';
 import { initializeDiscussion, assertDiscussion, assertDiscussionPlan } from './decision-discussion.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
@@ -63,6 +64,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     state = store.load();
     assertDecisionState(state);
     assertDiscussion(state);
+    assertExecutionState(state);
     if(state.phase==='failed' && state.failure?.stage==='prepare' && !state.failure.recoverable){unlock();return state;}
     if(state.config.projectMode==='direct' && agents.executionMode!=='native') throw new Error('Direct project mode requires native execution adapter');
     if (state.workspace !== (state.config.projectMode === 'direct' ? realpathSync(state.source) : store.file('workspace')) || realpathSync(state.workspace).toLowerCase() !== path.resolve(state.workspace).toLowerCase()) throw new Error('Persisted workspace path mismatch or junction redirect');
@@ -74,7 +76,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   if (externalSignal?.aborted) stop.abort();
   const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
-  async function agentOperation<T>(agent: 'claude' | 'codex', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async function agentOperation<T>(agent: 'claude' | 'codex' | 'opencode', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
     if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
     const started = Date.now(), before = await observeWorkspace(state, stop.signal);
@@ -184,14 +186,15 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         await captureBaseline(store, state, `round-${state.loops + 1}-baseline.json`, stop.signal);
         state.nativeExecution = agents.executionMode === 'native';
         state.loops++; state.nextPhase = 'execute'; state.evidence = null; state.executorExitCode = -1; checkpoint('executing');
-        const result = await agentOperation('codex', 'execute', signal => agents.execute(state, store, signal));
+        assertExecutionState(state);
+        const result = await agentOperation(state.config.executionAgent?.backend === 'opencode' ? 'opencode' : 'codex', 'execute', signal => agents.execute(state, store, signal));
         if (stop.signal.aborted) throw new Error('Stopped');
         if ('mode' in result && result.mode === 'native') {
           validate(nativeResultSchema, result);
           if (!state.nativeExecution) throw new FlowError('safety', 'Unexpected native result in proposal mode');
           atomicJson(store.file(`native-result-${state.loops}.json`), { result, snapshot: await observeWorkspace(state, stop.signal), head: await workspaceHead(state,stop.signal) });
           state.executorExitCode = 0; state.nextPhase = 'verify';
-          store.audit('native-result', { ...result, loop: state.loops }); checkpoint('verify'); continue;
+          store.audit('native-result', { ...result, agent: state.config.executionAgent?.backend ?? 'codex', sessionId: state.executionSession?.sessionId ?? state.codexThreadId, loop: state.loops }); checkpoint('verify'); continue;
         }
         if (state.nativeExecution) throw new FlowError('safety', 'Native execution returned a file proposal; refusing duplicate application');
         const edits = validate<Edits>(editSchema, result);

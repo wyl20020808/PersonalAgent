@@ -4,6 +4,7 @@ import type {ChatMessage,Note} from './types.js';
 
 export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessage[]{
  const decisionRole:ChatMessage['role']=(state.decisionAgent??state.config?.decisionAgent)?.backend==='opencode'?'opencode':'claude',decisionName=decisionRole==='opencode'?'OpenCode':'Claude Code';
+ const executionRole=state.config?.executionAgent?.backend==='opencode'?'opencode':'codex',executionName=executionRole==='opencode'?'OpenCode':'Codex';
  const result:ChatMessage[]=[];let taskIndex=0,loop=0;
  for(const [timelineIndex,e] of events.entries()){
    const d=e.data??{};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
@@ -20,16 +21,20 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    else if(e.event==='discussion-output'){role=d.participantAgent.backend==='opencode'?'opencode':'claude';title=({draft:'初步计划',discussion:'讨论意见',synthesis:'主决策者总结 · 最终 Plan 提案'} as Record<string,string>)[d.discussionStage];text=d.mode==='mock'?'本地 Mock 适配器输出，未调用远端模型。':'真实决策调用的结构化输出；最终提案仍须 Controller 校验。';kind='discussion';if(d.output.tasks){details={tasks:d.output.tasks};text+='\n'+(d.output.humanDecision??'');}else text+='\n\n'+d.output.summary+'\n\n分歧：\n'+d.output.disagreements.map((s:string)=>'- '+s).join('\n')+'\n\n修改建议：\n'+d.output.amendments.map((s:string)=>'- '+s).join('\n');}
    else if(e.event==='agent-activity'){role=d.participantAgent?(d.participantAgent.backend==='opencode'?'opencode':'claude'):d.agent==='claude'?decisionRole:d.agent;title=d.title;text=d.text;kind=d.kind;details={protocol:d.source,fullTextHash:d.fullTextHash};status=activityStatus(d);}
    else if(e.event==='agent-start'&&state.discussion&&d.role==='plan'){title='决策周期开始';text='按绑定的参与者配置顺序调用；完成最终 Plan 前不派发执行者。';kind='dispatch';}
-   else if(e.event==='agent-start'){role=d.agent==='claude'?decisionRole:d.agent;title=d.agent==='codex'?'Codex 正在执行':decisionName+' 正在执行';text=`阶段：${d.role}`;kind='dispatch';status='running';}
+   else if(e.event==='agent-start'){role=d.agent==='claude'?decisionRole:d.agent;title=d.role==='execute'?executionName+' 正在执行':decisionName+' 正在执行';text=`阶段：${d.role}`;kind='dispatch';status='running';}
    else if(e.event==='agent-finish'){role=state.discussion&&d.role==='plan'?'controller':d.agent==='claude'?decisionRole:d.agent;title='Agent 实际文件变更';text=`耗时 ${d.durationMs} ms；${d.changed===null?'文件变更未自动验证':d.changed?'观测到文件修改':'未观测到文件修改'}${d.verificationScope?'\n'+d.verificationScope:''}`;kind='changes';details={diff:redact(d.diff??''),protocol:d.verificationScope?'Controller limited Git observation':'Controller Git snapshot'};}
-   else if(e.event==='native-result'){role='codex';title='原生开发结果';text=d.summary;kind='output';}
+   else if(e.event==='native-result'){role=d.agent??executionRole;title=executionRole==='opencode'?'OpenCode 原生开发结果':'原生开发结果';text=d.summary+(d.sessionId?'\n\n执行 Session：'+d.sessionId:'');kind='output';}
    else if(e.event==='review-modified-workspace'){role='controller';title=decisionName+' 修改后需重新独立验收';text=d.reason;kind='tests';status='pending';}
    else if(e.event==='execution-interrupted'){title='原生执行中断，已有修改已保留';text=d.note;kind='warning';}
    else if(e.event==='claude-call-start'){title=d.role==='plan'?'派发规划任务':'派发审查任务';text=`${decisionName} 调用预约 ${d.call}；会话 ${d.sessionId}`;kind='dispatch';}
+   else if(e.event==='opencode-execution-session'){role='opencode';title='OpenCode 执行 Session';text=`执行者 · Session ${d.sessionId} · ${d.providerID} / ${d.modelID} · ${state.config.mode}`;kind='session';}
+   else if(e.event==='opencode-execute-exit'){role='opencode';title='OpenCode Execute 结束';text=`执行者 · Session ${d.sessionId} · 退出码 ${d.exitCode}`;kind='exit';}
+   else if(e.event==='opencode-execute-error'){role='opencode';title='OpenCode Execute 异常';text=d.message;kind='error';status='fail';}
+   else if(e.event==='opencode-execute-exit-unconfirmed'){role='opencode';title='OpenCode 进程退出未确认';text=`执行 Session ${d.sessionId??'未建立'}；需要人工检查后恢复。`;kind='error';status='fail';}
    else if(e.event==='codex-thread'){title='Codex 会话已续接';text=d.id;kind='session';}
    else if(e.event==='edits-applied'){role='codex';title='开发结果已由 Controller 应用';text=d.summary;kind='changes';details={paths:d.paths};}
    else if(e.event==='independent-check'){title=d.passed?'独立验收通过':'独立验收未通过';text=d.issues?.length?d.issues.join('\n'):'结果来自 Controller 配置的可信验收程序。';kind='tests';status=d.passed?'pass':'fail';details={tests:d.tests?.map((t:any)=>({...t,stdout:redact(t.stdout).slice(0,16000),stderr:redact(t.stderr).slice(0,6000)})),diff:redact(d.diff??'').slice(0,160000),issues:d.issues};}
-   else if(e.event==='transition'){const names:Record<string,string>={planning:'CC 规划中',execute:'准备派单',executing:'Codex 执行中',applying:'受控应用提案',verify:'独立验证中',review:'CC 审查中',paused:'已安全暂停',stopped:'已停止',failed:'运行失败',completed:'开发 Run 已完成'};title=state.config?.mode==='mock'&&d.phase==='completed'?'Mock 演练完成（未完成真实开发目标）':names[d.phase]??d.phase;text=d.reason??'';kind='phase';status=d.phase;}
+   else if(e.event==='transition'){const names:Record<string,string>={planning:'CC 规划中',execute:'准备派单',executing:executionName+' 执行中',applying:'受控应用提案',verify:'独立验证中',review:'CC 审查中',paused:'已安全暂停',stopped:'已停止',failed:'运行失败',completed:'开发 Run 已完成'};title=state.config?.mode==='mock'&&d.phase==='completed'?'Mock 演练完成（未完成真实开发目标）':names[d.phase]??d.phase;text=d.reason??'';kind='phase';status=d.phase;}
    else if(e.event==='error'){title='异常已记录';text=d.message;kind='error';status=d.kind;}
    else if(e.event==='codex-exit'||e.event==='claude-exit'){title=e.event==='codex-exit'?'Codex 进程退出':'Claude CLI 进程退出';text=`退出码 ${d.exitCode}${d.stderr?'\n'+d.stderr:''}`;kind='exit';}
    else if(e.event==='review-vetoed'||e.event==='agent-activity-limit'){title=e.event==='review-vetoed'?'Controller 否决审查通过':'活动输出已达展示上限';text=d.reason??d.note;kind='warning';}
@@ -37,21 +42,22 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    else continue;
    const visibleText=redact(String(text??''));
    const owner=d.participantId?d:state.discussion&&(['review','planning-human-decision'].includes(e.event)||['agent-start','agent-finish'].includes(e.event)&&d.role==='review')?{participantId:state.discussion.config.primary,participantAgent:state.discussion.participants.find(p=>p.id===state.discussion!.config.primary)!.agent,primary:true}:undefined;
-   result.push({...((owner&&role!=='controller')?{participantId:owner.participantId,participantName:(owner.participantAgent.backend==='opencode'?'OpenCode':'Claude Code')+' '+owner.participantId.toUpperCase(),participantRole:owner.primary?'主决策者':'决策者',decisionStage:d.discussionStage}:{}),id:`audit:${e.hash}`,time:e.time,role,title:redact(String(title)),text:visibleText,kind,status,runId:state.id,taskId:d.discussionStage&&d.discussionStage!=='review'?null:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,scope:d.scope,timelineIndex,category:e.event==='agent-activity'?activityCategory(d):undefined,source:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
+   result.push({...((owner&&role!=='controller')?{participantId:owner.participantId,participantName:(owner.participantAgent.backend==='opencode'?'OpenCode':'Claude Code')+' '+owner.participantId.toUpperCase(),participantRole:owner.primary?'主决策者':'决策者',decisionStage:d.discussionStage}:{}),...(d.role==='execute'||e.event.startsWith('opencode-exec')||e.event==='native-result'&&executionRole==='opencode'||e.event==='agent-activity'&&d.scope?.startsWith('opencode-execute:')?{participantRole:'执行者',participantName:executionName,decisionStage:'execute'}:{}),id:`audit:${e.hash}`,time:e.time,role,title:redact(String(title)),text:visibleText,kind,status,runId:state.id,taskId:d.discussionStage&&d.discussionStage!=='review'?null:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,scope:d.scope,timelineIndex,category:e.event==='agent-activity'?activityCategory(d):undefined,source:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
  }
  for(const note of notes)result.push({id:`note:${note.id}`,time:note.time,role:'user',title:'补充需求 · 已记录，尚未生效',text:note.text,kind:'note',status:'pending',runId:state.id,taskId:note.taskId,loop:note.loop,source:`desktop-note:${note.id}`});
  return [...new Map(result.map(m=>[m.id,m])).values()].sort((a,b)=>a.time.localeCompare(b.time));
 }
 function activityCategory(data:any):string {
  if(data.kind!=='tool')return data.kind;
+ try{const tool=JSON.parse(data.text).receipt?.tool;if(['write','edit','apply_patch'].includes(tool))return 'files';if(tool==='bash')return 'commands';}catch{/* legacy public text */}
  if(/文件|file/i.test(data.title))return 'files';
  if(/执行事件|命令|Shell/.test(data.title))return 'commands';
  // Unstructured legacy tools are grouped only when their exact titles match.
  return 'tool:'+data.title;
 }
 function activityStatus(data:any):string {
- if(data.kind==='error'||/exit_code=-?[1-9]\d*\b|"is_error":true|"error":(?!null)[{\"]|\bfailed\b/.test(data.text??''))return 'fail';
- if(/exit_code=pending|\bin_progress\b|正在执行/.test(data.text??''))return 'running';
+ if(data.kind==='error'||/"status":"error"/.test(data.text??'')||/exit_code=-?[1-9]\d*\b|"is_error":true|"error":(?!null)[{\"]|\bfailed\b/.test(data.text??''))return 'fail';
+ if(/"status":"(?:pending|running)"|exit_code=pending|\bin_progress\b|正在执行/.test(data.text??''))return 'running';
  if(/exit_code=0\b|"status":"completed"/.test(data.text??''))return 'success';
  return 'recorded';
 }

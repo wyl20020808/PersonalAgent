@@ -6,6 +6,8 @@ const object = (properties: Record<string, unknown>) => ({ type: 'object', prope
 export const decisionAgentSchema = { oneOf: [{ ...object({ backend: { const: 'claude-code' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, object({ backend: { const: 'opencode' }, opencode: { ...object({ providerID: text, modelID: text, executable: text }), required: ['providerID', 'modelID'] } })] };
 export const decisionDiscussionSchema = object({ participants: { type: 'array', minItems: 2, maxItems: 2, items: object({ id: { enum: ['a', 'b'] }, agent: decisionAgentSchema }) }, primary: { enum: ['a', 'b'] }, rounds: { enum: [0, 1] } });
 export type DecisionChoice = { backend: 'claude-code'; model?: string } | { backend: 'opencode'; opencode: { providerID: string; modelID: string; executable?: string } };
+export type ExecutionChoice = { backend: 'codex' } | Extract<DecisionChoice, { backend: 'opencode' }>;
+export const executionAgentSchema = { oneOf: [object({ backend: { const: 'codex' } }), decisionAgentSchema.oneOf[1]] };
 export interface DecisionDiscussion { participants: { id: 'a' | 'b'; agent: DecisionChoice }[]; primary: 'a' | 'b'; rounds: 0 | 1 }
 export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
@@ -31,6 +33,7 @@ Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'prop
 Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 Object.assign(configSchema.properties, { decisionAgent: decisionAgentSchema, decisionDiscussion: decisionDiscussionSchema });
+Object.assign(configSchema.properties, { executionAgent: executionAgentSchema });
 export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string; moduleIds?: string[] }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export interface Plan { tasks: Task[]; humanDecision: string | null }
@@ -39,6 +42,7 @@ export interface Edits { summary: string; changes: { path: string; content: stri
 export interface NativeResult { mode: 'native'; summary: string }
 export type ExecutionResult = Edits | NativeResult;
 export interface Config {
+  executionAgent?: ExecutionChoice;
   decisionAgent?: DecisionChoice; decisionDiscussion?: DecisionDiscussion;
   projectMode?: 'direct' | 'isolated';
   workspaceMode?: 'direct' | 'isolated'; // Deprecated input alias; never persisted in new Runs.
@@ -54,6 +58,7 @@ export interface Config {
   mockScenario: 'pass' | 'rework' | 'human' | 'fail' | 'timeout' | 'invalid' | 'escape' | 'nochange';
 }
 export function normalizeConfig(config: Config): Config {
+  if (config.executionAgent?.backend === 'opencode' && config.executionMode === 'proposal') throw new Error('OpenCode execution requires native execution mode');
   if (config.projectMode && config.workspaceMode && config.projectMode !== config.workspaceMode) throw new Error('Conflicting projectMode and workspaceMode');
   const { workspaceMode, ...canonical } = config;
   const discussion = config.decisionDiscussion;

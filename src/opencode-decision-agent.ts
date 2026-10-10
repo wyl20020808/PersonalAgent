@@ -68,7 +68,7 @@ export async function startOpencodeService(executable: string | undefined, direc
 export interface DiscoveredModel { id: string; name: string; capabilities: { tools: boolean | 'unknown'; structuredOutput: boolean | 'unknown' } }
 export interface DiscoveredProvider { id: string; name: string; models: DiscoveredModel[] }
 export interface ModelDiscovery { available: boolean; reason: string; providers: DiscoveredProvider[] }
-function resolvedSchema(api: any, schema: any, seen = new Set<string>()): any {
+export function resolvedSchema(api: any, schema: any, seen = new Set<string>()): any {
   if (!schema || typeof schema !== 'object') return schema;
   if (schema.$ref) {
     if (seen.has(schema.$ref)) return undefined;
@@ -82,7 +82,7 @@ export function supportsStructuredOutput(api: any): boolean {
   const format = resolvedSchema(api, body?.properties?.format);
   return JSON.stringify(format ?? {}).includes('json_schema');
 }
-async function models(service: OpenCodeService, directory: string, signal: AbortSignal): Promise<ModelDiscovery> {
+export async function models(service: OpenCodeService, directory: string, signal: AbortSignal): Promise<ModelDiscovery> {
   const options = { signal, throwOnError: true as const };
   let providers: DiscoveredProvider[];
   // V1 1.18.35 exposes both API families. Select the family that actually owns
@@ -110,7 +110,7 @@ export function opencodePublicEvents(event: any, directory: string, sessionID: s
   const value = event.payload, part = value?.properties?.part;
   if (part?.sessionID !== sessionID || !['text','tool'].includes(part.type)) return [];
   if (part.type === 'text') return [{key:`${part.id}:${part.text}`,kind:'output',title:'OpenCode 公开输出',text:redact(part.text ?? '')}];
-  return [{key:`${part.id}:${part.state?.status}`,kind:'tool',title:`OpenCode 工具 · ${redact(part.tool ?? '')}`,text:redact(JSON.stringify({callID:part.callID,tool:part.tool,status:part.state?.status,input:part.state?.input}))}];
+  return [{key:`${part.id}:${part.state?.status}:${JSON.stringify(part.state)}`,kind:'tool',title:`OpenCode 工具 · ${redact(part.tool ?? '')}`,text:redact(JSON.stringify({callID:part.callID,tool:part.tool,status:part.state?.status,input:part.state?.input,output:part.state?.output,error:part.state?.error,metadata:part.state?.metadata}))}];
 }
 export class OpenCodeDecisionAgent implements DecisionAgent {
   constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startOpencodeService) {}

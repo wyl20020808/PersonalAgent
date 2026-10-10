@@ -6,18 +6,18 @@ export function decisionLabel(selection?:DecisionAgent|Run['decisionAgent']):str
  const model='opencode' in selection?selection.opencode:selection;
  return `OpenCode · ${model.providerID} / ${model.modelID}`;
 }
-export function useDecisionModels(value?:DecisionAgent,projectPath?:string){
+export function useDecisionModels(value?:DecisionAgent,projectPath?:string,operation:"decisionModels"|"executionModels"="decisionModels"){
  const [models,setModels]=useState<DecisionModels|null>(null),[loading,setLoading]=useState(false),[revision,setRevision]=useState(0);
  const backend=value?.backend??'claude-code',selection=value?.backend==='opencode'?value.opencode:null;
- const scope=`${backend}:${projectPath??''}:${revision}`;
+ const scope=`${operation}:${backend}:${projectPath??''}:${revision}`;
  const [discoveredScope,setDiscoveredScope]=useState('');
  useEffect(()=>{
   let live=true;
   if(backend!=='opencode'){setLoading(false);setModels(null);return;}
   setLoading(true);setModels(null);
-  void window.personalAgent.invoke<DecisionModels>({operation:'decisionModels',...(projectPath?{projectPath}:{})}).then(result=>{if(live){setModels(result);setDiscoveredScope(scope);}}).catch(error=>{if(live){setModels({available:false,reason:error.message,providers:[]});setDiscoveredScope(scope);}}).finally(()=>{if(live)setLoading(false);});
+  void window.personalAgent.invoke<DecisionModels>({operation,...(projectPath?{projectPath}:{})}).then(result=>{if(live){setModels(result);setDiscoveredScope(scope);}}).catch(error=>{if(live){setModels({available:false,reason:error.message,providers:[]});setDiscoveredScope(scope);}}).finally(()=>{if(live)setLoading(false);});
   return()=>{live=false;};
- },[backend,projectPath,revision]);
+ },[backend,projectPath,revision,operation]);
  const provider=models?.providers.find(p=>p.id===selection?.providerID),model=provider?.models.find(m=>m.id===selection?.modelID);
  const discovering=backend==='opencode'&&(loading||discoveredScope!==scope);
  const valid=backend==='claude-code'?(value?.backend!=='claude-code'||!value.model||/^[a-zA-Z0-9._:/-]{1,200}$/.test(value.model)):Boolean(!discovering&&models?.available&&model?.capabilities.tools===true&&model?.capabilities.structuredOutput===true);

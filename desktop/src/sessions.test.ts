@@ -12,6 +12,21 @@ import type {ChatMessage,Conversation} from './types.js';
 import type {State} from '../../src/store.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+test('P3C executor selection is independent, validated and durable; history defaults to Codex',async()=>{
+ const {data,project}=fixture();
+ let execution:DecisionModels={available:true,reason:'',providers:[{id:'executor-provider',name:'LOCAL MOCK',models:[{id:'executor-model',name:'LOCAL MOCK tools',capabilities:{tools:true,structuredOutput:true}}]}]};
+ const decision:DecisionModels={available:true,reason:'',providers:[{id:'decision-provider',name:'LOCAL MOCK',models:[{id:'decision-model',name:'LOCAL MOCK decision',capabilities:{tools:true,structuredOutput:true}}]}]};
+ const service=new DesktopService(root,data,process.execPath,async()=>decision,async()=>execution);
+ const executionAgent={backend:'opencode' as const,opencode:{providerID:'executor-provider',modelID:'executor-model'}},decisionAgent={backend:'opencode' as const,opencode:{providerID:'decision-provider',modelID:'decision-model'}};
+ for(const invalid of [{backend:'claude-code'},[{backend:'codex'},executionAgent],{...executionAgent,opencode:{...executionAgent.opencode,executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,executionAgent:invalid}));
+ const discovered=await service.dispatch({operation:'executionModels',projectPath:project}) as DecisionModels;assert.equal(discovered.providers[0].id,'executor-provider');
+ const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',executionAgent,decisionAgent}) as Conversation;
+ assert.deepEqual(session.settings.executionAgent,executionAgent);assert.deepEqual(session.settings.decisionAgent,decisionAgent);
+ assert.deepEqual(new DesktopService(root,data,process.execPath,async()=>decision,async()=>execution).sessions.get(session.id).settings.executionAgent,executionAgent);
+ execution={available:false,reason:'LOCAL MOCK native tools unavailable',providers:[]};await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'local test',directAcknowledged:true}),/执行不可用/);assert.equal(service.overview().runs.length,0);
+ execution=discovered;await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'retry local test',directAcknowledged:true});
+ try{const run=await done(service,session.id);assert.equal(run.phase,'completed');assert.equal(run.mode,'mock');assert.deepEqual(run.executionAgent,executionAgent);assert.match(run.executionSession!.sessionId,/^mock-/);assert.equal(run.codexThreadId,null);const state=service.store(run.profileId,run.id).load();const messages=projectMessages(state,[{hash:'fixture',time:state.updatedAt,event:'native-result',data:{agent:'opencode',summary:'LOCAL MOCK execution',sessionId:run.executionSession!.sessionId}},{hash:'fixture-review',time:state.updatedAt,event:'review',data:{verdict:'pass',reason:'LOCAL MOCK review'}}],[]);assert.equal(messages[0].role,'opencode');assert.equal(messages[0].participantRole,'执行者');assert.ok(messages[0].text.includes(run.executionSession!.sessionId));assert.notEqual(messages[1].participantRole,'执行者');}finally{await service.stopOwned();}
+});
 test('decision backend: dynamic sanitized discovery, latest selection validation, immutable Run and restart persistence',async()=>{
  const {data,project}=fixture();
  let discovery:DecisionModels={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};

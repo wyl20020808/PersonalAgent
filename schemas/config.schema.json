@@ -331,6 +331,60 @@
       ],
       "additionalProperties": false
     },
+    "executionAgent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "codex"
+            }
+          },
+          "required": [
+            "backend"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "opencode"
+            },
+            "opencode": {
+              "type": "object",
+              "properties": {
+                "providerID": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                },
+                "modelID": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                },
+                "executable": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                }
+              },
+              "required": [
+                "providerID",
+                "modelID"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "backend",
+            "opencode"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "taskStages": {
       "type": "object",
       "minProperties": 1,
