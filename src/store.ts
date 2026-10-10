@@ -12,6 +12,8 @@ import type { DecisionIdentity, DecisionSession } from './decision-agent.js';
 export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify' | 'review' | 'paused' | 'stopped' | 'failed' | 'completed';
 export interface Evidence { verificationScope?: string; contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
+  executionSession?: { backend: 'opencode'; providerID: string; modelID: string; sessionId: string; runId: string; workspace: string; directory: string };
+  executionAttempt?: { loop: number; taskId: string; status: 'running' | 'success' | 'failed' | 'interrupted' };
   decisionAgent?: DecisionIdentity; decisionSession?: DecisionSession;
   discussion?: DiscussionState;
   purpose?: 'context-onboarding'; projectContextEnabled?: boolean;
@@ -37,6 +39,8 @@ const stateProperties = {
 };
 export const stateSchema = { type: 'object', properties: { ...stateProperties, snapshotPolicy: { const: 'none' }, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
+  executionSession: { type: 'object', additionalProperties: false, required: ['backend','providerID','modelID','sessionId','runId','workspace','directory'], properties: { backend: { const: 'opencode' }, providerID: str, modelID: str, sessionId: str, runId: str, workspace: str, directory: str } },
+  executionAttempt: { type: 'object', additionalProperties: false, required: ['loop','taskId','status'], properties: { loop: integer, taskId: str, status: { enum: ['running','success','failed','interrupted'] } } },
   decisionAgent: { oneOf: [
     { type: 'object', properties: { backend: { const: 'claude-code' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },
     { type: 'object', properties: { backend: { const: 'opencode' }, providerID: str, modelID: str }, required: ['backend','providerID','modelID'], additionalProperties: false }
@@ -87,6 +91,8 @@ export class Store {
   save(state: State) {
     if (existsSync(this.file('state.json'))) {
       const old = JSON.parse(readFileSync(this.file('state.json'), 'utf8'));
+      if (JSON.stringify(old.config.executionAgent ?? {backend:'codex'}) !== JSON.stringify(state.config.executionAgent ?? {backend:'codex'})) throw new Error('Immutable Execution Agent identity changed');
+      if (old.executionSession && JSON.stringify(old.executionSession) !== JSON.stringify(state.executionSession)) throw new Error('Immutable Execution Session changed');
       if (JSON.stringify(old.decisionAgent ?? { backend: 'claude-code' }) !== JSON.stringify(state.decisionAgent ?? { backend: 'claude-code' })) throw new Error('Immutable Decision Agent identity changed');
       if (JSON.stringify(old.config.decisionDiscussion) !== JSON.stringify(state.config.decisionDiscussion) || JSON.stringify(old.discussion?.config) !== JSON.stringify(state.discussion?.config) || JSON.stringify(old.discussion?.participants.map((p: any) => ({id:p.id,agent:p.agent}))) !== JSON.stringify(state.discussion?.participants.map(p => ({id:p.id,agent:p.agent})))) throw new Error('Immutable discussion identity changed');
     }

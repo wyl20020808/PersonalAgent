@@ -7,6 +7,7 @@ import { createRun, drive } from './controller.js';
 import { MockAgents } from './adapters.js';
 import { RealAgents } from './real-agents.js';
 import { discoverOpencodeModels } from './opencode-decision-agent.js';
+import { discoverOpencodeExecutionModels } from './opencode-execution-agent.js';
 import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from './delivery.js';
 import { acceptManual } from './manual-acceptance.js';
 import { restoreProject, inspectProject } from './project-files.js';
@@ -17,6 +18,7 @@ const help = `PersonalAgent CLI MVP
   start --config FILE --repo D:\\REPO --goal "GOAL"
   project-scan --repo DIRECTORY [--scan-max-files N] [--scan-max-manifest-bytes N] (read-only metadata diagnosis)
   decision-models [--executable PATH] [--workspace DIRECTORY]
+  execution-models [--executable PATH] [--workspace DIRECTORY] (local capability discovery; no model prompt)
   context-start --config FILE --repo D:\\REPO --goal "ONBOARDING GOAL"
   context-check --workspace D:\\REPO
   context-stamp --workspace D:\\REPO --module ID --file RELATIVE_PATH [--file RELATIVE_PATH ...]
@@ -42,8 +44,8 @@ try {
     if (!values.repo) throw new Error('--repo is required');
     console.log(JSON.stringify(inspectProject(path.resolve(values.repo), { maxFiles: values['scan-max-files'] === undefined ? undefined : Number(values['scan-max-files']), maxManifestBytes: values['scan-max-manifest-bytes'] === undefined ? undefined : Number(values['scan-max-manifest-bytes']) }), null, 2));
   }
-  else if (command === 'decision-models') {
-    console.log(JSON.stringify(await discoverOpencodeModels(values.executable, values.workspace),null,2));
+  else if (command === 'decision-models' || command === 'execution-models') {
+    console.log(JSON.stringify(await (command === 'execution-models' ? discoverOpencodeExecutionModels : discoverOpencodeModels)(values.executable, values.workspace),null,2));
   }
   else if (command === 'context-stamp') {
     if (!values.workspace || !values.module || !values.file?.length) throw Error('--workspace, --module and --file are required');

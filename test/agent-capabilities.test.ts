@@ -5,7 +5,7 @@ import {configSchema,validate} from '../src/schema.js';
 
 test('role board exposes only implemented decision discussion and single execution adapters',()=>{
  assert.deepEqual(agentCapabilities.filter(agent=>supportsPool(agent,'decision')).map(agent=>agent.id),['claude-code','opencode']);
- assert.deepEqual(agentCapabilities.filter(agent=>supportsPool(agent,'execution')).map(agent=>agent.id),['codex']);
+ assert.deepEqual(agentCapabilities.filter(agent=>supportsPool(agent,'execution')).map(agent=>agent.id),['opencode','codex']);
  assert.deepEqual(agentCapabilities.filter(agent=>agent.discussion).map(agent=>agent.id),['claude-code','opencode']);
  assert.equal(supportsPool({...agentCapabilities[1]!,nativeTools:false},'decision'),false);
  assert.equal(supportsPool({...agentCapabilities[1]!,structuredOutput:false},'decision'),false);

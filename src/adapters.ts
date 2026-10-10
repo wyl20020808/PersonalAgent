@@ -27,7 +27,9 @@ export class MockAgents implements Agents {
     return { humanDecision: null, tasks: [{ id: 'hello', instruction: 'Create hello.txt containing hello', acceptance: ['hello.txt must contain hello followed by a newline', 'Independent tests pass'] }, { id: 'done', instruction: 'Create done.txt containing done', acceptance: ['done.txt must contain done followed by a newline'] }] };
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
-    state.codexThreadId ??= 'mock-codex-thread'; store.save(state);
+    const execution = state.config.executionAgent, agent = execution?.backend === 'opencode' ? 'opencode' : 'codex';
+    if (execution?.backend === 'opencode') state.executionSession ??= { backend: 'opencode', providerID: execution.opencode.providerID, modelID: execution.opencode.modelID, sessionId: 'mock-opencode-execution-' + state.id, runId: state.id, workspace: state.workspace, directory: state.workspace };
+    else state.codexThreadId ??= 'mock-codex-thread'; store.save(state);
     if (state.purpose === 'context-onboarding') {
       const candidates = projectFiles(state.workspace).filter(name => contextPath(name) && !name.startsWith('docs/project-context/'));
       const file = candidates.find(stampEligible) ?? candidates[0];
@@ -36,7 +38,7 @@ export class MockAgents implements Agents {
       const documents = mockContextDocuments(projectId, file);
       applyEdits(state.workspace, { summary: '本地 Mock 建档文档', changes: Object.entries(documents).map(([path, content]) => ({ path, content })) });
       if (stampEligible(file)) stampContext(state.workspace, 'fixture', [file]);
-      store.audit('agent-activity', { agent: 'codex', kind: 'file', title: 'Mock 建档夹具', text: '仅本地确定性夹具，没有付费 Agent 调用。' });
+      store.audit('agent-activity', { agent, kind: 'file', title: 'Mock 建档夹具', text: '仅本地确定性夹具，没有付费 Agent 调用。' });
       return { mode: 'native', summary: '本地 Mock 建档夹具；不代表真实代码分析' };
     }
     if (this.config.mockScenario === 'timeout') await delay(this.config.timeoutMs * 2, undefined, { signal });
@@ -51,7 +53,7 @@ export class MockAgents implements Agents {
     if(this.executionMode==='native') {
       applyEdits(state.workspace,edits);
       applyEdits(state.workspace,{summary:'Explicit local Mock run marker',changes:[{path:`mock-result-${state.id}.txt`,content:`PersonalAgent 本地 Mock 夹具运行标记；任务 ${task.id}；不代表真实 Agent 或项目功能验收。\n`}]});
-      store.audit('agent-activity',{agent:'codex',kind:'file',title:'Mock native file write',text:`${task.id}.txt (local Mock; no paid Agent)`});
+      store.audit('agent-activity',{agent,scope:agent==='opencode'?'opencode-execute:mock':undefined,kind:'file',title:'Mock native file write',text:`${task.id}.txt (local Mock; no paid Agent)`});
       return {mode:'native',summary:`Mock native fixture: ${task.instruction}`};
     }
     return edits;

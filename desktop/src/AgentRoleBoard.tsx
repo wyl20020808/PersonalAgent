@@ -1,24 +1,25 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Check,Settings2,X} from 'lucide-react';
 import {agentCapabilities,supportsPool,type AgentId,type AgentPoolRole} from '../../src/agent-capabilities.js';
-import type {DecisionAgent,DecisionDiscussion} from './types.js';
+import type {DecisionAgent,DecisionDiscussion,ExecutionAgent} from './types.js';
 import DecisionAgentSelect,{useDecisionModels} from './DecisionAgentSelect.js';
+import ExecutionAgentSelect from './ExecutionAgentSelect.js';
 import AgentLogo from './AgentLogo.js';
 import './role-board.css';
 
-export default function AgentRoleBoard({value,discussion,onDiscussion,onChange,onValid,projectPath,disabled=false}: {
- value?:DecisionAgent;discussion?:DecisionDiscussion;onDiscussion?:(value:DecisionDiscussion|undefined)=>void;onChange:(value:DecisionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean;
+export default function AgentRoleBoard({value,execution,onExecution,discussion,onDiscussion,onChange,onValid,projectPath,disabled=false}: {
+ execution?:ExecutionAgent;onExecution?:(value:ExecutionAgent)=>void;value?:DecisionAgent;discussion?:DecisionDiscussion;onDiscussion?:(value:DecisionDiscussion|undefined)=>void;onChange:(value:DecisionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean;
 }) {
  const first=discussion?.participants.find(p=>p.id==='a')?.agent??value;
  const second=discussion?.participants.find(p=>p.id==='b')?.agent;
  const {backend,selection,models,loading,provider,valid,refresh}=useDecisionModels(first,projectPath);
- const [secondValid,setSecondValid]=useState(true);
+ const [executionValid,setExecutionValid]=useState(true),[secondValid,setSecondValid]=useState(true);
  const changeFirst=(agent:DecisionAgent)=>{if(discussion)onDiscussion?.({...discussion,participants:discussion.participants.map(p=>p.id==='a'?{...p,agent}:p)});else onChange(agent);};
  const [settings,setSettings]=useState<AgentId|null>(null);
  const settingsButton=useRef<HTMLButtonElement|null>(null),panel=useRef<HTMLDivElement|null>(null);
  const close=()=>{setSettings(null);settingsButton.current?.focus();};
  const modelValid=first?.backend!=='claude-code'||!first.model||/^[a-zA-Z0-9._:/-]{1,200}$/.test(first.model);
- useEffect(()=>onValid(valid&&modelValid&&(!discussion||secondValid)),[valid,modelValid,discussion,secondValid,onValid]);
+ useEffect(()=>onValid(valid&&modelValid&&executionValid&&(!discussion||secondValid)),[valid,modelValid,executionValid,discussion,secondValid,onValid]);
  useEffect(()=>{
   if(!settings)return;
   panel.current?.querySelector<HTMLElement>('select:not(:disabled),button:not(:disabled)')?.focus();
@@ -32,7 +33,7 @@ export default function AgentRoleBoard({value,discussion,onDiscussion,onChange,o
   setSettings(id==='opencode'?'opencode':null);
  };
  const modelText=(id:AgentId)=>id==='opencode'?(selection?.modelID||'选择 Provider 与模型'):id==='claude-code'?(first?.backend==='claude-code'?first.model||'本机默认模型':'本机默认模型'):'SDK 默认模型';
- const pool=(role:AgentPoolRole)=><section className={'agent-pool '+role} aria-label={role==='decision'?'决策池':'执行池'}>
+ const pool=(role:AgentPoolRole)=>role==='execution'?<ExecutionAgentSelect value={execution} onChange={onExecution??(()=>{})} onValid={setExecutionValid} projectPath={projectPath} disabled={disabled||!onExecution}/>:<section className={'agent-pool '+role} aria-label={role==='decision'?'决策池':'执行池'}>
   <header><h4>{role==='decision'?'决策池':'执行池'}</h4>{role==='decision'&&onDiscussion&&<select aria-label="决策者模式" disabled={disabled} value={discussion?'dual':'single'} onChange={e=>{setSecondValid(true);if(e.target.value==='single'){onDiscussion(undefined);}else onDiscussion({participants:[{id:'a',agent:first??{backend:'claude-code'}},{id:'b',agent:{backend:'claude-code'}}],primary:'a',rounds:1});}}><option value="single">单决策者</option><option value="dual">双决策者</option></select>}</header>
   {role==='decision'&&discussion&&<p className="participant-label">决策者 A</p>}
   <div className="agent-cards">{agentCapabilities.map(agent=>{

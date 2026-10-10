@@ -2,6 +2,7 @@ import { realpathSync } from 'node:fs';
 import { assertDecisionState, type DecisionAgent } from './decision-agent.js';
 import { ClaudeCodeDecisionAgent } from './claude-code-decision-agent.js';
 import { OpenCodeDecisionAgent } from './opencode-decision-agent.js';
+import { OpenCodeExecutionAgent, type ExecutionAgent } from './opencode-execution-agent.js';
 import { nativeAgentEnv, repositoryContext } from './workspace.js';
 import { agentRules } from './native-agent.js';
 import path from 'node:path';
@@ -20,7 +21,7 @@ import { discussPlan, withParticipant, type DiscussionStage } from './decision-d
 
 export class RealAgents implements Agents {
   get executionMode(): 'native' | 'proposal' { return this.config.executionMode ?? 'native'; }
-  constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess, private readonly openCode: DecisionAgent = new OpenCodeDecisionAgent(config), private readonly discussionOpenCode: (config: Config) => DecisionAgent = config => new OpenCodeDecisionAgent(config)) {}
+  constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess, private readonly openCode: DecisionAgent = new OpenCodeDecisionAgent(config), private readonly discussionOpenCode: (config: Config) => DecisionAgent = config => new OpenCodeDecisionAgent(config), private readonly execution: ExecutionAgent = new OpenCodeExecutionAgent(config)) {}
   private async claude<T>(state: State, store: Store, signal: AbortSignal, schema: object, prompt: string, role: 'plan' | 'review', context?: Record<string, any>): Promise<T> {
     if (state.discussion) return withParticipant(state, store, state.discussion.config.primary, role === 'review' ? 'review' : 'replan', (view, scoped) => this.claude(view, scoped, signal, schema, prompt, role, context));
     const identity = assertDecisionState(state, this.config.decisionDiscussion ? state.config : this.config);
@@ -52,6 +53,7 @@ export class RealAgents implements Agents {
       : 'Compatibility proposal mode: inspect with native tools, but return full UTF-8 file contents in changes for Controller to apply. Do not directly edit the workspace in this mode. Return the requested JSON schema.';
     const prompt = JSON.stringify({ action: action + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
     recordContextPrompt(store, context, prompt);
+    if (this.config.executionAgent?.backend === 'opencode') return this.execution.execute(state, store, signal, prompt, context);
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.codexThreadId);
     let completed = false;
     try {
