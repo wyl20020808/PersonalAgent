@@ -31,9 +31,11 @@ export function seedFiles(root: string, task: RegressionTask) {
   writeFixture(root, 'requirements.txt', requirements[task] + '\n固定测试要求来自用户需求；文档 proposed 状态不自动转换为 accepted。\n');
   stampContext(root, 'game-app', ['app/hud.js', 'app/hud.css']); stampContext(root, 'combat', ['combat/core.js']); stampContext(root, 'world', ['world/geometry.js']);
 }
-export async function regressionFixture(directory: string, task: RegressionTask, version: 'main' | 'dev' = 'main', useGit = false) {
+export async function regressionFixture(directory: string, task: RegressionTask, version: 'main' | 'dev' = 'main', useGit = true) {
   if (fs.existsSync(directory)) throw Error('Fixture directory already exists; never overwrite');
   const source = path.join(directory, 's'); seedFiles(source, task);
+  // Git isolation uses checkout semantics; keep stamped source bytes stable on Windows.
+  writeFixture(source, '.gitattributes', '* text eol=lf\n');
   if (useGit) { await git(source, ['init', '-b', 'main']); await git(source, ['add', '.']); await git(source, ['-c', 'user.name=Fixed Mock Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'Fixed regression main seed']); }
   if (version === 'dev') {
     if (useGit) await git(source, ['checkout', '-b', 'dev']);

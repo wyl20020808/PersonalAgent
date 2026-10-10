@@ -18,6 +18,7 @@ import { loadProjectContext } from './project-context.js';
 import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, normalizeContractReferences, reviewContractCatalog, taskContextBaseline } from './context-review.js';
 import { prepareUnlocked, pendingContextConfirmations } from './context-confirmation.js';
 import { decisionIdentity, assertDecisionState } from './decision-agent.js';
+import { initializeDiscussion, assertDiscussion, assertDiscussionPlan } from './decision-discussion.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
@@ -38,6 +39,7 @@ export async function createRun(config: Config, source: string, goal: string, op
       const failed:State={version:1,id:store.id,goal,source:realpathSync(source),workspace:config.projectMode==='direct'?realpathSync(source):isolated,base:'',config,phase:'failed',nextPhase:'planning',tasks:[],taskIndex:0,loops:0,reworks:0,totalReworks:0,claudeCalls:0,completedTaskIds:[],reworkPending:false,claudeSessionId:null,codexThreadId:null,feedback:'',reason:failure.message,failure,evidence:null,executorExitCode:-1,updatedAt:'',beforeExecution:''};
       failed.snapshotPolicy = 'none';
       failed.decisionAgent = decisionIdentity(config);
+      initializeDiscussion(failed);
       store.save(failed);store.audit('transition',{phase:'failed',reason:failed.reason,loops:0,reworks:0});store.audit('error',failure);
       if (error instanceof FlowError) error.runId=store.id;
       else { const durable = new FlowError(failure.kind, failure.message); durable.runId=store.id; throw durable; }
@@ -48,6 +50,7 @@ export async function createRun(config: Config, source: string, goal: string, op
   const state: State = { version: 1, id: store.id, goal, source: realpathSync(source), workspace, base, config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: null, codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
   state.snapshotPolicy = 'none';
   state.decisionAgent = decisionIdentity(config);
+  initializeDiscussion(state);
   if (options.purpose) state.purpose = options.purpose;
   if (loadProjectContext(workspace).enabled) state.projectContextEnabled = true;
   state.claudeCalls = 0; state.totalReworks = 0; state.completedTaskIds = []; store.save(state); store.audit('created', { source: state.source, workspace, base, goal });
@@ -59,6 +62,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   try {
     state = store.load();
     assertDecisionState(state);
+    assertDiscussion(state);
     if(state.phase==='failed' && state.failure?.stage==='prepare' && !state.failure.recoverable){unlock();return state;}
     if(state.config.projectMode==='direct' && agents.executionMode!=='native') throw new Error('Direct project mode requires native execution adapter');
     if (state.workspace !== (state.config.projectMode === 'direct' ? realpathSync(state.source) : store.file('workspace')) || realpathSync(state.workspace).toLowerCase() !== path.resolve(state.workspace).toLowerCase()) throw new Error('Persisted workspace path mismatch or junction redirect');
@@ -77,7 +81,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
     await captureBaseline(store, state, baseline, stop.signal);
     store.audit('agent-start', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops });
-    try { return await timed(operation); }
+    try { return await timed(operation, role === 'plan' && state.discussion && !state.discussion.closed ? state.config.timeoutMs * (3 + 2 * state.discussion.config.rounds) : state.config.timeoutMs); }
     finally {
       // Processes have exited (or been killed) before recording their real diff.
       const after = await observeWorkspace(state, undefined);
@@ -87,11 +91,11 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       if (role === 'plan') assertPlanningContext(state, store);
     }
   }
-  async function timed<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    const timeout = AbortSignal.timeout(state.config.timeoutMs);
+  async function timed<T>(operation: (signal: AbortSignal) => Promise<T>, timeoutMs = state.config.timeoutMs): Promise<T> {
+    const timeout = AbortSignal.timeout(timeoutMs);
     const signal = AbortSignal.any([stop.signal, timeout]);
     try { return await operation(signal); }
-    catch (error) { if (timeout.aborted) throw new Error(`Timeout after ${state.config.timeoutMs} ms`); throw error; }
+    catch (error) { if (timeout.aborted) throw new Error(`Timeout after ${timeoutMs} ms`); throw error; }
   }
   async function checkedEvidence(): Promise<Evidence> {
     const contextReport = checkTaskContext(state, store);
@@ -104,6 +108,11 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   }
   try {
     if (state.phase === 'completed') return state;
+    if (state.phase === 'planning' && state.discussion?.steps.some(s => s.status === 'running')) {
+      for (const step of state.discussion.steps.filter(s => s.status === 'running')) { step.status = 'interrupted'; step.error = '规划进程中断，调用是否完成未知；需要明确恢复指令'; store.audit('discussion-step-failed', { participantId: step.participantId, participantAgent: state.discussion.participants.find(p=>p.id===step.participantId)!.agent, discussionStage: step.stage, status: step.status, error: step.error }); }
+      state.nextPhase = 'planning'; state.failure = classifyFailure(new FlowError('interrupted', '双决策调用中断；保留已完成初稿、Session 和调用次数。恢复需要明确指令。'), 'planning');
+      checkpoint('paused', state.failure.message);
+    }
     if (limits && Object.values(limits).some(value => value !== undefined)) {
       if (!decision?.trim() || !['paused', 'failed', 'stopped'].includes(state.phase)) throw new Error('Changing limits requires paused run and explicit --decision');
       const nextConfig = { ...state.config, ...Object.fromEntries(Object.entries(limits).filter(([, value]) => value !== undefined)) };
@@ -146,7 +155,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.nextPhase = 'planning'; store.save(state);
         assertPlanningContext(state, store);
         const plan = validate<Plan>(planSchema, await agentOperation('claude', 'plan', signal => agents.plan(state, store, signal)));
-        if (plan.humanDecision) { store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; checkpoint('paused', plan.humanDecision); continue; }
+        assertDiscussionPlan(state, plan);
+        if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; checkpoint('paused', plan.humanDecision); continue; }
         if (!plan.tasks.length) throw new Error('Plan must include tasks or request human decision');
         if (plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
         if (new Set(plan.tasks.map(task => task.id)).size !== plan.tasks.length) throw new Error('Duplicate task IDs');
@@ -158,8 +168,9 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
             throw new FlowError('supervisor', state.feedback);
           }
         }
-        state.tasks = orderTasks(plan.tasks, state.config); state.completedTaskIds = []; store.audit('plan', { ...plan, tasks: state.tasks }); checkpoint('execute');
+        state.tasks = orderTasks(plan.tasks, state.config); state.completedTaskIds = []; if (state.discussion) state.discussion.closed = true; store.audit('plan', { ...plan, tasks: state.tasks }); checkpoint('execute');
       } else if (state.phase === 'execute') {
+        if (state.discussion && !state.discussion.closed) throw new FlowError('safety', 'Discussion cycle has no Controller-validated final Plan');
         // Infrastructure must be healthy before charging a rework or execution attempt.
         if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
         if (state.loops >= state.config.maxLoops) { state.nextPhase = 'execute'; checkpoint('paused', 'Loop limit reached'); break; }
@@ -285,6 +296,9 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     }
   } catch (error) {
     const stage = state.phase;
+    // A structurally valid synthesis rejected by Controller does not repeat the
+    // collaborative cycle. Explicit resume uses the existing primary-only Replan.
+    if (stage === 'planning' && state.discussion?.steps.some(s => s.stage === 'synthesis' && s.status === 'success')) state.discussion.closed = true;
     state.failure = classifyFailure(error, stage);
     if (['git','git-integrity'].includes(state.failure.kind)) {
       state.reworkPending=false;

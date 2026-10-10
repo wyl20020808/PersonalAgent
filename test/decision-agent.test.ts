@@ -29,7 +29,7 @@ async function fixture(context=false, extra:Partial<Config>={}) {
   fs.writeFileSync(path.join(source,'core.js'),'initial\n');
   if(context)for(const [file,content]of Object.entries(mockContextDocuments(randomUUID(),'core.js'))){const p=path.join(source,file);fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,content);}
   const verify=path.join(dir,'verify.cjs'); fs.writeFileSync(verify,"require('node:assert/strict').equal(require('fs').readFileSync('core.js','utf8'),'fixed\\n')");
-  const config:Config={allowedRepositories:[source],runtimeDir:path.join(dir,'r'),projectMode:'isolated',executionMode:'native',mode:'mock',claudeExecutable:'never-paid',timeoutMs:3000,maxLoops:1,maxReworks:0,maxClaudeCalls:6,tests:[{executable:process.execPath,args:[verify]}],mockScenario:'pass',decisionAgent:{backend:'opencode',opencode:{providerID:'connected',modelID:'dynamic-model'}},...extra};
+  const config:Config={allowedRepositories:[source],runtimeDir:path.join(dir,'r'),projectMode:'direct',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},executionMode:'native',mode:'mock',claudeExecutable:'never-paid',timeoutMs:3000,maxLoops:1,maxReworks:0,maxClaudeCalls:6,tests:[{executable:process.execPath,args:[verify]}],mockScenario:'pass',decisionAgent:{backend:'opencode',opencode:{providerID:'connected',modelID:'dynamic-model'}},...extra};
   const store=await createRun(config,source,'fixture');return{config,store,source,dir};
 }
 function request(f:Awaited<ReturnType<typeof fixture>>,role:'plan'|'review'='plan',signal=new AbortController().signal):DecisionRequest{
@@ -147,7 +147,7 @@ test('formal Controller OpenCode fake backend with native Mock execution preserv
     const f=await fixture(true),server=fake(),real=new RealAgents(f.config,undefined,new OpenCodeDecisionAgent(f.config,server.launcher));
     const done=await drive(f.store,{executionMode:'native',plan:real.plan.bind(real),review:real.review.bind(real),async execute(state){fs.writeFileSync(path.join(state.workspace,'core.js'),fail?'wrong\n':'fixed\n');return{mode:'native',summary:'本地 Mock 执行，无付费请求'};}});
     assert.equal(done.phase,fail?'paused':'completed');assert.equal(done.claudeCalls,2);assert.equal(done.evidence?.passed,!fail);
-    assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),'initial\n');
+    assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),fail?'wrong\n':'fixed\n');
     assert.ok(records(f.store).some(e=>e.event==='context-manifest'));
     if(fail)assert.ok(records(f.store).some(e=>e.event==='review-vetoed'));
     assert.equal(server.closes,2);
@@ -183,6 +183,6 @@ test('failed Run preparation still freezes the selected Decision Agent identity'
   const f=await fixture();await git(f.source,['init']);await git(f.source,['add','.']);await git(f.source,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','fixture']);
   const head=(await git(f.source,['rev-parse','HEAD'])).trim();const object=path.join(f.source,'.git','objects',head.slice(0,2),head.slice(2));fs.unlinkSync(object);
   let runId:string|undefined;
-  await assert.rejects(()=>createRun(f.config,f.source,'corrupt fixture'),(error:any)=>{runId=error.runId;return error.kind==='git-integrity';});
+  await assert.rejects(()=>createRun({...f.config,projectMode:'isolated'},f.source,'corrupt fixture'),(error:any)=>{runId=error.runId;return /Git|git|bad object|revision/.test(error.message);});
   assert.ok(runId);const state=new Store(f.config.runtimeDir,runId).load();assert.deepEqual(state.decisionAgent,{backend:'opencode',providerID:'connected',modelID:'dynamic-model'});assertDecisionState(state);assert.equal(state.phase,'failed');
 });

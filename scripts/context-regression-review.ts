@@ -1,6 +1,7 @@
 import { taskContextBaseline } from '../src/context-review.js';
 import { belongsToModule } from '../src/project-context.js';
-import { readProject } from '../src/project-files.js';
+import { projectFileHash } from '../src/project-files.js';
+import { contextObservation } from '../src/project-observation.js';
 import { auditRecords } from '../src/context-trust.js';
 import { FlowError } from '../src/failure.js';
 import type { State, Store } from '../src/store.js';
@@ -11,9 +12,9 @@ export function assertT2ReviewStage(state: State, store: Store) {
   const world = baseline?.context.modules.find(doc => doc.metadata.id === 'world');
   const geometry = baseline?.context.contracts.find(doc => doc.metadata.id === 'geometry');
   if (!baseline || !report || !world || !geometry) throw new FlowError('safety', 'T2 frozen Review context missing');
-  const current = readProject(state.workspace);
+  const current = contextObservation(state, baseline.context);
   const worldChanges = [...new Set([...Object.keys(baseline.snapshot.files), ...Object.keys(current.files)])]
-    .filter(file => belongsToModule(world, file) && baseline.snapshot.files[file] !== current.files[file]);
+    .filter(file => belongsToModule(world, file) && projectFileHash(baseline.snapshot, file) !== projectFileHash(current, file));
   const injectedCandidate = state.loops === 1 && !auditRecords(store.file('audit.jsonl')).some(event => event.event === 'review-modified-workspace');
   if (report.snapshot !== current.digest || report.baselineDigest !== baseline.digest) throw new FlowError('safety', 'T2 Review snapshot mismatch');
   if (!report.contracts.some(doc => doc.id === 'geometry' && doc.path === geometry.relative && doc.source === 'task-baseline' && doc.content === geometry.content))

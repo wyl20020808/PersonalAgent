@@ -125,13 +125,13 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
     const eventsStop = new AbortController(); let eventTask: Promise<void> | undefined;
     try {
       const executable = this.config.decisionAgent?.backend === 'opencode' ? this.config.decisionAgent.opencode.executable : undefined;
-      service = await this.launcher(executable,workspace,signal,path.join(state.config.runtimeDir,'opencode',state.id));
+      service = await this.launcher(executable,workspace,signal,path.join(state.config.runtimeDir,'opencode',state.id,...(store.decisionParticipant?[store.decisionParticipant.participantId]:[])));
       const discovery = await models(service,workspace,signal);
       const model = discovery.providers.find(p => p.id === identity.providerID)?.models.find(m => m.id === identity.modelID);
       if (!discovery.available) throw new FlowError('supervisor',discovery.reason);
       if (!model || model.capabilities.tools !== true || model.capabilities.structuredOutput !== true) throw new FlowError('supervisor','OpenCode model unavailable or lacks native tools/structured output');
       const client = service.client, options = { signal,throwOnError:true as const };
-      const owner = `PersonalAgent:${state.id}:${workspace}`;
+      const owner = `PersonalAgent:${state.id}:${workspace}${store.decisionParticipant?':'+store.decisionParticipant.participantId:''}`;
       if (state.decisionSession) {
         sessionID = state.decisionSession.sessionId;
         const session = await client.session.get({sessionID,directory:workspace},options);

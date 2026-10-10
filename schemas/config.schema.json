@@ -178,6 +178,10 @@
           "properties": {
             "backend": {
               "const": "claude-code"
+            },
+            "model": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
             }
           },
           "required": [
@@ -224,6 +228,108 @@
           "additionalProperties": false
         }
       ]
+    },
+    "decisionDiscussion": {
+      "type": "object",
+      "properties": {
+        "participants": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              },
+              "agent": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "backend": {
+                        "const": "claude-code"
+                      },
+                      "model": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                      }
+                    },
+                    "required": [
+                      "backend"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "backend": {
+                        "const": "opencode"
+                      },
+                      "opencode": {
+                        "type": "object",
+                        "properties": {
+                          "providerID": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          },
+                          "modelID": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          },
+                          "executable": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": [
+                          "providerID",
+                          "modelID"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "backend",
+                      "opencode"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "agent"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "primary": {
+          "enum": [
+            "a",
+            "b"
+          ]
+        },
+        "rounds": {
+          "enum": [
+            0,
+            1
+          ]
+        }
+      },
+      "required": [
+        "participants",
+        "primary",
+        "rounds"
+      ],
+      "additionalProperties": false
     },
     "taskStages": {
       "type": "object",

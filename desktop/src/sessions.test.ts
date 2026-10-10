@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {git} from '../../dist/src/workspace.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
@@ -54,7 +55,22 @@ test('decision backend: dynamic sanitized discovery, latest selection validation
   assert.equal(service.sessions.get(session.id).runs.length,1);
  }finally{await service.stopOwned();}
 });
-function fixture(){const data=path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
+test('dual decision session binds two identities and primary configuration; IPC refuses unsupported roles and executable injection',async()=>{
+ const {service,data,project}=fixture();
+ const decisionDiscussion={participants:[{id:'a' as const,agent:{backend:'claude-code' as const,model:'sonnet'}},{id:'b' as const,agent:{backend:'claude-code' as const,model:'opus'}}],primary:'b' as const,rounds:1 as const};
+ const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',decisionDiscussion}) as Conversation;
+ assert.equal(session.settings.decisionAgent?.backend,'claude-code');assert.deepEqual(session.settings.decisionAgent,decisionDiscussion.participants[1].agent);
+ await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'双决策本地夹具',directAcknowledged:true});
+ try{
+  const run=await done(service,session.id);assert.equal(run.phase,'completed',run.reason);assert.equal(run.mode,'mock');assert.equal(run.discussion?.participants.length,2);assert.equal(run.claudeCalls,7);assert.equal(run.loops,2);
+  const messages=service.thread(run.profileId,run.id).messages.filter(m=>m.kind==='discussion');assert.deepEqual(messages.map(m=>[m.participantId,m.decisionStage]),[['a','draft'],['b','draft'],['a','discussion'],['b','discussion'],['b','synthesis']]);assert.ok(messages.every(m=>m.text.includes('Mock')));
+  const restored=new DesktopService(root,data,process.execPath).sessions.detail(session.id);assert.deepEqual(restored.runs[0].discussion?.config,decisionDiscussion);
+  const saved=service.sessions.get(session.id);saved.settings.decisionDiscussion!.rounds=0;service.sessions.update(saved);
+  await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'拒绝篡改讨论配置'}),/讨论参与者已改变/);assert.equal(service.sessions.get(session.id).runs.length,1);
+ }finally{await service.stopOwned();}
+ for(const agent of [{backend:'codex'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
+});
+function fixture(shortPath=false){const data=shortPath?path.join('D:/pa-si',randomUUID().slice(0,8)):path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
 async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return run;await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}
 test('ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist',async()=>{
  const {service,data,project}=fixture();const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',maxLoops:8}) as Conversation;
@@ -114,7 +130,7 @@ test('idempotent send, concurrent send and rename/search state do not duplicate 
  service.sessions.rename(session.id,'手工会话名');await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续'});assert.equal(service.sessions.detail(session.id).session.title,'手工会话名');assert.equal(service.sessions.list()[0].id,session.id);
 });
 test('isolated rounds require formal application of previous result; history stays unchanged',async()=>{
- const {service,project}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'isolated'});await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'隔离第一轮'});const run=await done(service,session.id);assert.equal(run.phase,'completed');assert.equal(fs.existsSync(path.join(project,'hello.txt')),false);await assert.rejects(service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'隔离第二轮'}),/尚未正式应用/);assert.equal(service.sessions.detail(session.id).runs.length,1);
+ const {service,project}=fixture(true);await git(project,['init']);await git(project,['add','.']);await git(project,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','Clean isolation fixture']);const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'isolated'});await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'隔离第一轮'});const run=await done(service,session.id);assert.equal(run.phase,'completed');assert.equal(fs.existsSync(path.join(project,'hello.txt')),false);await assert.rejects(service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'隔离第二轮'}),/尚未正式应用/);assert.equal(service.sessions.detail(session.id).runs.length,1);
 });
 test('historical Run is imported once with separate session ID; no automatic paid continuation',async()=>{
  const {service}=fixture();await service.prepareMock();const profile=service.overview().profiles[0];const run=await service.start({operation:'start',profileId:profile.id,repository:profile.repositories[0],goal:'历史 Mock',maxClaudeCalls:5,maxLoops:4,maxReworks:1});const first=service.sessions.list(),second=service.sessions.list();assert.deepEqual(first.map(s=>s.id),second.map(s=>s.id));const session=first.find(s=>s.runs.some(r=>r.id===run.id))!;assert.notEqual(session.id,run.id);assert.equal(session.legacy,true);await assert.rejects(service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'new feature'}),/历史会话/);await service.stopOwned();
@@ -160,9 +176,9 @@ test('changed profile runtime recovers only through registered read-only origina
 test('prepare failure remains durable, linked to the exact message, and never starts agents',async()=>{
  const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
  fs.writeFileSync(path.join(project,'link-source.bin'),'unsafe hardlink fixture');fs.linkSync(path.join(project,'link-source.bin'),path.join(project,'unsafe-link.bin'));
- const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'}),messageId=randomUUID();
- await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId,text:'Preparation failure fixture',directAcknowledged:true});
- const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'failed');assert.match(runs[0].reason,/Project symlink\/junction\/hardlink rejected/);assert.equal(saved.messages[0].runId,runs[0].id);assert.equal(saved.messages[0].status,'failed');assert.equal(launches,0);assert.equal(service.overview().unavailableRuns!.length,0);
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'isolated'}),messageId=randomUUID();
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId,text:'Preparation failure fixture'});
+ const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'failed');assert.match(runs[0].reason,/no longer automatic/);assert.equal(saved.messages[0].runId,runs[0].id);assert.equal(saved.messages[0].status,'failed');assert.equal(launches,0);assert.equal(service.overview().unavailableRuns!.length,0);
  const store=service.store(runs[0].profileId,runs[0].id);assert.equal(store.load().failure!.stage,'prepare');assert.equal(store.load().failure!.recoverable,false);assert.ok(service.audit(store).some(e=>e.event==='desktop-session-link'&&e.data.messageId===messageId));
 });
 test('large project session preparation preserves original runtime provenance without paid agents',async()=>{
@@ -172,7 +188,7 @@ test('large project session preparation preserves original runtime provenance wi
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId,text:'Large preparation fixture',directAcknowledged:true});
  const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'planning');assert.equal(launches,1);assert.equal(saved.messages[0].runId,runs[0].id);
  const store=service.store(runs[0].profileId,runs[0].id);assert.equal(saved.runs[0].runtimeDir,store.load().config.runtimeDir);assert.equal(store.load().source,fs.realpathSync(project));assert.equal(store.load().failure,undefined);
- const baseline=JSON.parse(fs.readFileSync(store.file('project-baseline.json'),'utf8'));assert.equal(baseline.version,2);assert.ok(baseline.files['large.bin']);assert.ok(fs.statSync(store.file('project-baseline.json')).size<4096);
+ assert.equal(store.load().snapshotPolicy,'none');assert.equal(fs.existsSync(store.file('project-baseline.json')),false);assert.equal(fs.existsSync(store.file('snapshot-objects')),false);
 });
 test('Mock completion projection explicitly denies completion of the real development goal',()=>{
  const state={id:'fixture',goal:'real development goal',config:{mode:'mock'},tasks:[]} as unknown as State;

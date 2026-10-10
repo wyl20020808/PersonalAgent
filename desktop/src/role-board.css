@@ -51,9 +51,17 @@
 /* Preserve bubble contents and evidence behavior; change only participant alignment. */
 .chat-feed>.role-user{align-self:center;width:fit-content;flex-direction:column;align-items:center;gap:8px}
 .chat-feed>.role-user .message-main{width:100%;max-width:100%}
-.chat-feed>.role-claude,.chat-feed>.role-opencode{align-self:flex-start;flex-direction:row}
+.chat-feed>.role-claude,.chat-feed>.role-opencode{align-self:flex-end;flex-direction:row-reverse}
 .chat-feed>.role-codex{align-self:flex-end;flex-direction:row-reverse}
 .role-opencode .message-content{background:#fafbfc;border:1px solid #e5e9ef;border-radius:3px 15px 15px 15px}
 .group-message .message-content{text-align:left}
 .group-message .message-main{overflow-wrap:anywhere}
 @media(max-width:850px){.role-pools{grid-template-columns:minmax(0,1fr)}.role-board{max-width:400px}.session-initialization{margin:0}.agent-pool{padding:14px}}
+/* P2A keeps the existing two pools and composer; participant settings stay in the decision pool. */
+.agent-pool header select{width:auto;margin:0;max-width:145px;font-size:12px}
+.participant-label{display:flex;align-items:center;gap:8px;text-align:left;font-size:12px;margin:10px 0}
+.second-decision{border-top:1px solid #e4e9ef;margin-top:14px;padding-top:8px;text-align:left}
+.second-decision .decision-agent-settings{display:grid;gap:8px}
+.second-decision .field-help{font-size:11px;line-height:1.6}
+.discussion-options{display:flex;gap:12px;flex-wrap:wrap}
+.discussion-options label{flex:1;min-width:120px}

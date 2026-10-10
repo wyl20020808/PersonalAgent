@@ -200,6 +200,10 @@
               "properties": {
                 "backend": {
                   "const": "claude-code"
+                },
+                "model": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
                 }
               },
               "required": [
@@ -246,6 +250,108 @@
               "additionalProperties": false
             }
           ]
+        },
+        "decisionDiscussion": {
+          "type": "object",
+          "properties": {
+            "participants": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ]
+                  },
+                  "agent": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backend": {
+                            "const": "claude-code"
+                          },
+                          "model": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                          }
+                        },
+                        "required": [
+                          "backend"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backend": {
+                            "const": "opencode"
+                          },
+                          "opencode": {
+                            "type": "object",
+                            "properties": {
+                              "providerID": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              },
+                              "modelID": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              },
+                              "executable": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              }
+                            },
+                            "required": [
+                              "providerID",
+                              "modelID"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "backend",
+                          "opencode"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "agent"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "primary": {
+              "enum": [
+                "a",
+                "b"
+              ]
+            },
+            "rounds": {
+              "enum": [
+                0,
+                1
+              ]
+            }
+          },
+          "required": [
+            "participants",
+            "primary",
+            "rounds"
+          ],
+          "additionalProperties": false
         },
         "taskStages": {
           "type": "object",
@@ -652,6 +758,9 @@
           "properties": {
             "backend": {
               "const": "claude-code"
+            },
+            "model": {
+              "type": "string"
             }
           },
           "required": [
@@ -711,6 +820,392 @@
         "directory"
       ],
       "additionalProperties": false
+    },
+    "discussion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "participants",
+        "steps",
+        "closed"
+      ],
+      "properties": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "participants": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "enum": [
+                      "a",
+                      "b"
+                    ]
+                  },
+                  "agent": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backend": {
+                            "const": "claude-code"
+                          },
+                          "model": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                          }
+                        },
+                        "required": [
+                          "backend"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backend": {
+                            "const": "opencode"
+                          },
+                          "opencode": {
+                            "type": "object",
+                            "properties": {
+                              "providerID": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              },
+                              "modelID": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              },
+                              "executable": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              }
+                            },
+                            "required": [
+                              "providerID",
+                              "modelID"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "backend",
+                          "opencode"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "agent"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "primary": {
+              "enum": [
+                "a",
+                "b"
+              ]
+            },
+            "rounds": {
+              "enum": [
+                0,
+                1
+              ]
+            }
+          },
+          "required": [
+            "participants",
+            "primary",
+            "rounds"
+          ],
+          "additionalProperties": false
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "participants": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "agent",
+              "claudeSessionId",
+              "calls"
+            ],
+            "properties": {
+              "id": {
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              },
+              "agent": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "backend": {
+                        "const": "claude-code"
+                      },
+                      "model": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                      }
+                    },
+                    "required": [
+                      "backend"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "backend": {
+                        "const": "opencode"
+                      },
+                      "opencode": {
+                        "type": "object",
+                        "properties": {
+                          "providerID": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          },
+                          "modelID": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          },
+                          "executable": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": [
+                          "providerID",
+                          "modelID"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "backend",
+                      "opencode"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "claudeSessionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "calls": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "session": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "backend",
+                  "sessionId",
+                  "runId",
+                  "workspace",
+                  "directory"
+                ],
+                "properties": {
+                  "backend": {
+                    "enum": [
+                      "claude-code",
+                      "opencode"
+                    ]
+                  },
+                  "sessionId": {
+                    "type": "string"
+                  },
+                  "runId": {
+                    "type": "string"
+                  },
+                  "workspace": {
+                    "type": "string"
+                  },
+                  "directory": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "key",
+              "participantId",
+              "stage",
+              "status"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "participantId": {
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              },
+              "stage": {
+                "enum": [
+                  "draft",
+                  "discussion",
+                  "synthesis"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "running",
+                  "success",
+                  "failed",
+                  "interrupted"
+                ]
+              },
+              "error": {
+                "type": "string"
+              },
+              "output": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "tasks": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                            },
+                            "instruction": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100000
+                            },
+                            "acceptance": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100000
+                              },
+                              "minItems": 1,
+                              "maxItems": 30
+                            },
+                            "dependsOn": {
+                              "type": "array",
+                              "uniqueItems": true,
+                              "maxItems": 20,
+                              "items": {
+                                "type": "string",
+                                "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                              }
+                            },
+                            "acceptanceStage": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                            },
+                            "moduleIds": {
+                              "type": "array",
+                              "uniqueItems": true,
+                              "maxItems": 20,
+                              "items": {
+                                "type": "string",
+                                "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                              }
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "instruction",
+                            "acceptance"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 0,
+                        "maxItems": 20
+                      },
+                      "humanDecision": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "tasks",
+                      "humanDecision"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "summary",
+                      "disagreements",
+                      "amendments"
+                    ],
+                    "properties": {
+                      "summary": {
+                        "type": "string"
+                      },
+                      "disagreements": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "amendments": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   },
   "required": [

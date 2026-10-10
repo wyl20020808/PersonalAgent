@@ -1,7 +1,7 @@
 # 大型项目快照固定上限阻断开发
 
 - 归属：PersonalAgent，项目准备、快照、轮次基线与变更验收。
-- 状态：强制 Snapshot 机制已由用户正式决定取消；取消实现已在独立 fix 分支完成，等待合入 dev。原性能修复已在 dev，以下原记录作为历史证据保留。未调用真实付费 Agent，也未对 OpenWorld 做全项目快照或端到端验收。
+- 状态：取消强制 Snapshot 与 P2A 已在获批整合分支组合验证通过，等待本次正式 DEV 快进及启动核验。以下原记录作为历史证据保留。未调用真实付费 Agent，也未对 OpenWorld 做全项目快照或端到端验收。
 - 现象：用户反馈真实项目出现 `Project snapshot limit exceeded (100 MiB / 20000 files)`，无法开始正常开发。
 - 影响：Unreal Engine 源项目和资源目录即使只修改少量源码，也被项目总容量或文件数量阻断。
 
@@ -50,3 +50,11 @@ DEV 核心 TypeScript 与正式 Desktop 构建通过。首次真实大型项目�
 验证结果见 `docs/REMOVE_MANDATORY_PROJECT_SNAPSHOT_V1_VALIDATION.md`。这次不创建新的备份、缓存、监听或版本数据库。当前授权只提交独立 fix 分支，不合入 dev/main、不 push。下一步等待用户批准合入 dev，再实际使用验证。
 
 收尾时并行任务已将 dev 更新到 `4ac263e`。本修复保持创建时最新 dev `86a5f91` 的基线，没有自行合并其他任务。后续合入应核对 `desktop/src/GroupWorkspace.tsx` 和 `desktop/src/thread.ts` 的重叠变化；本次独立分支测试不代表与更新后的 dev 组合验收通过。
+
+## 2026-10-10：获批组合整合验证
+
+独立 Codex Desktop 重新核对 DEV 为 `c3b37c63569d7e24a79129eaf85ba45487a44f8d`，创建 `integration/personalagent-snapshot-p2a-v1`，按顺序完整合并 Snapshot `363f8da`、P2A `b3fe515`，保留两项提交历史与已验收 P1。Controller/store/context-navigation 自动合并后确认无快照策略与讨论调度同时存在；桌面冲突逐段保留身份和未验证范围。
+
+大型 Git/非 Git Direct、20,001 文件、512 MiB 资源、硬链接、Plan/Execute/Review、人工 Delivery 及恢复均经本地夹具验证。核心 65/65、Desktop 83/83、实际 Electron 8 组通过；P2A 没有重新引入强制内容 Snapshot、备份或每轮全库扫描/fsck。旧 13 项失败已处理，见 `2026-10-10-snapshot-era-regression-fixtures.md`。
+
+上述无全量 Diff/自动恢复/isolated 自动 Apply 限制继续存在；较深 Windows Git isolated Runtime 可能报 `$GIT_DIR too big`，另有问题记录。付费调用 0；正式 DEV 更新与启动结果由本次整合报告收尾记录。本次未扫描、备份或执行 OpenWorld 项目。

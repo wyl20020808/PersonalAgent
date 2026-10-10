@@ -12,7 +12,7 @@ import { stampContext, contextHash } from '../src/project-context.js';
 import { readProject } from '../src/project-files.js';
 import type { runProcess } from '../src/process.js';
 
-export async function runFixedRegression(directory: string, task: RegressionTask, version: 'main' | 'dev' = 'main', useGit = false) {
+export async function runFixedRegression(directory: string, task: RegressionTask, version: 'main' | 'dev' = 'main', useGit = true) {
   const fixture = await regressionFixture(directory, task, version, useGit), original = readProject(fixture.source).digest;
   const received: any[] = [], started = Date.now();
   const injected: typeof runProcess = async (executable, _args, options) => {
