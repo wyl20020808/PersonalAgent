@@ -36,3 +36,5 @@
 需要兼容模式时，在启动该 DEV 实例的 PowerShell 设置 `$env:PERSONAL_AGENT_CODEX_DECISION_WINDOWS_SANDBOX='unelevated'`，然后运行 `D:\PersonalAgent-worktrees\dev\Start-DEV.ps1`。环境变量只在该启动会话继承，未写入系统/用户全局环境。本次正式 DEV 启动不自动设置该变量。
 
 状态继续为“兼容方式可用，默认 elevated 原故障未解决”。unelevated 的网络隔离弱于 elevated，不作等价安全承诺。本轮只回归配置选择与只读协议，不再次复现占用、不终止他人进程、不重复真实付费模型调用。正式 DEV SHA、构建与启动证据见 `CODEX_DECISION_P3A_DEV_INTEGRATION.md`。
+
+兼容代码已随 `8bb68857dcded39f458dc02058fef8d4b540d8c5` 快进进入 DEV，正式构建成功。实际启动记录 `D:/PersonalAgent-data/p3a-dev-integration-v1/dev-launch.json` 的 decisionSandbox 为 null：本次没有悄悄开启兼容模式。默认 elevated 原始故障依然未解决，遇到同类初始化失败时需用户在对应 DEV 启动会话显式选择 unelevated。

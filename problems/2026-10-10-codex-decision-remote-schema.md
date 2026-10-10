@@ -1,7 +1,7 @@
 # Codex Decision 真实 Plan 的 Schema 被远端服务拒绝
 
 - 归属：PersonalAgent P3A Codex Decision SDK 适配。
-- 状态：已观察的远端 Schema 拒绝已解决；完整 P3A 技术链路已通过真实恢复验收，本轮纳入正式 DEV 集成候选。游戏业务验收仍需返工。
+- 状态：已观察的远端 Schema 拒绝已解决；完整 P3A 技术链路已通过真实恢复验收，已进入正式 DEV。游戏业务验收仍需返工。
 - 版本：`feature/codex-decision-agent-p3a`，`fff5dcc940d7eff0c259126776fcf5d42f51bc62`。
 - 场景：OpenWorld 网吧入口真实开发验收，配置模型 `gpt-6.1-sol`，单 Codex 决策者及独立 Codex SDK 执行者。
 - 证据：Run `f957b797-feed-43ef-80dd-20e1fd714f4f`；决策 Thread `01a12444-d1c1-7253-866c-9bf9a3c0b34c`；首次 Plan 调用 `3ff7b238-6caa-4a86-b11c-0a805a00e26d`。证据目录 `D:/PA-P3A-OpenWorld/20261010/runtime/runs/f957b797-feed-43ef-80dd-20e1fd714f4f/`。
@@ -31,3 +31,5 @@
 用户已认可真实技术验收并授权整合 DEV。完整来源为 `1d1351458c72d4a9ff542332cd8587eefe0220af`，从已包含 P3C 的 DEV `30dea6f98a5a74d87f828417dba87327001a2279` 在独立 `integration/codex-decision-p3a-dev-v1` 合并。传输适配与原始严格 Plan/Review 校验均保留；OpenCode 执行者的 Schema 选项按合并后的决策 Schema 定位，防止新增 Codex 决策选项改变下标后误绑定 Claude 执行者。
 
 本次只做本地协议、角色组合、恢复、审计及必要构建，不重复付费模型调用。原真实失败与恢复审计保留。实际验证、DEV 更新及最终 SHA 见 `CODEX_DECISION_P3A_DEV_INTEGRATION.md`；默认不把历史失败、未观察的未来 Schema 或 OpenWorld 游戏结果写为通过。
+
+正式 DEV 已通过 `git merge --ff-only` 纳入完整合并提交 `8bb68857dcded39f458dc02058fef8d4b540d8c5`，保留候选提交为第二父提交。Controller 84/84、Desktop 87/87、类型检查、构建和静态双池检查通过；误跑两个旧夹具的范围偏差单独登记。正式 DEV 再构建成功，原 Start-DEV.ps1 启动窗口响应正常。历史 4 个 Session、4 个 Profile、3 个可读 Run 和原 25 个未跟踪文件哈希未变；未再次调用远端模型。
