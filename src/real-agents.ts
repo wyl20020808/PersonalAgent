@@ -1,5 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { assertDecisionState, type DecisionAgent } from './decision-agent.js';
+import { CodexDecisionAgent } from './codex-decision-agent.js';
 import { ClaudeCodeDecisionAgent } from './claude-code-decision-agent.js';
 import { OpenCodeDecisionAgent } from './opencode-decision-agent.js';
 import { OpenCodeExecutionAgent, type ExecutionAgent } from './opencode-execution-agent.js';
@@ -25,7 +26,7 @@ export class RealAgents implements Agents {
   private async claude<T>(state: State, store: Store, signal: AbortSignal, schema: object, prompt: string, role: 'plan' | 'review', context?: Record<string, any>): Promise<T> {
     if (state.discussion) return withParticipant(state, store, state.discussion.config.primary, role === 'review' ? 'review' : 'replan', (view, scoped) => this.claude(view, scoped, signal, schema, prompt, role, context));
     const identity = assertDecisionState(state, this.config.decisionDiscussion ? state.config : this.config);
-    const adapter = identity.backend === 'opencode' ? (this.config.decisionDiscussion ? this.discussionOpenCode(state.config) : this.openCode) : new ClaudeCodeDecisionAgent(state.config, this.run);
+    const adapter = identity.backend === 'codex' ? new CodexDecisionAgent(state.config, this.run) : identity.backend === 'opencode' ? (this.config.decisionDiscussion ? this.discussionOpenCode(state.config) : this.openCode) : new ClaudeCodeDecisionAgent(state.config, this.run);
     return (await adapter.structured<T>({state, store, signal, schema, prompt, role, context, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, timeoutMs: this.config.timeoutMs})).output;
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
@@ -45,7 +46,7 @@ export class RealAgents implements Agents {
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
     const env = nativeAgentEnv();
     let edits: unknown;
-    const record = activityRecorder(state, store, 'codex', `codex:${state.loops}`);
+    const record = activityRecorder(state, store, 'codex', `codex:${state.loops}`, 'execute');
     const context = await callContext(state, store, 'execute', signal);
     const repository = context ? undefined : await repositoryContext(state.workspace, signal);
     const action = this.executionMode === 'native'
@@ -62,7 +63,7 @@ export class RealAgents implements Agents {
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };
-        if (event.type === 'thread') { state.codexThreadId = event.id!; store.save(state); store.audit('codex-thread', { id: event.id }); }
+        if (event.type === 'thread') { if (state.decisionSession?.backend === 'codex' && state.decisionSession.sessionId === event.id || state.discussion?.participants.some(p => p.session?.backend === 'codex' && p.session.sessionId === event.id)) throw new FlowError('safety', 'Execution cannot share a Decision Thread'); state.codexThreadId = event.id!; store.save(state); store.audit('codex-thread', { id: event.id }); }
         else if (event.type === 'activity') record(event.data as import('./telemetry.js').PublicActivity);
         else if (event.type === 'observation') observation.observe(event.data);
         else if (event.type === 'result') { if (edits !== undefined) throw new Error('Duplicate SDK worker result'); edits = event.data; }

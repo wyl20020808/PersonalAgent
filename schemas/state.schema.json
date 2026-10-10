@@ -199,6 +199,22 @@
               "type": "object",
               "properties": {
                 "backend": {
+                  "const": "codex"
+                },
+                "model": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                }
+              },
+              "required": [
+                "backend"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "backend": {
                   "const": "claude-code"
                 },
                 "model": {
@@ -269,6 +285,22 @@
                   },
                   "agent": {
                     "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backend": {
+                            "const": "codex"
+                          },
+                          "model": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                          }
+                        },
+                        "required": [
+                          "backend"
+                        ],
+                        "additionalProperties": false
+                      },
                       {
                         "type": "object",
                         "properties": {
@@ -888,6 +920,21 @@
           "type": "object",
           "properties": {
             "backend": {
+              "const": "codex"
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "backend"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
               "const": "opencode"
             },
             "providerID": {
@@ -912,7 +959,8 @@
         "backend": {
           "enum": [
             "claude-code",
-            "opencode"
+            "opencode",
+            "codex"
           ]
         },
         "sessionId": {
@@ -965,6 +1013,22 @@
                   },
                   "agent": {
                     "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "backend": {
+                            "const": "codex"
+                          },
+                          "model": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                          }
+                        },
+                        "required": [
+                          "backend"
+                        ],
+                        "additionalProperties": false
+                      },
                       {
                         "type": "object",
                         "properties": {
@@ -1078,6 +1142,22 @@
                     "type": "object",
                     "properties": {
                       "backend": {
+                        "const": "codex"
+                      },
+                      "model": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                      }
+                    },
+                    "required": [
+                      "backend"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "backend": {
                         "const": "claude-code"
                       },
                       "model": {
@@ -1154,7 +1234,8 @@
                   "backend": {
                     "enum": [
                       "claude-code",
-                      "opencode"
+                      "opencode",
+                      "codex"
                     ]
                   },
                   "sessionId": {

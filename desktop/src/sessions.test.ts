@@ -27,6 +27,26 @@ test('P3C executor selection is independent, validated and durable; history defa
  execution=discovered;await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'retry local test',directAcknowledged:true});
  try{const run=await done(service,session.id);assert.equal(run.phase,'completed');assert.equal(run.mode,'mock');assert.deepEqual(run.executionAgent,executionAgent);assert.match(run.executionSession!.sessionId,/^mock-/);assert.equal(run.codexThreadId,null);const state=service.store(run.profileId,run.id).load();const messages=projectMessages(state,[{hash:'fixture',time:state.updatedAt,event:'native-result',data:{agent:'opencode',summary:'LOCAL MOCK execution',sessionId:run.executionSession!.sessionId}},{hash:'fixture-review',time:state.updatedAt,event:'review',data:{verdict:'pass',reason:'LOCAL MOCK review'}}],[]);assert.equal(messages[0].role,'opencode');assert.equal(messages[0].participantRole,'执行者');assert.ok(messages[0].text.includes(run.executionSession!.sessionId));assert.notEqual(messages[1].participantRole,'执行者');}finally{await service.stopOwned();}
 });
+
+test('Codex single/dual models and primary persist across Desktop restart; Mock routes locally with separate identity',async()=>{
+ for(const dual of [false,true])for(const executor of ['codex','opencode'] as const){
+  const {data,project}=fixture();
+  const executionAgent=executor==='codex'?{backend:'codex' as const}:{backend:'opencode' as const,opencode:{providerID:'fixture-provider',modelID:'fixture-model'}};
+  const service=new DesktopService(root,data,process.execPath,undefined,async()=>({available:true,reason:'LOCAL MOCK',providers:[{id:'fixture-provider',name:'LOCAL MOCK',models:[{id:'fixture-model',name:'LOCAL MOCK',capabilities:{tools:true,structuredOutput:true}}]}]}));
+  const decisionAgent:DecisionAgent={backend:'codex',model:'fixture-model'};
+  const decisionDiscussion=dual?{participants:[{id:'a' as const,agent:{backend:'codex' as const,model:'fixture-other'}},{id:'b' as const,agent:decisionAgent}],primary:'b' as const,rounds:0 as const}:undefined;
+  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',executionAgent,decisionAgent,...(decisionDiscussion?{decisionDiscussion}:{})}) as Conversation;
+  assert.deepEqual(new DesktopService(root,data,process.execPath).sessions.get(session.id).settings.decisionAgent,decisionAgent);
+  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Codex local Mock fixture',directAcknowledged:true});
+  try{
+   const run=await done(service,session.id);assert.equal(run.phase,'completed',run.reason);assert.deepEqual(run.decisionAgent,decisionAgent);assert.deepEqual(run.executionAgent,executionAgent);assert.equal(run.claudeSessionId,null);assert.equal(run.decisionSession?.backend,'codex');assert.notEqual(run.decisionSession?.sessionId,run.codexThreadId);assert.notEqual(run.decisionSession?.sessionId,run.executionSession?.sessionId);
+   const restored=new DesktopService(root,data,process.execPath).sessions.detail(session.id);assert.deepEqual(restored.session.settings.decisionAgent,decisionAgent);
+   if(dual){assert.deepEqual(run.discussion?.config,decisionDiscussion);assert.notEqual(run.discussion!.participants[0].session!.sessionId,run.discussion!.participants[1].session!.sessionId);}
+  }finally{await service.stopOwned();}
+ }
+ assert.throws(()=>validateRequest({operation:'createSession',projectPath:'D:/fixture',decisionAgent:{backend:'codex',model:'invalid model'}}));
+ assert.throws(()=>validateRequest({operation:'createSession',projectPath:'D:/fixture',executionAgents:[{backend:'codex'},{backend:'codex'}]}));
+});
 test('decision backend: dynamic sanitized discovery, latest selection validation, immutable Run and restart persistence',async()=>{
  const {data,project}=fixture();
  let discovery:DecisionModels={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};
@@ -83,7 +103,7 @@ test('dual decision session binds two identities and primary configuration; IPC 
   const saved=service.sessions.get(session.id);saved.settings.decisionDiscussion!.rounds=0;service.sessions.update(saved);
   await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'拒绝篡改讨论配置'}),/讨论参与者已改变/);assert.equal(service.sessions.get(session.id).runs.length,1);
  }finally{await service.stopOwned();}
- for(const agent of [{backend:'codex'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
+ for(const agent of [{backend:'unsupported'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
 });
 function fixture(shortPath=false){const data=shortPath?path.join('D:/pa-si',randomUUID().slice(0,8)):path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
 async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return run;await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}

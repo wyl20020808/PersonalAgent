@@ -103,7 +103,7 @@ test('participant/model changes and shared Sessions are rejected, unsupported ro
  const f=await fixture(),p=protocol();await drive(f.store,new RealAgents(f.config,p.run));const state=f.store.load();
  state.config.decisionDiscussion!.rounds=0;assert.throws(()=>f.store.save(state),/Immutable/);
  const shared=f.store.load();shared.discussion!.participants[1]!.session=structuredClone(shared.discussion!.participants[0]!.session);shared.discussion!.participants[1]!.claudeSessionId=shared.discussion!.participants[0]!.claudeSessionId;assert.throws(()=>assertDiscussion(shared),/share/);
- for(const bad of [{...f.config,decisionDiscussion:{...f.config.decisionDiscussion,rounds:2}},{...f.config,decisionDiscussion:{participants:[{id:'a',agent:{backend:'codex'}},{id:'b',agent:{backend:'claude-code'}}],rounds:1,primary:'a'}},{...f.config,executionAgent:{backend:'opencode'}}])assert.throws(()=>validate(configSchema,bad));
+ for(const bad of [{...f.config,decisionDiscussion:{...f.config.decisionDiscussion,rounds:2}},{...f.config,decisionDiscussion:{participants:[{id:'a',agent:{backend:'unsupported'}},{id:'b',agent:{backend:'claude-code'}}],rounds:1,primary:'a'}},{...f.config,executionAgent:{backend:'opencode'}}])assert.throws(()=>validate(configSchema,bad));
 });
 test('legacy single decision and dual Mock runs retain accurate local-only labels',async()=>{
  const single=await fixture(0,'a',{mode:'mock',decisionDiscussion:undefined,decisionAgent:undefined});const singleState=await drive(single.store,new MockAgents(single.config));assert.equal(singleState.phase,'completed');assert.equal(singleState.discussion,undefined);assert.equal(singleState.claudeCalls,0);

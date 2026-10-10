@@ -121,9 +121,10 @@ export async function discussPlan(state: State, store: Store, signal: AbortSigna
   return await step(discussion.config.primary, 'synthesis', { drafts, opinions, rounds: discussion.config.rounds }) as Plan;
 }
 export function mockParticipantSession(view: State, store: Store): void {
-  view.claudeSessionId ??= `mock-${randomUUID()}`;
+  const codex = view.decisionAgent!.backend === 'codex';
+  if (!codex) view.claudeSessionId ??= `mock-${randomUUID()}`;
   view.claudeCalls = (view.claudeCalls ?? 0) + 1;
   const directory = realpathSync(view.workspace);
-  view.decisionSession = { backend: view.decisionAgent!.backend, sessionId: view.claudeSessionId, runId: view.id, workspace: directory, directory };
+  view.decisionSession = { backend: view.decisionAgent!.backend, sessionId: codex ? view.decisionSession?.sessionId ?? `mock-decision-${randomUUID()}` : view.claudeSessionId!, runId: view.id, workspace: directory, directory };
   store.save(view); store.audit('mock-decision-call', { sessionId: view.decisionSession.sessionId, call: view.claudeCalls, note: '本地 Mock 适配器，没有真实模型调用' });
 }

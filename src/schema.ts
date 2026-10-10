@@ -3,11 +3,11 @@ import { Ajv } from 'ajv';
 const ajv = new Ajv({ allErrors: true, strict: true });
 const text = { type: 'string', minLength: 1, maxLength: 100000 };
 const object = (properties: Record<string, unknown>) => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
-export const decisionAgentSchema = { oneOf: [{ ...object({ backend: { const: 'claude-code' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, object({ backend: { const: 'opencode' }, opencode: { ...object({ providerID: text, modelID: text, executable: text }), required: ['providerID', 'modelID'] } })] };
+export const decisionAgentSchema = { oneOf: [{ ...object({ backend: { const: 'codex' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, { ...object({ backend: { const: 'claude-code' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, object({ backend: { const: 'opencode' }, opencode: { ...object({ providerID: text, modelID: text, executable: text }), required: ['providerID', 'modelID'] } })] };
 export const decisionDiscussionSchema = object({ participants: { type: 'array', minItems: 2, maxItems: 2, items: object({ id: { enum: ['a', 'b'] }, agent: decisionAgentSchema }) }, primary: { enum: ['a', 'b'] }, rounds: { enum: [0, 1] } });
-export type DecisionChoice = { backend: 'claude-code'; model?: string } | { backend: 'opencode'; opencode: { providerID: string; modelID: string; executable?: string } };
+export type DecisionChoice = { backend: 'codex'; model?: string } | { backend: 'claude-code'; model?: string } | { backend: 'opencode'; opencode: { providerID: string; modelID: string; executable?: string } };
 export type ExecutionChoice = { backend: 'codex' } | Extract<DecisionChoice, { backend: 'opencode' }>;
-export const executionAgentSchema = { oneOf: [object({ backend: { const: 'codex' } }), decisionAgentSchema.oneOf[1]] };
+export const executionAgentSchema = { oneOf: [object({ backend: { const: 'codex' } }), decisionAgentSchema.oneOf[2]] };
 export interface DecisionDiscussion { participants: { id: 'a' | 'b'; agent: DecisionChoice }[]; primary: 'a' | 'b'; rounds: 0 | 1 }
 export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });

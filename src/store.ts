@@ -43,11 +43,12 @@ Object.assign(stateSchema.properties, {
   executionAttempt: { type: 'object', additionalProperties: false, required: ['loop','taskId','status'], properties: { loop: integer, taskId: str, status: { enum: ['running','success','failed','interrupted'] } } },
   decisionAgent: { oneOf: [
     { type: 'object', properties: { backend: { const: 'claude-code' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },
+    { type: 'object', properties: { backend: { const: 'codex' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },
     { type: 'object', properties: { backend: { const: 'opencode' }, providerID: str, modelID: str }, required: ['backend','providerID','modelID'], additionalProperties: false }
   ] },
-  decisionSession: { type: 'object', properties: { backend: { enum: ['claude-code','opencode'] }, sessionId: str, runId: str, workspace: str, directory: str }, required: ['backend','sessionId','runId','workspace','directory'], additionalProperties: false }
+  decisionSession: { type: 'object', properties: { backend: { enum: ['claude-code','opencode','codex'] }, sessionId: str, runId: str, workspace: str, directory: str }, required: ['backend','sessionId','runId','workspace','directory'], additionalProperties: false }
 });
-const sessionSchema = { type: 'object', additionalProperties: false, required: ['backend','sessionId','runId','workspace','directory'], properties: { backend: { enum: ['claude-code','opencode'] }, sessionId: str, runId: str, workspace: str, directory: str } };
+const sessionSchema = { type: 'object', additionalProperties: false, required: ['backend','sessionId','runId','workspace','directory'], properties: { backend: { enum: ['claude-code','opencode','codex'] }, sessionId: str, runId: str, workspace: str, directory: str } };
 Object.assign(stateSchema.properties, { discussion: { type: 'object', additionalProperties: false, required: ['config','participants','steps','closed'], properties: {
   config: decisionDiscussionSchema, closed: { type: 'boolean' },
   participants: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'object', additionalProperties: false, required: ['id','agent','claudeSessionId','calls'], properties: { id: { enum: ['a','b'] }, agent: decisionAgentSchema, claudeSessionId: nullable, calls: integer, session: sessionSchema } } },

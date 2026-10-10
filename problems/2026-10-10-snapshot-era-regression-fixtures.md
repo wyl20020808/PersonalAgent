@@ -58,3 +58,13 @@ P2A 决策夹具改为明确授权 Direct，保留独立 Session、模型、调�
 证据位于 `D:/PersonalAgent-data/p3c-dev-integration-v1/controller-targeted.log`、`baseline-targeted.log` 和 `baseline-comparison.json`。本次没有修复或删改这些用例，也不将对照相同解释为全库绿色。当前状态仍为历史回归待处理；不阻断本次已获授权、没有新增相关失败的 P3C 集成。
 
 新执行者及能力门禁 16/16、Desktop 84/84、静态双池 UI 检查、实际 V1 CLI 与本地确定性模型的 read/write/bash、独立测试、Review、未审批 Preview 闭环均通过。真实能力发现确认优先模型可用，本轮远端模型推理请求为 0。
+
+## 2026-10-10：P3A 发现另外 3 项历史 Native 回归失败
+
+- 当前状态：原 13 项已解决；另外 3 项待处理，本次没有修改或跳过其断言。
+- 证据：P3A 分支和从 `ddb098aedff7a40dc4a161f2e8eda8722bf32598` 导出的原始源码均运行 `native-agent.test.js`，均为 16/19 通过，以下 3 项失败及断言结果一致。原始源码在 P3A 工作目录的 `.validation/p3a-baseline` 单独编译，测试工作目录与 P3A 相同；没有修改运行中的 DEV。
+- 失败项目：`native controller includes planning, executor and reviewer modifications and revalidates review` 的 Diff 缺少 `plan-note.txt`；`interrupted native changes survive resume with same thread and task baseline` 的预期 Diff 值为 undefined；`repeated CC review modifications are bounded by repair control across recovery` 得到 `Rework limit reached`，原断言期望 `Review repair limit reached`。
+- 已确认事实：三项失败不是 P3A 新增代码引入。是否全部仅需迁移旧快照断言，仍需专项核查，不能据此断言生产流程无问题。
+- 日志：`D:/PersonalAgent-worktrees/tasks/codex-decision-agent-p3a/.validation/p3a-native.log`、`.validation/p3a-native-baseline.log`。
+- 影响：历史 Native 回归仍未全绿；P3A 新增功能和必要的决策/审计组合检查结果另见验收报告。
+- 下一步：另行核对无强制 Snapshot 后的有限 Diff、恢复证据和 Review 修改语义，保留审查及恢复保护，不为了旧断言恢复全项目快照。

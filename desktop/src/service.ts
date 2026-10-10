@@ -36,8 +36,8 @@ type Registry={profiles:Registered[];reducedMotion:boolean;recentProjects?:Proje
 type ProjectConfig=Config&{projectMode?:'direct'|'isolated';directAuthorization?:{projectPath:string;acknowledgedAt:string}};
 const sha=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex');
 const uuid={type:'string',pattern:'^[0-9a-f-]{36}$'},str={type:'string',minLength:1,maxLength:10000};
-const desktopDecisionSchema={oneOf:[{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'claude-code'},model:{type:'string',pattern:'^[a-zA-Z0-9._:/-]{1,200}$'}}},{type:'object',additionalProperties:false,required:['backend','opencode'],properties:{backend:{const:'opencode'},opencode:{type:'object',additionalProperties:false,required:['providerID','modelID'],properties:{providerID:str,modelID:str}}}}]};
-const desktopExecutionSchema={oneOf:[{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'codex'}}},desktopDecisionSchema.oneOf[1]]};
+const desktopDecisionSchema={oneOf:[{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'codex'},model:{type:'string',pattern:'^[a-zA-Z0-9._:/-]{1,200}$'}}},{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'claude-code'},model:{type:'string',pattern:'^[a-zA-Z0-9._:/-]{1,200}$'}}},{type:'object',additionalProperties:false,required:['backend','opencode'],properties:{backend:{const:'opencode'},opencode:{type:'object',additionalProperties:false,required:['providerID','modelID'],properties:{providerID:str,modelID:str}}}}]};
+const desktopExecutionSchema={oneOf:[{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'codex'}}},desktopDecisionSchema.oneOf[2]]};
 const desktopDiscussionSchema={type:'object',additionalProperties:false,required:['participants','primary','rounds'],properties:{
  participants:{type:'array',minItems:2,maxItems:2,items:{type:'object',additionalProperties:false,required:['id','agent'],properties:{id:{enum:['a','b']},agent:desktopDecisionSchema}}},
  primary:{enum:['a','b']},rounds:{enum:[0,1]}
