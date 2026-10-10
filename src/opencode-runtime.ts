@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { FlowError } from './failure.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // The installed V2 config is read only. Credentials stay in the child environment,
 // never in the Controller config, IPC, receipts or a generated config file.
@@ -33,6 +34,9 @@ export function opencodeEnvironment(directory: string, runtimeDirectory?: string
     catch { throw new FlowError('supervisor', 'OpenCode config is not valid JSON; contents withheld'); }
   } else if (process.env.PERSONAL_AGENT_OPENCODE_CONFIG_FILE) throw new FlowError('supervisor', 'OpenCode configured provider file not found');
   const env: NodeJS.ProcessEnv = { ...process.env, XDG_DATA_HOME: path.join(root, 'data'), XDG_STATE_HOME: path.join(root, 'state'), XDG_CONFIG_HOME: path.join(root, 'config'), XDG_CACHE_HOME: path.join(root, 'cache'), TEMP: path.join(root, 'tmp'), TMP: path.join(root, 'tmp'), OPENCODE_DB: path.join(root, 'data/opencode.db'), OPENCODE_CONFIG_DIR: path.join(root, 'config/opencode'), OPENCODE_CONFIG_CONTENT: JSON.stringify(v1ProviderConfig(config)), OPENCODE_DISABLE_PROJECT_CONFIG: 'true', OPENCODE_DISABLE_AUTOUPDATE: 'true' };
+  const serviceConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT!);
+  serviceConfig.plugin = [...(serviceConfig.plugin ?? []), pathToFileURL(fileURLToPath(new URL('../scripts/opencode-interaction-plugin.js', import.meta.url))).href];
+  env.OPENCODE_CONFIG_CONTENT = JSON.stringify(serviceConfig);
   fs.mkdirSync(env.TEMP!, { recursive: true }); fs.mkdirSync(env.OPENCODE_CONFIG_DIR!, { recursive: true });
   // Do not inherit paths/content that can reconnect to or mutate the user's V2 state.
   delete env.OPENCODE_CONFIG;

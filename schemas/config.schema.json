@@ -61,6 +61,35 @@
               "type": "string"
             },
             "maxItems": 50
+          },
+          "interaction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "shell",
+                  "browser",
+                  "desktop",
+                  "system",
+                  "resource"
+                ]
+              },
+              "capability": {
+                "enum": [
+                  "BACKGROUND_SAFE",
+                  "DESKTOP_INTERACTIVE",
+                  "SYSTEM_HIGH_RISK",
+                  "RESOURCE_HEAVY"
+                ]
+              },
+              "headless": {
+                "type": "boolean"
+              },
+              "isolatedBrowser": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "required": [

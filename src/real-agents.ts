@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { requireIdle } from './interaction-policy.js';
+import { assertOperationPolicy } from './interaction-policy.js';
 import { assertDecisionState, type DecisionAgent } from './decision-agent.js';
 import { ClaudeCodeDecisionAgent } from './claude-code-decision-agent.js';
 import { OpenCodeDecisionAgent } from './opencode-decision-agent.js';
@@ -29,7 +29,7 @@ export class RealAgents implements Agents {
     return (await adapter.structured<T>({state, store, signal, schema, prompt, role, context, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, timeoutMs: this.config.timeoutMs})).output;
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
-    requireIdle('真实 Agent 规划');
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionState(state, this.config);
     if (state.discussion) return discussPlan(state, store, signal, (id, stage, schema, exchange) => withParticipant(state, store, id, stage, (view, scoped) => this.planCall(view, scoped, AbortSignal.any([signal, AbortSignal.timeout(state.config.timeoutMs)]), stage, schema, exchange)));
     return this.planCall(state, store, signal);
@@ -44,7 +44,7 @@ export class RealAgents implements Agents {
     return this.claude(state, store, signal, schema, prompt, 'plan', context);
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
-    requireIdle('真实 Agent 执行');
+    assertOperationPolicy({ kind: 'model' });
     const env = nativeAgentEnv();
     let edits: unknown;
     const record = activityRecorder(state, store, 'codex', `codex:${state.loops}`);
@@ -59,7 +59,7 @@ export class RealAgents implements Agents {
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
-      cwd: store.dir, env, signal, timeoutMs: this.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, executionMode: this.executionMode }),
+      cwd: store.dir, env, signal, interaction: { kind: 'model' }, timeoutMs: this.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, executionMode: this.executionMode }),
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };
@@ -79,7 +79,7 @@ export class RealAgents implements Agents {
     } finally { observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
   async review(state: State, store: Store, signal: AbortSignal): Promise<Review> {
-    requireIdle('真实 Agent 审查');
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionState(state, this.config);
     const context = await callContext(state, store, 'review', signal);
     const evidence = reviewEvidence(state.evidence);

@@ -162,12 +162,15 @@ test('repeated CC review modifications are bounded by repair control across reco
   assert.equal((await drive(f.store,adapter)).claudeCalls,3);
 });
 
-test('native CLI inherits configuration and session with no turn/tool restrictions', async () => {
+test('native CLI inherits configuration and session with invocation-local interaction Hook', async () => {
   const f = await fixture('cli-contract'); const state = f.store.load(); state.claudeSessionId = randomUUID();
   const run: typeof runProcess = async (_exe, args, options) => {
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions');
     assert.equal(args[args.indexOf('--resume') + 1], state.claudeSessionId);
-    for (const flag of ['--tools', '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', '--settings', '--max-turns', '--model', '--system-prompt']) assert.equal(args.includes(flag), false, flag);
+    for (const flag of ['--tools', '--strict-mcp-config', '--disable-slash-commands', '--setting-sources', '--max-turns', '--model', '--system-prompt']) assert.equal(args.includes(flag), false, flag);
+    const settings = JSON.parse(args[args.indexOf('--settings') + 1]!);
+    assert.equal(settings.disableAllHooks, false); assert.match(settings.hooks.PreToolUse[0].hooks[0].command, /codex-interaction-hook/);
+    assert.deepEqual(Object.keys(settings).sort(), ['disableAllHooks','hooks']);
     assert.equal(options.cwd, state.workspace); assert.equal(options.env?.CODEX_HOME, process.env.CODEX_HOME); assert.equal(options.env?.CLAUDE_CONFIG_DIR, process.env.CLAUDE_CONFIG_DIR);
     options.onLine!(JSON.stringify({ type: 'result', structured_output: { humanDecision: null, tasks: [{ id: 'native', instruction: '本地测试', acceptance: ['通过'] }] } }));
     return { exitCode: 0, stdout: '', stderr: '' };

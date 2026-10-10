@@ -10,7 +10,7 @@ import { observationScope, contextObservation, gitObservation } from './project-
 import type { Agents } from './adapters.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
 import { classifyFailure, FlowError } from './failure.js';
-import { requireIdle, readInteractionPolicy, InteractionPolicyError } from './interaction-policy.js';
+import { assertOperationPolicy, readInteractionPolicy } from './interaction-policy.js';
 import { journalFile, prepareApplication, recoverApplication } from './application.js';
 import { orderTasks, assertPrerequisites } from './dependencies.js';
 import { captureBaseline, baselineDiff, reviewEvidence } from './incremental.js';
@@ -73,11 +73,20 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const stop = new AbortController();
   const abort = () => stop.abort(); externalSignal?.addEventListener('abort', abort, { once: true });
   if (externalSignal?.aborted) stop.abort();
-  let policyPaused = false;
-  const poll = setInterval(() => { if (state.config.mode === 'real' && readInteractionPolicy().mode === 'work') { policyPaused = true; stop.abort(); } else if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
+  const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
+  function advanceReadyTask(): void {
+    const completed = state.completedTaskIds ?? [], deferred = state.deferredTaskIds ?? [];
+    const next = state.tasks.findIndex(task => !completed.includes(task.id) && !deferred.includes(task.id) && (task.dependsOn ?? []).every(id => completed.includes(id)));
+    state.reworks = 0; state.reviewRepairs = 0; state.reworkPending = false; state.failure = null; state.feedback = '';
+    if (next >= 0) { state.taskIndex = next; state.nextPhase = 'execute'; checkpoint('execute'); }
+    else if (deferred.length) {
+      state.taskIndex = state.tasks.findIndex(task => deferred.includes(task.id)); state.nextPhase = 'verify';
+      checkpoint('paused', 'deferred_by_work_mode / requires_system_authorization：相关节点验收 pending，其他可运行独立任务已处理。GUI/重型步骤需 idle 后明确恢复；系统高风险仍拒绝，idle 不授予授权。');
+    } else { state.taskIndex = state.tasks.length; checkpoint('completed'); }
+  }
   async function agentOperation<T>(agent: 'claude' | 'codex', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    if (state.config.mode === 'real') requireIdle(`${agent} ${role} 原生工具`);
+    assertOperationPolicy({ kind: 'model' });
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
     if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
     const started = Date.now(), before = await observeWorkspace(state, stop.signal);
@@ -102,7 +111,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   }
   async function checkedEvidence(): Promise<Evidence> {
     const contextReport = checkTaskContext(state, store);
-    const evidence = await collectEvidence(state, stop.signal, state.nativeExecution === true && state.taskIndex === state.tasks.length - 1);
+    const finalNode = state.tasks.every((task, index) => index === state.taskIndex || state.completedTaskIds?.includes(task.id));
+    const evidence = await collectEvidence(state, stop.signal, state.nativeExecution === true && finalNode);
     if (contextReport) {
       if (contextObservation(state, taskContextBaseline(state, store)?.context).digest !== contextReport.snapshot) throw new FlowError('safety', '模块检查后工作区变化；必须重新检查和独立验收');
       evidence.contextReport = contextReport;
@@ -145,6 +155,11 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       // Legacy paused runs also retain the reason needed to enforce old limits.
       if (state.reason === 'Rework limit reached') state.reworkPending = true;
       state.failure = null;
+      if (readInteractionPolicy().mode === 'idle' && state.deferredTaskIds?.length) {
+        state.taskIndex = state.tasks.findIndex(task => state.deferredTaskIds!.includes(task.id));
+        state.nextPhase = 'verify';
+        // Keep pending identities until each node passes actual independent acceptance.
+      }
       checkpoint(state.nextPhase === 'review' ? 'verify' : state.nextPhase);
       store.audit('human-decision', { decision });
     }
@@ -268,6 +283,16 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           }
           continue;
         }
+        if (review.verdict === 'pass' && state.evidence.tests.some(test => test.status) &&
+            state.evidence.issues.every(issue => issue.startsWith('Pending acceptance operations:')) &&
+            contextReviewProblems(state.evidence.contextReport, review, normalizeContractReferences(review.contextReview?.checkedContracts ?? [], state.evidence.contextReport ? reviewContractCatalog(state) : [])).length === 0 &&
+            !(reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) {
+          const taskId = state.tasks[state.taskIndex]!.id;
+          state.deferredTaskIds ??= [];
+          if (!state.deferredTaskIds.includes(taskId)) state.deferredTaskIds.push(taskId);
+          store.audit('task-acceptance-pending', { taskId, review, tests: state.evidence.tests.filter(test => test.status), note: '代码和安全检查已执行；GUI/风险验收未通过，禁止交付；依赖该节点的任务等待，继续独立节点。' });
+          advanceReadyTask(); continue;
+        }
         if (review.verdict === 'human') {
           state.nextPhase = 'verify'; checkpoint('paused', review.reason);
           for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
@@ -286,8 +311,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           if ((reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) { state.nextPhase = 'verify'; checkpoint('paused', 'Review context omitted diff; human inspection required'); continue; }
           state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
           if (!state.completedTaskIds.includes(state.tasks[state.taskIndex]!.id)) state.completedTaskIds.push(state.tasks[state.taskIndex]!.id);
-          state.taskIndex++; state.reworks = 0; state.reviewRepairs = 0; state.reworkPending = false; state.failure = null; state.feedback = '';
-          checkpoint(state.taskIndex >= state.tasks.length ? 'completed' : 'execute');
+          state.deferredTaskIds = (state.deferredTaskIds ?? []).filter(id => id !== state.tasks[state.taskIndex]!.id);
+          advanceReadyTask();
         } else {
           state.feedback = `${review.reason}\n${state.evidence?.issues.join('\n') ?? 'No evidence'}`;
           if (review.verdict === 'pass') store.audit('review-vetoed', { reason: 'Independent verification failed' });
@@ -313,8 +338,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       }
     } else if (['planning', 'execute', 'applying', 'verify', 'review'].includes(stage)) state.nextPhase = stage === 'review' ? 'verify' : stage;
     if (stop.signal.aborted) state.failure = classifyFailure(new FlowError('interrupted', 'Stopped'), stage);
-    if (policyPaused) state.failure = classifyFailure(new InteractionPolicyError('受管理 Agent Run'), stage);
-    checkpoint(policyPaused ? 'paused' : stop.signal.aborted ? 'stopped' : state.failure.recoverable ? 'paused' : 'failed', state.failure.message);
+    checkpoint(stop.signal.aborted ? 'stopped' : state.failure.recoverable ? 'paused' : 'failed', state.failure.message);
     store.audit('error', state.failure);
   } finally {
     try {

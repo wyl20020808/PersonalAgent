@@ -41,3 +41,9 @@ P2A 决策夹具改为明确授权 Direct，保留独立 Session、模型、调�
 后续受影响 Agent 组合 49 项中 46 通过、3 项失败；失败为 planning/executor/reviewer 变更汇总、带同一 thread 的中断恢复、跨恢复的审查修复上限，均为既有失败。旧 no-verifiable-diff、untracked Snapshot 及旧预算前提等断言没有为本任务删除或恢复强制 Snapshot。Desktop 的模式夹具在测试子进程中显式注入后最终 84/84，通过；DEV Desktop 83/83。
 
 详细日志留在本次任务工作区 `validation/global-interaction-regression/`，提交中保存脱敏比较摘要。影响：不能将 Global Work / Idle 专项或 Desktop 成功称为根目录整库全绿或正式发布验收；后续应单独审查各失败断言的现行契约，而非扩大本功能任务修复全部历史问题。
+
+## 2026-10-10：工作模式持续开发修正
+
+工作模式不再暂停 Agent。整库阶段检查 `validation/semantic-full-final.log` 为 322 项、203 通过、119 失败；按失败名称逐项对照，119 项均在已有 DEV 归档失败集合中，没有新增名称。DEV 归档长路径仍影响基线，不能据此声称等价或全绿。最后的策略专项独立复核 16/16，Desktop 84/84；正常安全命令通过、GUI pending 不绕过 Review/审批和失败单测。
+
+此次新增 Claude invocation-local Hook 后，旧“CLI 永远不传 --settings”断言已过时；改为核对仅追加 interaction Hook、保留 Session 与工具配置，单独合约检查 1/1。其他历史失败没有删掉或为本轮恢复 Snapshot。阶段整库与最终专项分开记载，状态仍为剩余历史迁移待处理，影响仍是不能据此发布稳定版本。比较证据在 `docs/evidence/global-work-idle/verification-summary.json`。

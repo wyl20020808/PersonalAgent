@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { interactionPolicyContext } from '../dist/src/interaction-policy.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../validation/global-interaction-regression');
 fs.mkdirSync(root,{recursive:true});
-const fixture=path.join(root,'idle-fixture.json');
-try { fs.writeFileSync(fixture,JSON.stringify({version:1,mode:'idle'}),{flag:'wx',flush:true}); }
+const fixture=path.join(root,'work-fixture.json');
+try { fs.writeFileSync(fixture,JSON.stringify({version:1,mode:'work'}),{flag:'wx',flush:true}); }
 catch(error) { if(error.code!=='EEXIST') throw error; }
 interactionPolicyContext.enterWith(fixture);
 // Explicitly propagate this test fixture into test-owned Node descendants.

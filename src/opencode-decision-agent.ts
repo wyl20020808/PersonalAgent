@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { requireIdle, interactionAgentRules, watchInteractionPolicy } from './interaction-policy.js';
+import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -28,7 +28,7 @@ export function resolveOpencodeExecutable(explicit?: string): string {
 }
 // Port 0 is assigned atomically by the owned server. Never probe or reuse another service.
 export async function startOpencodeService(executable: string | undefined, directory: string, signal: AbortSignal, runtimeDirectory?: string, spawnChild: typeof spawn = spawn): Promise<OpenCodeService> {
-  requireIdle('OpenCode 原生服务（含模型发现）');
+  assertOperationPolicy({ kind: 'model' });
   signal.throwIfAborted();
   const password = randomUUID();
   const child = spawnChild(resolveOpencodeExecutable(executable), ['serve','--hostname','127.0.0.1','--port','0'], {
@@ -37,10 +37,7 @@ export async function startOpencodeService(executable: string | undefined, direc
   });
   let closed = false;
   const exited = new Promise<void>(resolve => { child.once('close', () => { closed = true; resolve(); }); child.once('error', () => { closed = true; resolve(); }); });
-  let unwatch = () => {};
-  const close = async () => { unwatch(); if (!closed && child.pid) await terminateTree(child.pid); await exited; };
-  unwatch = watchInteractionPolicy(() => { void close(); });
-  void exited.then(() => unwatch());
+  const close = async () => { if (!closed && child.pid) await terminateTree(child.pid); await exited; };
   try {
     const url = await new Promise<string>((resolve, reject) => {
       let pending = '';
@@ -120,7 +117,7 @@ export function opencodePublicEvents(event: any, directory: string, sessionID: s
 export class OpenCodeDecisionAgent implements DecisionAgent {
   constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startOpencodeService) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
-    requireIdle('OpenCode 原生工具');
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionRequest(request); const identity = assertDecisionState(request.state,this.config);
     if (identity.backend !== 'opencode') throw new FlowError('safety','OpenCode adapter backend mismatch');
     const { state,store,role,prompt,schema,workspace } = request;

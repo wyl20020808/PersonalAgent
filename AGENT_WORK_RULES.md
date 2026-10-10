@@ -13,6 +13,6 @@
 9. 完成后报告实际改动、测试命令、结果和未解决问题。不得伪造测试、工具执行、审查或模型输出，不输出隐藏思维链。
 10. 暂停或异常时保留已发生的修改，续接已有 Session/Thread。PersonalAgent 不再要求内部付费预算预授权；若用户另外明确限制真实服务调用，仍须遵守该限制。
 
-全局交互模式约束优先于上述一般工具授权：读取 `D:\PersonalAgent-data\global-interaction-policy.json`，缺失、损坏和未知值按 work 处理；只能由用户明确操作切换，任何 Agent 不得写入、替换或绕过策略。work 下禁止鼠标、键盘、输入 Hook、剪贴板、前台浏览器/桌面、窗口/焦点/显示、可见浏览器测试、关机/重启/注销/休眠、驱动/系统配置和未经评估的高负载任务，禁止通过 Shell、MCP 或脚本/子进程间接完成。不能确认安全时必须暂停至 idle。源码读取和编辑仍允许。idle 不扩大用户的任务、交付、发布或推送授权。实际技术覆盖和原生工具限制见 [Global Work / Idle Mode V1](docs/GLOBAL_WORK_IDLE_MODE_V1.md)，行为规则不等于 Windows 权限隔离。
+全局交互模式约束优先于一般工具授权：读取 `D:\PersonalAgent-data\global-interaction-policy.json`，缺失、损坏和未知值按 work 处理；只允许用户明确切换，Agent 不得修改或绕过状态及策略。工作模式 = AI 持续开发，但不碰用户的桌面。模型推理、规划、开发、Review、讨论、Session/resume、Context、源码修改、普通 Git、Shell、后台构建和单测继续执行。鼠标/键盘/Hook/剪贴板、用户浏览器/窗口/焦点/显示、可见 GUI 验收仅延后该操作，记录 deferred_by_work_mode，继续无依赖工作；未执行验收保持 pending，不得虚报 PASS。切换 work 不取消模型或普通 build/test；只取消受管理交互/明显重型任务。真正 headless 且隔离用户浏览器的检查允许；不明浏览器交互延后。系统高风险操作和极端压力测试在 idle 也不自动获权，必须另行明确授权。禁止通过 Shell、MCP、脚本/子进程绕过。idle 不扩大交付、推送或发布授权。实际技术覆盖、行为约束和原生工具缺口见 [Global Work / Idle Mode V1](docs/GLOBAL_WORK_IDLE_MODE_V1.md)，应用策略不等于 Windows 权限隔离。
 
 旧提案兼容模式由配置 `executionMode: "proposal"` 显式选择。在该模式下按照约定返回文件提案，由 Controller 使用原有日志机制写入；不同时直接写入同一修改。

@@ -1,7 +1,8 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { runProcess } from './process.js';
+import { runProcess, type ProcessResult } from './process.js';
+import { InteractionPolicyError } from './interaction-policy.js';
 import { assertD, atomicJson, Store, type Evidence, type State } from './store.js';
 import { assertProjectRuntime, fileStatus, projectFiles, readProject, loadProject, updateFileHash } from './project-files.js';
 import { gitObservation, hasGit, observationScope, contextObservation } from './project-observation.js';
@@ -108,9 +109,10 @@ export async function collectEvidence(state: State, signal: AbortSignal, final =
   if (!state.config.tests.length) issues.push('No independent acceptance tests configured; human verification required');
   for (const index of final ? state.config.tests.map((_, index) => index) : testIndexes(state.tasks[state.taskIndex], state.config)) {
     const test = state.config.tests[index]!;
-    tests.push(await runProcess(test.executable, test.args, { cwd: state.workspace, signal, timeoutMs: state.config.timeoutMs, env: { ...controlledEnv(state.config.runtimeDir), PERSONAL_AGENT_TASK_INDEX: String(state.taskIndex), PERSONAL_AGENT_TASK_ID: state.tasks[state.taskIndex]?.id ?? '', PERSONAL_AGENT_ACCEPTANCE_STAGE: acceptanceStage(state.tasks[state.taskIndex], state.config) ?? '', PERSONAL_AGENT_FINAL_TASK: String(state.taskIndex === state.tasks.length - 1), PERSONAL_AGENT_RUN_ID: state.id } }));
+    tests.push(await runAcceptanceProcess(state, index, signal, { env: { ...controlledEnv(state.config.runtimeDir), PERSONAL_AGENT_TASK_INDEX: String(state.taskIndex), PERSONAL_AGENT_TASK_ID: state.tasks[state.taskIndex]?.id ?? '', PERSONAL_AGENT_ACCEPTANCE_STAGE: acceptanceStage(state.tasks[state.taskIndex], state.config) ?? '', PERSONAL_AGENT_FINAL_TASK: String(final), PERSONAL_AGENT_RUN_ID: state.id } }));
   }
-  if (tests.some(result => result.exitCode !== 0)) issues.push('Independent tests failed');
+  if (tests.some(result => result.status)) issues.push('Pending acceptance operations: ' + tests.filter(result => result.status).map(result => result.status + ': ' + result.stderr).join('; '));
+  if (tests.some(result => !result.status && result.exitCode !== 0)) issues.push('Independent tests failed');
   if (await acceptanceRulesHash(state) !== rulesHash) issues.push('Acceptance rules changed during verification');
   if (await snapshot(state.workspace, signal,!!state.config.projectMode) !== snapshotDigest || await workspaceHead(state,signal) !== head) issues.push('Tests modified workspace; review snapshot is invalid');
   return { screenshots: collectScreenshots(state, tests), head, status, diff, snapshotDigest, tests, executorExitCode: state.executorExitCode, passed: issues.length === 0, issues, acceptanceRulesHash: rulesHash };
@@ -197,10 +199,24 @@ async function collectObservedEvidence(state: State, signal: AbortSignal, final:
   if (!state.config.tests.length) issues.push('No independent acceptance tests configured; human verification required');
   for (const index of final ? state.config.tests.map((_, index) => index) : testIndexes(state.tasks[state.taskIndex], state.config)) {
     const test = state.config.tests[index]!;
-    tests.push(await runProcess(test.executable, test.args, { cwd: state.workspace, signal, timeoutMs: state.config.timeoutMs, env: { ...controlledEnv(state.config.runtimeDir), PERSONAL_AGENT_TASK_INDEX: String(state.taskIndex), PERSONAL_AGENT_TASK_ID: state.tasks[state.taskIndex]?.id ?? '', PERSONAL_AGENT_ACCEPTANCE_STAGE: acceptanceStage(state.tasks[state.taskIndex], state.config) ?? '', PERSONAL_AGENT_FINAL_TASK: String(state.taskIndex === state.tasks.length - 1), PERSONAL_AGENT_RUN_ID: state.id } }));
+    tests.push(await runAcceptanceProcess(state, index, signal, { env: { ...controlledEnv(state.config.runtimeDir), PERSONAL_AGENT_TASK_INDEX: String(state.taskIndex), PERSONAL_AGENT_TASK_ID: state.tasks[state.taskIndex]?.id ?? '', PERSONAL_AGENT_ACCEPTANCE_STAGE: acceptanceStage(state.tasks[state.taskIndex], state.config) ?? '', PERSONAL_AGENT_FINAL_TASK: String(final), PERSONAL_AGENT_RUN_ID: state.id } }));
   }
-  if (tests.some(result => result.exitCode !== 0)) issues.push('Independent tests failed');
+  if (tests.some(result => result.status)) issues.push('Pending acceptance operations: ' + tests.filter(result => result.status).map(result => result.status + ': ' + result.stderr).join('; '));
+  if (tests.some(result => !result.status && result.exitCode !== 0)) issues.push('Independent tests failed');
   if (await acceptanceRulesHash(state) !== rulesHash) issues.push('Acceptance rules changed during verification');
   if (await observeWorkspace(state, signal) !== digest) issues.push('Tests modified observed Git changes; review evidence is invalid');
   return { screenshots: collectScreenshots(state, tests), head: before.head, status: before.status, diff: before.diff, snapshotDigest: digest, verificationScope: observationScope, tests, executorExitCode: state.executorExitCode, passed: issues.length === 0, issues, acceptanceRulesHash: rulesHash };
+}
+
+// Defer one operation, keep running the other configured acceptance checks.
+export async function runAcceptanceProcess(state: State, index: number, signal: AbortSignal, options: { env: NodeJS.ProcessEnv }, launch: typeof runProcess = runProcess): Promise<ProcessResult> {
+  const test = state.config.tests[index]!;
+  const store = new Store(state.config.runtimeDir, state.id);
+  try {
+    return await launch(test.executable, test.args, { cwd: state.workspace, signal, timeoutMs: state.config.timeoutMs, interaction: test.interaction, ...options });
+  } catch (error) {
+    if (!(error instanceof InteractionPolicyError)) throw error;
+    store.audit(error.status, { taskId: state.tasks[state.taskIndex]?.id, testIndex: index, classification: error.decision.classification, reason: error.message });
+    return { exitCode: -1, stdout: '', stderr: error.message, status: error.status, classification: error.decision.classification, testIndex: index };
+  }
 }

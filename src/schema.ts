@@ -24,7 +24,7 @@ export const configSchema = object({
   timeoutMs: { type: 'integer', minimum: 100, maximum: 3600000 },
   maxLoops: { type: 'integer', minimum: 1, maximum: 100 },
   maxReworks: { type: 'integer', minimum: 0, maximum: 20 },
-  tests: { type: 'array', minItems: 0, maxItems: 20, items: object({ executable: text, args: { type: 'array', items: { type: 'string' }, maxItems: 50 } }) },
+  tests: { type: 'array', minItems: 0, maxItems: 20, items: { ...object({ executable: text, args: { type: 'array', items: { type: 'string' }, maxItems: 50 }, interaction: { type: 'object', additionalProperties: false, properties: { kind: { enum: ['shell','browser','desktop','system','resource'] }, capability: { enum: ['BACKGROUND_SAFE','DESKTOP_INTERACTIVE','SYSTEM_HIGH_RISK','RESOURCE_HEAVY'] }, headless: { type: 'boolean' }, isolatedBrowser: { type: 'boolean' } } } }), required: ['executable','args'] } },
   mockScenario: { type: 'string', enum: ['pass', 'rework', 'human', 'fail', 'timeout', 'invalid', 'escape', 'nochange'] }
 });
 Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'proposal'] }, claudeStreaming: { type: 'boolean' }, maxClaudeCalls: { type: 'integer', minimum: 1, maximum: 100 }, minTasks: { type: 'integer', minimum: 1, maximum: 20 } });
@@ -50,7 +50,7 @@ export interface Config {
   taskStages?: Record<string, string>;
   allowedRepositories: string[]; runtimeDir: string; mode: 'mock' | 'real'; claudeExecutable: string;
   timeoutMs: number; maxLoops: number; maxReworks: number;
-  tests: { executable: string; args: string[] }[];
+  tests: { executable: string; args: string[]; interaction?: import('./interaction-policy.js').OperationMetadata }[];
   mockScenario: 'pass' | 'rework' | 'human' | 'fail' | 'timeout' | 'invalid' | 'escape' | 'nochange';
 }
 export function normalizeConfig(config: Config): Config {

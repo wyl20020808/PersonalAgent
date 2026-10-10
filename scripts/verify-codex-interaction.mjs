@@ -16,7 +16,7 @@ fs.writeFileSync(policy,JSON.stringify({version:1,mode:'work'}));
 const auditFile=path.join(root,'hook-audit.jsonl');
 const command = `& "${process.execPath}" "${path.resolve('dist/scripts/codex-interaction-hook.js')}" "${policy}" "${auditFile}"`;
 fs.writeFileSync(path.join(home,'hooks.json'),JSON.stringify({hooks:{PreToolUse:[{hooks:[{type:'command',command,timeout:5}]}]}},null,2));
-fs.writeFileSync(path.join(home,'AGENTS.md'),fs.readFileSync('C:/Users/WYL20/.codex/AGENTS.md','utf8')+'\n工作模式：不得修改全局交互策略；未知工具必须暂停。\n');
+fs.writeFileSync(path.join(home,'AGENTS.md'),fs.readFileSync('C:/Users/WYL20/.codex/AGENTS.md','utf8')+'\n工作模式：持续后台开发；桌面具体步骤延后，不得修改全局交互策略。\n');
 const mcpFile=path.join(root,'mock-mcp.mjs'),mcpMarker=path.join(root,'mock-mcp-called');
 fs.writeFileSync(mcpFile,`import fs from 'node:fs';import {createInterface} from 'node:readline';createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);if(r.id===undefined)return;let result={};if(r.method==='initialize')result={protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'harmless-policy-probe',version:'1'}};if(r.method==='tools/list')result={tools:[{name:'click',description:'Mock browser click with no desktop effect',inputSchema:{type:'object',properties:{}}}]};if(r.method==='tools/call'){fs.writeFileSync(${JSON.stringify(mcpMarker)},'called');result={content:[{type:'text',text:'Mock tool executed; no desktop effect'}]};}process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result})+'\\n');});`);
 
@@ -30,7 +30,8 @@ const server = http.createServer(async (request,response)=>{
   requests++;
   const tool = parsed.tools?.find(tool=>['exec_command','shell_command','shell'].includes(tool.name));
   const mockMcp=parsed.tools?.find(tool=>/policy_probe.*click/.test(tool.name));
-  const item = requests===1 ? {type:'function_call',id:'fc_probe',call_id:'call_probe',name:tool?.name??'exec_command',arguments:JSON.stringify(tool?.name==='exec_command'?{cmd:'echo POLICY_HARMLESS_PROBE',max_output_tokens:1000}:{command:'echo POLICY_HARMLESS_PROBE',timeout_ms:3000,workdir:workspace})} : requests===2 ? {type:'custom_tool_call',id:'patch_probe',call_id:'call_patch',name:'apply_patch',input:'*** Begin Patch\n*** Add File: source-probe.ts\n+export const probe = 1;\n*** End Patch'} : requests===3 ? {type:'function_call',id:'mcp_probe',call_id:'call_mcp',name:mockMcp?.name??'mcp__policy_probe__click',arguments:'{}'} : {type:'message',id:'msg_done',role:'assistant',content:[{type:'output_text',text:'Policy probe complete.'}]};
+  const shellCommand=requests===1?'echo POLICY_BACKGROUND_SAFE':'echo ClipCursor POLICY_HARMLESS_PROBE';
+  const item = requests<=2 ? {type:'function_call',id:'fc_probe',call_id:requests===1?'call_safe':'call_probe',name:tool?.name??'exec_command',arguments:JSON.stringify(tool?.name==='exec_command'?{cmd:shellCommand,max_output_tokens:1000}:{command:shellCommand,timeout_ms:3000,workdir:workspace})} : requests===3 ? {type:'custom_tool_call',id:'patch_probe',call_id:'call_patch',name:'apply_patch',input:'*** Begin Patch\n*** Add File: source-probe.ts\n+export const probe = 1;\n*** End Patch'} : requests===4 ? {type:'function_call',id:'mcp_probe',call_id:'call_mcp',name:mockMcp?.name??'mcp__policy_probe__click',arguments:'{}'} : {type:'message',id:'msg_done',role:'assistant',content:[{type:'output_text',text:'Policy probe complete.'}]};
   response.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache'});
   const send = (type,data)=>response.write(`event: ${type}\ndata: ${JSON.stringify({type,...data})}\n\n`);
   send('response.created',{response:{id:'resp_'+requests,object:'response',status:'in_progress',output:[]}});
@@ -76,12 +77,13 @@ try {
   evidence.exitCode=await new Promise(resolve=>child.once('close',resolve));clearTimeout(timer);
 } catch(error){evidence.error=String(error);}
 finally { server.closeAllConnections();server.close(); evidence.requests=requests; evidence.captured=captured;evidence.hookAudit=fs.existsSync(auditFile)?fs.readFileSync(auditFile,'utf8'):'';
+  evidence.safeShellExecuted=evidence.events.some(event=>event.item?.type==='command_execution'&&event.item.aggregated_output?.includes('POLICY_BACKGROUND_SAFE'));
   evidence.probeExecuted=evidence.events.some(event=>event.item?.type==='command_execution'&&event.item.aggregated_output?.includes('POLICY_HARMLESS_PROBE'));
-  evidence.probeBlocked=Boolean(evidence.hookAudit)&&captured.some(item=>item.toolOutputs?.some(output=>/工作模式/.test(output.output)))&&!evidence.probeExecuted;
+  evidence.probeBlocked=Boolean(evidence.hookAudit)&&captured.some(item=>item.toolOutputs?.some(output=>/deferred_by_work_mode/.test(output.output)))&&!evidence.probeExecuted;
   evidence.coverage=evidence.probeBlocked?'verified-block':evidence.probeExecuted?'not-enforced':'unverified';
   evidence.sourceEditVerified=fs.existsSync(path.join(workspace,'source-probe.ts'))&&fs.readFileSync(path.join(workspace,'source-probe.ts'),'utf8').includes('export const probe = 1;');
   evidence.mockMcpExecuted=fs.existsSync(mcpMarker);
-  evidence.mockMcpBlocked=!evidence.mockMcpExecuted&&captured.some(item=>item.toolOutputs?.some(output=>output.call_id==='call_mcp'&&/工作模式/.test(output.output)));
+  evidence.mockMcpBlocked=!evidence.mockMcpExecuted&&captured.some(item=>item.toolOutputs?.some(output=>output.call_id==='call_mcp'&&/deferred_by_work_mode/.test(output.output)));
   fs.writeFileSync(path.join(root,'evidence.json'),JSON.stringify(evidence,null,2)); }
 console.log(JSON.stringify({evidence:path.join(root,'evidence.json'),requests,error:evidence.error,metadata:evidence.metadata,events:evidence.events,exitCode:evidence.exitCode,bypass:evidence.bypass},null,2));
 process.exitCode=evidence.probeBlocked?0:2;

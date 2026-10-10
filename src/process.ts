@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { assertProcessPolicy, watchInteractionPolicy, InteractionPolicyError } from './interaction-policy.js';
+import { assertOperationPolicy, watchInteractionPolicy, decideOperation, InteractionPolicyError, type OperationMetadata } from './interaction-policy.js';
 
-export interface ProcessResult { exitCode: number; stdout: string; stderr: string }
+export interface ProcessResult { exitCode: number; stdout: string; stderr: string; status?: 'deferred_by_work_mode' | 'requires_system_authorization'; classification?: string; testIndex?: number }
 export async function terminateTree(pid: number): Promise<void> {
   if (process.platform === 'win32') {
     await new Promise<void>(resolve => {
@@ -15,10 +15,14 @@ export function runProcess(executable: string, args: string[], options: {
   cwd: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs: number; input?: string;
   onLine?: (line: string) => void;
   streamOutput?: boolean;
+  interaction?: OperationMetadata;
+  onPolicyDecision?: (decision: import('./interaction-policy.js').PolicyDecision) => void;
 }, spawnChild: typeof spawn = spawn, terminateOwned: typeof terminateTree = terminateTree): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) return reject(new Error('Stopped'));
-    const safe = assertProcessPolicy(executable, args);
+    const request = { executable, args, cwd: options.cwd, ...options.interaction };
+    const decision = decideOperation(request); options.onPolicyDecision?.(decision);
+    assertOperationPolicy(request);
     if(process.platform==='win32' && path.resolve(options.cwd).length>=260)return reject(new Error('Windows process working directory exceeds supported 259-character limit; choose a shorter project or runtime path'));
     const child = spawnChild(executable, args, { cwd: options.cwd, env: options.env, windowsHide: true, shell: false, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '', pending = '', failure: Error | undefined, terminating = false, termination: Promise<void> | undefined;
@@ -29,7 +33,10 @@ export function runProcess(executable: string, args: string[], options: {
     const timer = setTimeout(() => kill(new Error(`Timeout after ${options.timeoutMs} ms`)), options.timeoutMs);
     const abort = () => kill(new Error('Stopped'));
     options.signal?.addEventListener('abort', abort, { once: true });
-    const unwatch = safe ? () => {} : watchInteractionPolicy(() => kill(new InteractionPolicyError(`受管理进程 ${path.basename(executable)}`)));
+    const unwatch = decision.classification === 'BACKGROUND_SAFE' ? () => {} : watchInteractionPolicy(() => {
+      const changed = decideOperation(request);
+      if (changed.action !== 'allow') kill(new InteractionPolicyError(`受管理进程 ${path.basename(executable)}`, changed));
+    });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('error', kill); child.stderr.on('error', kill);
     child.stdout.on('data', (chunk: string) => {

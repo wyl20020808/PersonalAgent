@@ -24,3 +24,4 @@ validation/dev-baseline.zip
 validation/global-interaction/
 validation/global-interaction-regression/
 runtime-env-*/
+validation/semantic-*.log
