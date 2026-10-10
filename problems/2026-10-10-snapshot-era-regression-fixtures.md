@@ -33,3 +33,14 @@ T2 Review 辅助断言同步使用 Controller 文档/checked_files 观测及 `pr
 P2A 决策夹具改为明确授权 Direct，保留独立 Session、模型、调用、失败恢复与禁止提前 Execute；加入旧全项目捕获会拒绝的硬链接，仍完成讨论，并断言没有 project-baseline/snapshot-objects。Desktop 逐段更新非 Git isolated 明确失败、Direct 摘要审批零重复写入、大型准备无快照、准备失败消息/Run/审计绑定等前提；clean Git isolated 历史和下一轮保护保留。长 Git Runtime 限制另见 `2026-10-10-isolated-git-long-runtime-path.md`。
 
 最终核心组合 65/65、Desktop 83/83、实际 Electron 8 组检查通过。证据：`D:/PersonalAgent-data/snapshot-p2a-integration-v1/core-final.log`、`desktop-final.log`；`D:/PersonalAgent-data/multi-decision-discussion-p2a/electron-f7abd572/result.json`。付费调用 0；这是独立 Codex Desktop 自主确定性验证，不是远端 Agent 或 Controller 独立开发验收。
+
+## 2026-10-10：P3C 全量回归补充
+
+- 当前状态：原获批 13 项已解决；本次新确认的其余历史回归失败待处理。没有将旧处理结论扩展为全库通过。
+- 场景：P3C 独立 Worktree 对全部 Controller 测试执行 `node --test --test-concurrency=1 dist/test/*.test.js`：321 项，202 通过、119 失败。排除 6 项大项目失败后，其余 113 项在 `ddb098aedff7a40dc4a161f2e8eda8722bf32598` 的独立副本全部同名失败，missing/additional 均为空。基线命令另有 12 个未匹配测试的文件级通过条目，不能当作 12 项业务验证通过。
+- 现象：旧 Delivery isolated Apply 夹具被“Snapshot-free isolated Run cannot safely Apply”拒绝；非 Git isolated 夹具在准备阶段被拒绝；无完整 Snapshot 的 no-change、变更范围、源文件一致性和对象完整性断言与现流程不符。以实际失败日志逐项为准，不能将所有失败笼统归为测试问题或生产代码问题。
+- 验证隔离：从 `dev` 的 Git archive 生成 `.validation/baseline-dev`，仅在该独立副本编译并复现同名失败；没有运行正式 DEV、修改其 Worktree 或数据。
+- 证据：`D:/PersonalAgent-worktrees/tasks/opencode-execution-agent-p3c/.validation/controller-tests.log`、`baseline-failures.log`、`baseline-comparison.json`。这些本地证据不提交到 Git。
+- 影响：P3C 不能宣称全库回归通过；新增专项、Desktop 和本地原生闭环单独报告。本轮不合入 DEV，因此不扩展至整套 Snapshot 遗留迁移。
+- 下一步：按现有无 Snapshot、有限 Diff、Direct 审批和显式 isolated 规则逐项审查；获授权后修复夹具或确证的生产缺陷，不删除用例、降低保护或恢复强制 Snapshot。
+- 测试范围偏差：首次全量误包含既有 2 万文件、101 MB 文件及 512 MB 稀疏文件的夹具，违背本轮禁止压力测试的约束；后续排除 `large-project-snapshot.test` 和 `no-project-snapshot.test`，没有重跑。6 项大项目失败只静态比对，不宣称已运行复现。保留证据，不删除历史记录。
