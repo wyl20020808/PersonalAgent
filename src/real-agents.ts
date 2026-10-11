@@ -21,6 +21,7 @@ import { CallObservation } from './call-observation.js';
 import { reviewContractCatalog } from './context-review.js';
 import { discussPlan, withParticipant, type DiscussionStage } from './decision-discussion.js';
 import { timeoutSignal } from './timeout.js';
+import { recoverTransport } from './transport-recovery.js';
 
 export class RealAgents implements Agents {
   get executionMode(): 'native' | 'proposal' { return this.config.executionMode ?? 'native'; }
@@ -29,7 +30,16 @@ export class RealAgents implements Agents {
     if (state.discussion) return withParticipant(state, store, state.discussion.config.primary, role === 'review' ? 'review' : 'replan', (view, scoped) => this.claude(view, scoped, signal, schema, prompt, role, context));
     const identity = assertDecisionState(state, this.config.decisionDiscussion ? state.config : this.config);
     const adapter = identity.backend === 'codex' ? new CodexDecisionAgent(state.config, this.run) : identity.backend === 'opencode' ? (this.config.decisionDiscussion ? this.discussionOpenCode(state.config) : this.openCode) : new ClaudeCodeDecisionAgent(state.config, this.run);
-    return (await adapter.structured<T>({state, store, signal, schema, prompt, role, context, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, timeoutMs: state.config.timeoutMs})).output;
+    const operation = async (retry: number) => {
+      const navigation = retry ? await callContext(state, store, role, signal) : context;
+      const input = retry ? JSON.stringify({ ...JSON.parse(prompt), context: navigation, recovery: '前次调用因连接失败已结束。续接同一 Session，先检查已有结果；不要重复已完成的文件或外部操作。' }) : prompt;
+      if (retry) recordContextPrompt(store, navigation, input);
+      return (await adapter.structured<T>({state, store, signal, schema, prompt: input, role, context: navigation, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, timeoutMs: state.config.timeoutMs})).output;
+    };
+    // A failed OpenCode HTTP prompt can still run on its server. Keep its existing
+    // status/abort/manual recovery instead of blindly submitting a second prompt.
+    if (identity.backend === 'opencode') return operation(0);
+    return recoverTransport(state, store, signal, role, () => state.decisionSession?.sessionId, operation);
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
     assertDecisionState(state, this.config);
@@ -46,15 +56,20 @@ export class RealAgents implements Agents {
     return this.claude(state, store, signal, schema, prompt, 'plan', context);
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
+    if (this.config.executionAgent?.backend === 'opencode') return this.executeAttempt(state, store, signal);
+    return recoverTransport(state, store, signal, 'execute', () => state.codexThreadId,
+      retry => this.executeAttempt(state, store, signal, retry));
+  }
+  private async executeAttempt(state: State, store: Store, signal: AbortSignal, retry = 0): Promise<ExecutionResult> {
     const env = nativeAgentEnv();
     let edits: unknown;
-    const record = activityRecorder(state, store, 'codex', `codex:${state.loops}`, 'execute');
+    const record = activityRecorder(state, store, 'codex', `codex:${state.loops}:retry:${retry}`, 'execute');
     const context = await callContext(state, store, 'execute', signal);
     const repository = context ? undefined : await repositoryContext(state.workspace, signal);
     const action = this.executionMode === 'native'
       ? 'Use native tools to explore the repository, directly implement the task, run tests and debug failures until resolved. Report actual changes and verification in Chinese. Do not return full file contents for Controller to apply.'
       : 'Compatibility proposal mode: inspect with native tools, but return full UTF-8 file contents in changes for Controller to apply. Do not directly edit the workspace in this mode. Return the requested JSON schema.';
-    const prompt = JSON.stringify({ action: action + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
+    const prompt = JSON.stringify({ action: action + (retry ? ' 前次调用因连接失败已结束；续接同一 Thread。先检查已有修改和工具结果，不重复已完成操作；只完成剩余工作并验证。' : '') + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
     recordContextPrompt(store, context, prompt);
     if (this.config.executionAgent?.backend === 'opencode') return this.execution.execute(state, store, signal, prompt, context);
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.codexThreadId);

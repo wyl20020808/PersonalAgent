@@ -1,0 +1,58 @@
+[
+    {
+        "sha256":  "cb4eb578bff6ecc9cbfdaf912a23513eb48ba9e237ad5843099ff7d9e5acb742",
+        "file":  "AGENTS.md"
+    },
+    {
+        "sha256":  "dc3ba9c9ebd0ad52bfdaea633c2b48c42edf042cf1d8c707b1a626a347035607",
+        "file":  "AGENT_WORK_RULES.md"
+    },
+    {
+        "sha256":  "94ebc606b12cc41b422b7021680409a634c4c57ddd6541d1c7603b01c92fbc51",
+        "file":  "docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md"
+    },
+    {
+        "sha256":  "6505c731341788ced604efde63ca189456057c2fbfc5f48c9f82c232041c1937",
+        "file":  "src/codex-stream.ts"
+    },
+    {
+        "sha256":  "86e3ccc9e948eb8bc467153a9f2cfc6f9e960ca7c86b0df4adaaeb0bab25fde9",
+        "file":  "src/transport-recovery.ts"
+    },
+    {
+        "sha256":  "b2c0f3ee516604cb31b4cd0caacf1470ecdea2fa1a948dc23e3b93fc45782928",
+        "file":  "src/native-agent.ts"
+    },
+    {
+        "sha256":  "c5cc7eeb441f2abd12d6ef0820c9414c435f8554b9524ca3f74d35b986eacf76",
+        "file":  "src/codex-decision-turn.ts"
+    },
+    {
+        "sha256":  "85a7111aca836bbef87d9fea2df53fdba48a84e965de4468b44e98de29e073e3",
+        "file":  "src/claude-code-decision-agent.ts"
+    },
+    {
+        "sha256":  "890c6c9a2be2dade6b43f2edee583f2d896547265a16c860b97ec0e3ea433d7c",
+        "file":  "src/real-agents.ts"
+    },
+    {
+        "sha256":  "b8bb36372dd1c9c1a30dc91bfbe5e88d2bf470698d4666e9d289e170b6242d19",
+        "file":  "src/failure.ts"
+    },
+    {
+        "sha256":  "925afc1ce4e48df1633c1d4bde7639cf0211c7d4bf66a9d831c497c810bd15df",
+        "file":  "src/schema.ts"
+    },
+    {
+        "sha256":  "e7b661f31eae59b8d8c76590c6b211a6c773c903f8a3672e00be330d40c47183",
+        "file":  "src/telemetry.ts"
+    },
+    {
+        "sha256":  "7969908e35830913e28bc812c01f16bb2369413ec97707040aeb2dcdaf4243b3",
+        "file":  "test/transport-recovery.test.ts"
+    },
+    {
+        "sha256":  "a268f1e9ab7b8884d3dcf5bdda04b7492152f402ac28f718c37dd0eddabbf29b",
+        "file":  "test/native-agent.test.ts"
+    }
+]

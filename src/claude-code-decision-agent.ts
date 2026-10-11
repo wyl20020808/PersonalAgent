@@ -22,18 +22,28 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules];
     if (this.config.decisionAgent?.backend === 'claude-code' && this.config.decisionAgent.model) args.push('--model', this.config.decisionAgent.model);
     const resumed = !!state.claudeSessionId;
+    let confirmed = !!state.decisionSession;
     if (state.claudeSessionId) args.push('--resume', state.claudeSessionId);
     else { state.claudeSessionId = crypto.randomUUID(); store.save(state); args.push('--session-id', state.claudeSessionId); }
     const call = recordClaudeCall(state, store, role);
     const observation = new CallObservation(state, store, role, prompt, context, resumed);
-    let completed = false;
+    let completed = false, transportFailed = false;
     try {
     const record = activityRecorder(state, store, 'claude', `claude:${call}`);
     let streamedResult: any; let characters = 0, lastProgress = 0;
+    const pendingTools = new Set<string>();
     if (streaming) { args[args.indexOf('--output-format') + 1] = 'stream-json'; args.push('--verbose', '--include-partial-messages'); }
     if(attachments.length)args.push('--input-format','stream-json');
     const onLine = streaming ? (line: string) => {
       if (!line.trim()) return; const event = JSON.parse(line);
+      if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
+        if (event.session_id !== state.claudeSessionId) throw new FlowError('safety', 'Claude Session ownership mismatch');
+        bindDecisionSession(state, store, event.session_id); confirmed = true;
+      }
+      for (const block of event.message?.content ?? []) {
+        if (block.type === 'tool_use') pendingTools.add(block.id);
+        if (block.type === 'tool_result') pendingTools.delete(block.tool_use_id);
+      }
       observation.observe(event);
       if (event.type === 'result') { if (streamedResult) throw Error('Duplicate Claude final result'); streamedResult = event; }
       for (const activity of claudePublicEvents(event)) record(activity);
@@ -46,16 +56,34 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, timeoutMs: state.config.timeoutMs, input, onLine, streamOutput: streaming });
     let envelope: { is_error?: boolean; session_id?: string; structured_output?: unknown; result?: string; errors?: string[] };
     try { const parsed=streamedResult ?? JSON.parse(streaming ? result.stdout.trim().split(/\r?\n/).at(-1)! : result.stdout);if(streaming&&parsed.type!=='result')throw Error('Missing Claude final result');envelope=parsed; }
-    catch { throw new Error(`Claude exited ${result.exitCode} with invalid JSON: ${result.stderr.slice(0, 1000)}`); }
+    catch {
+      if (classifyFailure(new Error(result.stderr), role).kind === 'transport') {
+        if (!streaming || pendingTools.size) throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
+        throw new FlowError('transport', `Claude exited ${result.exitCode}: ${result.stderr.slice(0,1000)}`);
+      }
+      throw new Error(`Claude exited ${result.exitCode} with invalid JSON: ${result.stderr.slice(0, 1000)}`);
+    }
     if (!streaming) observation.observe(envelope);
+    if (envelope.session_id) {
+      if (envelope.session_id !== state.claudeSessionId) throw new FlowError('safety', 'Claude Session ownership mismatch');
+      bindDecisionSession(state, store, envelope.session_id); confirmed = true;
+    }
     store.audit('claude-exit', { call, callId: observation.usage.callId, role, exitCode: result.exitCode, sessionId: envelope.session_id ?? state.claudeSessionId });
     if (result.exitCode !== 0 || envelope.is_error) {
       const message = `Claude exited ${result.exitCode}: ${envelope.errors?.join('; ') || envelope.result || result.stderr.slice(0, 1000) || 'API error without message'}`;
+      if (classifyFailure(new Error(message), role).kind === 'transport' && (!streaming || pendingTools.size))
+        throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
       const classified = classifyFailure(new Error(message), role); throw new FlowError(classified.kind === 'unknown' ? 'supervisor' : classified.kind, message);
     }
     if (envelope.session_id) state.claudeSessionId = envelope.session_id;
     store.save(state);
     const output = validate<T>(schema, envelope.structured_output); completed = true; bindDecisionSession(state, store, state.claudeSessionId!); return { output, sessionId: state.claudeSessionId!, usage: observation.usage };
-    } finally { observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
+    } catch (error) { transportFailed = classifyFailure(error, role).kind === 'transport'; throw error; }
+    finally {
+      observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');
+      // A reserved UUID is not a confirmed CLI Session. Keep its invocation in
+      // audit history, but do not leave a bogus --resume target after pre-init failure.
+      if (!resumed && !confirmed && !completed && transportFailed) { state.claudeSessionId = null; store.save(state); }
+    }
   }
 }
