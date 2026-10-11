@@ -214,7 +214,7 @@ export class DesktopService {
  async readChatFile(profileId:string,id:string,messageId:string,fileName:string):Promise<ChatFilePreview>{
   const store=this.store(profileId,id),state=store.load(),messages=projectMessages(state,this.audit(store),this.notes(id));
   const index=messages.findIndex(message=>message.id===messageId);if(index<0)throw Error('文件事件不存在');
-  const original=messages[index],evidence=this.messageEvidence(profileId,id,messageId);
+  const original=messages[index],evidence=this.messageEvidence(profileId,id,original.details?.evidenceMessageId??messageId);
   const message:ChatMessage={...original,text:evidence.text||original.text,details:original.details?.diffTruncated?{...original.details,diff:(evidence.event as any).data?.diff??original.details.diff,diffTruncated:false}:original.details};messages[index]=message;
   if(!messageFiles(message).includes(fileName))throw Error('文件未在该条事件中列出');
   // Relative paths retain Run containment; explicit local links can open read-only outside it.

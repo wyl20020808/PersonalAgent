@@ -1,8 +1,10 @@
 import type {ChatMessage,SessionMessage,DecisionAgent} from './types.js';
 
 export function sessionDiscussionReply(message:SessionMessage,sessionId:string,choice?:DecisionAgent):ChatMessage|undefined{
- if(!message.discussionReply||message.status==='cancelled')return undefined;
- return {id:'discussion-reply:'+message.id,time:message.time,role:message.discussionNotice?'controller':choice?.backend==='codex'?'codex':choice?.backend==='opencode'?'opencode':'claude',...(message.discussionNotice?{}:{participantRole:'决策者',decisionStage:'discussion'}),title:message.discussionNotice?'进入讨论模式':'决策者 · 讨论',text:message.discussionReply,kind:message.discussionNotice?'phase':'discussion',status:'success',runId:'',taskId:null,loop:0,source:'session:'+sessionId};
+ if(message.status==='cancelled'||message.action!=='discuss'&&!message.discussionReply)return undefined;
+ const waiting=message.status==='starting'||message.status==='pending'&&Boolean(message.autoQueued);
+ const text=message.discussionReply??message.discussionDraft??(message.status==='pending'?(message.autoQueued?'已排队，上一条回复完成后处理。':'尚未处理，请重试或取消此消息。'):message.discussionProgress??(message.status==='failed'?message.error:'决策者正在思考…'))??'';
+ return {id:'discussion-reply:'+message.id,time:message.discussionReplyTime??message.time,role:message.discussionNotice?'controller':choice?.backend==='codex'?'codex':choice?.backend==='opencode'?'opencode':'claude',...(message.discussionNotice?{}:{participantRole:'决策者',decisionStage:'discussion'}),title:message.discussionNotice?'进入讨论模式':waiting?'决策者 · 正在回复':'决策者 · 讨论',text,kind:message.discussionNotice?'phase':'discussion',status:waiting?'running':message.status==='failed'?'fail':message.status==='pending'?'pending':'success',runId:'',taskId:null,loop:0,source:'session:'+sessionId};
 }
 
 export function messageLane(message:ChatMessage):'user'|'decision'|'execution'|'system' {
@@ -42,7 +44,7 @@ export function toolPresentation(data:Activity):ToolView|null {
   const failed=receipt.is_error===true||(receipt.error!==undefined&&receipt.error!==null&&receipt.error!=='')||(exitCode!==undefined&&exitCode!==0);
   const measured=receipt.durationMs??receipt.metadata?.durationMs;
   const durationMs=typeof measured==='number'&&Number.isFinite(measured)&&measured>=0?measured:undefined;
-  return {label:typeof receipt.tool==='string'?receipt.tool:data.title??'工具记录',command:typeof input.command==='string'?input.command:undefined,paths:typeof path==='string'?[path]:undefined,output:output===undefined?undefined:typeof output==='string'?output:JSON.stringify(output,null,2),exitCode,durationMs,status:failed?'fail':receipt.is_error===false?'success':statusOf(receipt.status)};
+  return {label:typeof receipt.tool==='string'?receipt.tool:data.title??'工具记录',command:typeof input.command==='string'?input.command:undefined,paths:typeof path==='string'?[path]:undefined,output:output===undefined?undefined:typeof output==='string'?output:JSON.stringify(output,null,2),exitCode,durationMs,status:failed?'fail':receipt.is_error===false?'success':data.source==='claude-cli-stream-json'&&typeof receipt.id==='string'&&object(receipt.input)?'running':statusOf(receipt.status)};
  }catch{return null;}
 }
 

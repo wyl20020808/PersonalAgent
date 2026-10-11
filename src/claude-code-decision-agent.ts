@@ -1,4 +1,5 @@
 import { nativeAgentEnv } from './workspace.js';
+import {DiscussionStream} from './discussion-stream.js';
 import { realpathSync, readFileSync } from 'node:fs';
 import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { fileURLToPath } from 'node:url';
@@ -39,12 +40,12 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const env = nativeAgentEnv();
     const attachments=runAttachments(state,store);
     const input=attachments.length?claudeInput(prompt,attachments):prompt;
-    const streaming = this.config.claudeStreaming !== false || attachments.length>0;
+    const streaming = this.config.claudeStreaming !== false || attachments.length>0 || Boolean(request.onPublicProgress);
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules + (execution ? ' 当前角色为执行者：仅实施 Controller 已校验的当前任务，使用原生工具修改并验证；不得更改 Plan、角色配置或重放已完成任务。' : '')];
     if (request.readOnly) args.push('--tools', 'Read,Glob,Grep', '--strict-mcp-config', '--mcp-config', JSON.stringify({mcpServers:{}}));
     // Invocation-local settings preserve the user's files and existing hooks.
     const hookScript = fileURLToPath(new URL('../scripts/codex-interaction-hook.js', import.meta.url));
-    args.push('--settings', JSON.stringify({ disableAllHooks: false, hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
+    args.push('--settings', JSON.stringify({ disableAllHooks: false, hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: `"${request.nodeExecutable??process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
     const choice = execution ? this.config.executionAgent : this.config.decisionAgent;
     if (choice?.backend === 'claude-code' && choice.model) args.push('--model', choice.model);
     if (choice?.backend === 'claude-code' && choice.reasoningEffort) args.push('--effort', choice.reasoningEffort);
@@ -57,6 +58,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     let completed = false, transportFailed = false;
     try {
     const record = activityRecorder(state, store, 'claude', `claude:${execution ? 'execute:' : ''}${call}`, role);
+    let lastPublic=0,publicSequence=0,publicReply='';
+    const discussionStream=new DiscussionStream(progress=>{request.onPublicProgress?.(progress);if(progress.reply!==undefined){publicReply=progress.reply;if(publicReply&&Date.now()-lastPublic>=250){lastPublic=Date.now();record({key:'public-stream:'+ ++publicSequence,streamId:'public-answer',kind:'output',title:'Claude 正在回复',text:publicReply});}}});
     let streamedResult: any; let characters = 0, lastProgress = 0;
     const pendingTools = new Set<string>();
     if (streaming) { args[args.indexOf('--output-format') + 1] = 'stream-json'; args.push('--verbose', '--include-partial-messages'); }
@@ -71,8 +74,9 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
         if (block.type === 'tool_result') {pendingTools.delete(block.tool_use_id);guidanceTool('claude:'+block.tool_use_id,false);}
       }
       observation.observe(event);
+      discussionStream.claude(event);
       if (event.type === 'result') { if (streamedResult) throw Error('Duplicate Claude final result'); streamedResult = event; }
-      for (const activity of claudePublicEvents(event)) record(activity);
+      for (const activity of claudePublicEvents(event)) record(activity.kind==='output'&&event.type==='assistant'&&publicReply?{...activity,text:publicReply,streamId:'public-answer'}:activity);
       const delta = event.event?.delta;
       if (event.type === 'stream_event' && ['text_delta', 'input_json_delta'].includes(delta?.type)) {
         characters += String(delta.text ?? delta.partial_json ?? '').length;

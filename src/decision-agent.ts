@@ -7,6 +7,8 @@ import type { CallUsage } from './call-observation.js';
 export type DecisionIdentity = Exclude<DecisionChoice, {backend:'opencode'}> | { backend: 'opencode'; providerID: string; modelID: string; variant?: string };
 export interface DecisionSession { backend: DecisionIdentity['backend']; sessionId: string; runId: string; workspace: string; directory: string }
 export interface DecisionRequest {
+  onPublicProgress?: (progress:import('./discussion-stream.js').DiscussionProgress)=>void;
+  nodeExecutable?: string;
   readOnly?: boolean;
   state: State; store: Store; role: 'plan' | 'review'; prompt: string; schema: object;
   workspace: string; runId: string; taskId: string | null; phase: 'plan' | 'review';

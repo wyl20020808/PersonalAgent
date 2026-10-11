@@ -7,22 +7,22 @@ export function redact(text:string):string {
     .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*["']?\s*[:=]\s*["']?)[^\s,"'\r\n}]+/gi,'$1[已隐藏凭据]')
     .replace(/Bearer\s+[\w.\/-]+/gi,'Bearer [已隐藏凭据]');
 }
-export interface PublicActivity {key:string;kind:string;title:string;text:string}
+export interface PublicActivity {key:string;kind:string;title:string;text:string;streamId?:string}
 export function activityRecorder(state:State,store:Store,agent:'claude'|'codex'|'opencode',scope:string,phase?:'plan'|'review'|'execute'){
   const seen=new Set<string>();let count=0,limited=false;
   if(existsSync(store.file('audit.jsonl')))for(const line of readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').filter(Boolean)){
-    const e=JSON.parse(line);if(e.event==='agent-activity'&&e.data.scope===scope){seen.add(e.data.key);count++;}if(e.event==='agent-activity-limit'&&e.data.scope===scope)limited=true;
+    const e=JSON.parse(line);if(e.event==='agent-activity'&&e.data.scope===scope){seen.add(e.data.key);if(!e.data.streamId)count++;}if(e.event==='agent-activity-limit'&&e.data.scope===scope)limited=true;
   }
   return (event:PublicActivity)=>{
     if(!event||!['key','kind','title','text'].every(k=>typeof (event as unknown as Record<string,unknown>)[k]==='string'))throw Error('Invalid public activity');
     const key=createHash('sha256').update(event.key).digest('hex');if(seen.has(key))return;seen.add(key);
-    if(count>=120 && state.config.executionMode === 'proposal'){if(!limited){store.audit('agent-activity-limit',{scope,agent,runId:state.id,taskId:state.tasks[state.taskIndex]?.id??null,loop:state.loops,note:'活动展示已达上限；最终结构化结果仍按完整 Schema 校验'});limited=true;}count++;return;}
-    count++;
+    if(!event.streamId&&count>=120 && state.config.executionMode === 'proposal'){if(!limited){store.audit('agent-activity-limit',{scope,agent,runId:state.id,taskId:state.tasks[state.taskIndex]?.id??null,loop:state.loops,note:'活动展示已达上限；最终结构化结果仍按完整 Schema 校验'});limited=true;}count++;return;}
+    if(!event.streamId)count++;
     const text=redact(event.text);
     const fullTextFile=text.length>6000?`activity-${createHash('sha256').update(scope+key).digest('hex')}.txt`:undefined;
     if(fullTextFile)writeFileSync(store.file(fullTextFile),text,'utf8');
     store.audit('agent-activity',{scope,agent,...(phase?{phase}:{}),runId:state.id,taskId:state.tasks[state.taskIndex]?.id??null,loop:state.loops,
-      key,kind:event.kind.slice(0,80),title:redact(event.title).slice(0,160),text:text.slice(0,6000),truncated:!!fullTextFile,fullTextFile,fullTextHash:fullTextFile?createHash('sha256').update(text).digest('hex'):undefined,source:agent==='opencode'?'opencode-sdk':agent==='claude'?'claude-cli-stream-json':'codex-sdk-runStreamed'});
+      key,streamId:event.streamId,kind:event.kind.slice(0,80),title:redact(event.title).slice(0,160),text:text.slice(0,6000),truncated:!!fullTextFile,fullTextFile,fullTextHash:fullTextFile?createHash('sha256').update(text).digest('hex'):undefined,source:agent==='opencode'?'opencode-sdk':agent==='claude'?'claude-cli-stream-json':'codex-sdk-runStreamed'});
   };
 }
 
@@ -48,7 +48,7 @@ export function codexPublicEvent(value:any):PublicActivity|null {
   if(item.type==='agent_message'){
     let title='Codex 公开输出',text=item.text??'';
     try{const parsed=JSON.parse(text);if(typeof parsed.summary==='string'){title='Codex 修改提案';text=parsed.summary+'\n'+(parsed.changes??[]).map((c:any)=>c.path).join('\n');}}catch{/* Partial public message, never interpreted as validated edits. */}
-    return {key:`${item.id}:${value.type}:${text}`,kind:'output',title,text};
+    return {key:`${item.id}:${value.type}:${text}`,streamId:item.id,kind:'output',title,text};
   }
   if(item.type==='command_execution')return {key:`${item.id}:${value.type}:${item.aggregated_output}`,kind:'tool',title:'Codex 执行事件',text:`${item.command}\n${item.status} · exit_code=${item.exit_code??'pending'}\n${item.aggregated_output??''}`};
   if(item.type==='file_change')return {key:`${item.id}:${value.type}:${JSON.stringify(item.changes)}`,kind:'tool',title:'Codex 文件操作',text:`${item.status}\n${JSON.stringify(item.changes??[])}`};

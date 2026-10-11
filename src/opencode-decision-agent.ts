@@ -5,6 +5,7 @@ import { assertOperationPolicy, interactionAgentRules } from './interaction-poli
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import {DiscussionStream} from './discussion-stream.js';
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2';
 import { terminateTree } from './process.js';
 import { FlowError } from './failure.js';
@@ -116,7 +117,7 @@ export function opencodePublicEvents(event: any, directory: string, sessionID: s
   if (event.directory !== directory) return [];
   const value = event.payload, part = value?.properties?.part;
   if (part?.sessionID !== sessionID || !['text','tool'].includes(part.type)) return [];
-  if (part.type === 'text') return [{key:`${part.id}:${part.text}`,kind:'output',title:'OpenCode 公开输出',text:redact(part.text ?? '')}];
+  if (part.type === 'text') return [{key:`${part.id}:${part.text}`,streamId:part.id,kind:'output',title:'OpenCode 公开输出',text:redact(part.text ?? '')}];
   return [{key:`${part.id}:${part.state?.status}:${JSON.stringify(part.state)}`,kind:'tool',title:`OpenCode 工具 · ${redact(part.tool ?? '')}`,text:redact(JSON.stringify({callID:part.callID,tool:part.tool,status:part.state?.status,input:part.state?.input,output:part.state?.output,error:part.state?.error,metadata:part.state?.metadata}))}];
 }
 export class OpenCodeDecisionAgent implements DecisionAgent {
@@ -130,6 +131,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
     const observation = new CallObservation(state,store,role,prompt,request.context,!!state.decisionSession,'opencode');
     const timeout = timeoutSignal(request.timeoutMs), signal = AbortSignal.any([request.signal,timeout]);
     let service: OpenCodeService | undefined, sessionID: string | undefined, completed = false;
+    const discussionStream=new DiscussionStream(request.onPublicProgress);
     const eventsStop = new AbortController(); let eventTask: Promise<void> | undefined;
     try {
       const executable = this.config.decisionAgent?.backend === 'opencode' ? this.config.decisionAgent.opencode.executable : undefined;
@@ -161,7 +163,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       eventTask = (async () => { for await (const event of stream.stream) {
         for (const activity of opencodePublicEvents(event,workspace,sessionID!)) record(activity);
         const e = event as any, part = e.payload?.properties?.part;
-        if (e.directory === workspace && part?.sessionID === sessionID) {opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
+        if (e.directory === workspace && part?.sessionID === sessionID) {discussionStream.opencode(part);opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
         const info = e.payload?.properties?.info;
         if (e.directory === workspace && info?.sessionID === sessionID) observation.observeOpencodeMessage(info);
       } })();

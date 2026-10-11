@@ -10,7 +10,7 @@ import {bindRunAttachments} from './multimodal.js';
 
 export const conversationReplySchema={type:'object',additionalProperties:false,required:['reply','plan'],properties:{reply:{type:'string',minLength:1,maxLength:20000},plan:{type:'string',maxLength:12000}}};
 export type ConversationReply={reply:string;plan:string};
-export type ConversationDiscussionInput={runtimeDir:string;stateId?:string;projectPath:string;sessionId:string;config:Config;text:string;history:{role:'user'|'assistant';text:string}[];plan:string;attachments?:{name:string;mimeType:string;bytes:Buffer}[]};
+export type ConversationDiscussionInput={nodeExecutable?:string;onProgress?:(progress:import('./discussion-stream.js').DiscussionProgress)=>void;runtimeDir:string;stateId?:string;projectPath:string;sessionId:string;config:Config;text:string;history:{role:'user'|'assistant';text:string}[];plan:string;attachments?:{name:string;mimeType:string;bytes:Buffer}[]};
 
 /** A conversational decision Session, never registered or scheduled as a development Run. */
 export async function conversationDiscussion(input:ConversationDiscussionInput,onCreated:(id:string)=>void,signal:AbortSignal,adapter?:DecisionAgent):Promise<ConversationReply>{
@@ -36,7 +36,7 @@ export async function conversationDiscussion(input:ConversationDiscussionInput,o
    output={reply:'Mock 讨论回复，仅验证会话流程，不是真实决策者意见。\n\n'+input.text,plan:'Mock 候选方案，仅用于测试：'+input.text};
   }else{
    const agent=adapter??(state.decisionAgent?.backend==='codex'?new CodexDecisionAgent(state.config):state.decisionAgent?.backend==='opencode'?new OpenCodeDecisionAgent(state.config):new ClaudeCodeDecisionAgent(state.config));
-   output=(await agent.structured<ConversationReply>({state,store,role:'plan',phase:'plan',readOnly:true,prompt,schema:conversationReplySchema,workspace:state.workspace,runId:state.id,taskId:null,signal,timeoutMs:input.config.timeoutMs})).output;
+   output=(await agent.structured<ConversationReply>({state,store,role:'plan',phase:'plan',readOnly:true,nodeExecutable:input.nodeExecutable,onPublicProgress:input.onProgress,prompt,schema:conversationReplySchema,workspace:state.workspace,runId:state.id,taskId:null,signal,timeoutMs:input.config.timeoutMs})).output;
   }
   validate(conversationReplySchema,output);store.audit('conversation-discussion-reply',output);return output;
  }finally{unlock();}
