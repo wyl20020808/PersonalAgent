@@ -1075,7 +1075,10 @@
       "const": "none"
     },
     "purpose": {
-      "const": "context-onboarding"
+      "enum": [
+        "context-onboarding",
+        "conversation-discussion"
+      ]
     },
     "projectContextEnabled": {
       "type": "boolean"

@@ -7,6 +7,7 @@ import type { CallUsage } from './call-observation.js';
 export type DecisionIdentity = Exclude<DecisionChoice, {backend:'opencode'}> | { backend: 'opencode'; providerID: string; modelID: string; variant?: string };
 export interface DecisionSession { backend: DecisionIdentity['backend']; sessionId: string; runId: string; workspace: string; directory: string }
 export interface DecisionRequest {
+  readOnly?: boolean;
   state: State; store: Store; role: 'plan' | 'review'; prompt: string; schema: object;
   workspace: string; runId: string; taskId: string | null; phase: 'plan' | 'review';
   signal: AbortSignal; timeoutMs: number; context?: Record<string, any>;
@@ -32,6 +33,7 @@ export function assertDecisionState(state: State, config = state.config): Decisi
 }
 export function assertDecisionRequest(request: DecisionRequest): void {
   const { state } = request;
+  if(state.purpose==='conversation-discussion'&&!request.readOnly)throw new FlowError('safety','Conversation discussion requires read-only Decision tools');
   assertDecisionState(state);
   if (request.runId !== state.id || request.workspace !== realpathSync(state.workspace) || request.phase !== request.role || request.taskId !== (request.role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null)) throw new FlowError('safety', 'Decision Run/Task/workspace scope mismatch');
 }

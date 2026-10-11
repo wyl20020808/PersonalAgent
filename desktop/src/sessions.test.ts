@@ -16,6 +16,51 @@ import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
+test('Discuss dropdown and slash share persistent multi-turn discussion without launching development',async()=>{
+ for(const dropdown of [true,false]){
+  const {service,data,project}=fixture();let launches=0;service.launch=()=>{launches++;};
+  const original=fs.readFileSync(path.join(project,'user.txt'),'utf8');
+  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',...(dropdown?{chatMode:'discuss'}:{})}) as Conversation;
+  const first=await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:dropdown?'如何修复问题？':'/discuss 如何修复问题？'}) as Conversation;
+  assert.equal(first.chatMode,'discuss');assert.equal(first.runs.length,0);assert.equal(first.status,'discuss');assert.ok(first.discussionPlan);assert.ok(first.messages.at(-1)?.discussionReply);assert.equal(first.directAuthorized,false);
+  const next=new DesktopService(root,data,process.execPath),second=await next.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续，开始执行吧'}) as Conversation;
+  assert.equal(second.chatMode,'discuss');assert.equal(second.messages.at(-1)?.action,'discuss');assert.ok(second.messages.at(-1)?.discussionReply);assert.equal(second.discussionStateId,first.discussionStateId);assert.equal(second.runs.length,0);assert.equal(next.overview().profiles.length,0);assert.equal(launches,0);assert.equal(fs.readFileSync(path.join(project,'user.txt'),'utf8'),original);
+ }
+});
+
+test('bare /discuss enters discussion, duplicate sends are idempotent and /discussx stays a development goal',async()=>{
+ const {service,project}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'}),id=randomUUID();
+ const first=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:id,text:'/Discuss'});
+ assert.equal(first.chatMode,'discuss');assert.equal(first.runs.length,0);assert.equal(first.discussionStateId,undefined);
+ const repeated=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:id,text:'/Discuss'});assert.equal(repeated.messages.length,1);
+ await assert.rejects(service.dispatch({operation:'executeDiscussion',sessionId:session.id,messageId:randomUUID(),projectMode:'direct'}),/具体方案/);
+ const other=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:other.id,messageId:randomUUID(),text:'/discussx implement',directAcknowledged:true});assert.equal(service.sessions.get(other.id).runs.length,1);
+});
+
+test('discussion execution requires direct authorization, retains context and starts exactly once',async()=>{
+ const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'保持现有文件，新增功能'});
+ const plan=service.sessions.get(session.id).discussionPlan;
+ await assert.rejects(service.dispatch({operation:'executeDiscussion',sessionId:session.id,messageId:randomUUID(),projectMode:'direct'}),/明确授权/);assert.equal(service.sessions.get(session.id).chatMode,'discuss');assert.equal(launches,0);
+ const failed=service.sessions.get(session.id).messages.at(-1)!;service.sessions.edit({operation:'cancelSessionMessage',sessionId:session.id,messageId:failed.id},true);
+ const id=randomUUID(),request={operation:'executeDiscussion' as const,sessionId:session.id,messageId:id,projectMode:'direct' as const,directAcknowledged:true};
+ const result=await service.dispatch(request) as Conversation;
+ assert.equal(result.chatMode,'develop');assert.equal(result.runs.length,1);assert.equal(launches,1);assert.ok(result.messages[0].discussionReply);assert.match(service.sessions.detail(session.id).runs[0].goal,/按讨论方案执行/);assert.ok(service.sessions.detail(session.id).runs[0].goal.includes(plan!));
+ await service.dispatch(request);assert.equal(launches,1);assert.equal(service.sessions.get(session.id).runs.length,1);
+});
+
+test('/discuss never queues into or resumes an unfinished Run',async()=>{
+ const {service,project}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'development',directAcknowledged:true});
+ const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id),state=store.load();state.phase='paused';state.nextPhase='execute';store.save(state);
+ const discussed=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'/discuss 修改方案'});
+ assert.equal(discussed.chatMode,'develop');assert.equal(discussed.messages.at(-1)?.status,'failed');assert.equal(discussed.messages.at(-1)?.autoQueued,false);assert.equal(store.load().phase,'paused');assert.equal(discussed.runs.length,1);
+});
+
 test('chat final acceptance records the user verdict without rerunning decision maker or executor',async()=>{
  const {data,project}=fixture(),service=new DesktopService(root,data,process.execPath);
  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock'}) as Conversation;

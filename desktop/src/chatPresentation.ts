@@ -1,4 +1,9 @@
-import type {ChatMessage} from './types.js';
+import type {ChatMessage,SessionMessage,DecisionAgent} from './types.js';
+
+export function sessionDiscussionReply(message:SessionMessage,sessionId:string,choice?:DecisionAgent):ChatMessage|undefined{
+ if(!message.discussionReply||message.status==='cancelled')return undefined;
+ return {id:'discussion-reply:'+message.id,time:message.time,role:message.discussionNotice?'controller':choice?.backend==='codex'?'codex':choice?.backend==='opencode'?'opencode':'claude',...(message.discussionNotice?{}:{participantRole:'决策者',decisionStage:'discussion'}),title:message.discussionNotice?'进入讨论模式':'决策者 · 讨论',text:message.discussionReply,kind:message.discussionNotice?'phase':'discussion',status:'success',runId:'',taskId:null,loop:0,source:'session:'+sessionId};
+}
 
 export function messageLane(message:ChatMessage):'user'|'decision'|'execution'|'system' {
  if(message.role==='user')return 'user';

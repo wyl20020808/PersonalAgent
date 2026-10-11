@@ -73,6 +73,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
   try {
     state = store.load();
+    if(state.purpose==='conversation-discussion')throw Error('讨论 Session 不能交给开发调度器；请从会话明确开始执行');
     if (!['resume', 'visual', 'rework'].includes(intent)) throw new Error('Unknown resume intent');
     if (intent === 'rework' && (!decision?.trim() || !['paused', 'failed', 'stopped'].includes(state.phase) || !state.tasks[state.taskIndex] || !['execute', 'verify', 'review'].includes(state.nextPhase))) throw new Error('返工需要明确修改意见、暂停的当前任务；规划或提案应用中断请先恢复原流程');
     assertDecisionState(state);

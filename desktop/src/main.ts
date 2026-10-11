@@ -47,10 +47,14 @@ if(locked)app.whenReady().then(async()=>{
     const {session,runs}=service.sessions.detail(r.sessionId!),last=runs.at(-1);
     const projectActive=service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)));
     const text=r.text??session.messages.find(m=>m.id===r.messageId)?.text??'';
-    const starts=!projectActive&&chatRoute(text,last,Boolean(r.attachments?.length))==='start';
+    const starts=session.chatMode!=='discuss'&&!/^\/discuss(?:\s|$)/i.test(text)&&!projectActive&&chatRoute(text,last,Boolean(r.attachments?.length))==='start';
     if(starts){
      if(session.settings.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改会话项目目录',detail:session.projectPath+'\n会话始终绑定此项目；快照、用量及每轮审计独立保留。'});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
     }
+   }
+   if(r.operation==='executeDiscussion'){
+    const session=service.sessions.get(r.sessionId!);
+    if(r.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'按讨论方案开始直接开发',detail:session.projectPath+'\n'+(session.discussionPlan??'')});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
    }
    if(r.operation==='chatFileMenu')return new Promise<string|null>(resolve=>{
     let selected=false;
@@ -103,7 +107,7 @@ ${request.replacement?'替代方案：'+request.replacement.relative+'\n'+reques
   rendererRecoveries++;
   setTimeout(()=>{if(!window.isDestroyed())void window.loadURL('personalagent://app/index.html').catch(error=>fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),error:redact(String(error))})+'\n'));},1000);
  });
- window.on('close',event=>{if(service.children.size&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和用量会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
+ window.on('close',event=>{if((service.children.size||service.sessions.discussionCalls.size)&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和用量会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
  app.on('second-instance',()=>{if(window.isDestroyed())return;if(window.isMinimized())window.restore();ensureWindowOnDisplay(window,screen);window.show();window.focus();});
 });
 app.on('window-all-closed',()=>app.quit());

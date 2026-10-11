@@ -176,3 +176,4 @@
 .run-clocks{display:flex;align-items:center;gap:12px;flex:none;color:#9198a2;font-size:12px;white-space:nowrap}.run-clocks>span{display:inline-flex;align-items:center;gap:5px}.run-clocks time{font-variant-numeric:tabular-nums}.run-clocks .is-active{color:#527f74}
 .group-workspace .conversation-composer{padding-left:24px;padding-right:24px}.group-workspace .composer-box{width:100%;max-width:none;box-sizing:border-box}
 @media(max-width:800px){.group-workspace .conversation-composer{padding-left:12px;padding-right:12px}.run-clocks{gap:8px;font-size:11px}.conversation-actions{max-width:none}}
+.discussion-plan{display:block;max-height:240px;overflow:auto}.discussion-plan>summary{cursor:pointer}.composer-resume-controls select{width:auto;min-height:28px;margin:0;padding:3px 7px;font-size:12px}

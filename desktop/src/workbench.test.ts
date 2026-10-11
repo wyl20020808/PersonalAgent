@@ -12,9 +12,15 @@ import {DesktopService,validateRequest} from './service.js';
 import {MAX_ATTACHMENT_BYTES} from '../../dist/src/attachment-types.js';
 import {runAttachments} from '../../dist/src/multimodal.js';
 import {chatRoute} from './chatRouting.js';
+import {sessionDiscussionReply,messageLane} from './chatPresentation.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const data=path.join(root,'.v3c3','workbench-'+randomUUID());
 const text={name:'a.txt',mimeType:'text/plain',size:3,content:'abc'};
+test('Discuss replies from every decision backend render on the decision side; mode notices stay system messages',()=>{
+ const message={id:randomUUID(),time:new Date().toISOString(),text:'/discuss question',status:'recorded' as const,discussionReply:'Reply'};
+ for(const backend of ['claude-code','codex','opencode'] as const){const choice=backend==='opencode'?{backend,opencode:{providerID:'fixture',modelID:'fixture'}}:{backend};assert.equal(messageLane(sessionDiscussionReply(message,'session',choice)!),'decision');}
+ assert.equal(messageLane(sessionDiscussionReply({...message,discussionNotice:true},'session')!),'system');assert.equal(sessionDiscussionReply({...message,status:'cancelled'},'session'),undefined);
+});
 test('attachment limits allow larger images and text and reject above 100 MiB before reading',async()=>{
  const content='x'.repeat(3*1024*1024),item={...text,size:content.length,content};
  assert.equal(decodeAttachment(item).length,content.length);

@@ -147,7 +147,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
         const session = await client.session.get({sessionID,directory:workspace},options);
         if (session.data?.directory !== workspace || session.data?.title !== owner) throw new FlowError('safety','OpenCode remote Session ownership mismatch');
       } else {
-        const session = await client.session.create({directory:workspace,title:owner,permission:[{permission:'*',pattern:'*',action:'allow'}]},options);
+        const session = await client.session.create({directory:workspace,title:owner,permission:request.readOnly?[{permission:'*',pattern:'*',action:'deny'},...['read','glob','grep','list'].map(permission=>({permission,pattern:'*',action:'allow' as const}))]:[{permission:'*',pattern:'*',action:'allow'}]},options);
         if (!session.data?.id || session.data.directory !== workspace || session.data.title !== owner) throw new FlowError('safety','OpenCode created Session ownership mismatch');
         sessionID = session.data.id; bindDecisionSession(state,store,sessionID);
       }

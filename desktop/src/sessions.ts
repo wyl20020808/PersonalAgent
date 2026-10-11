@@ -9,11 +9,16 @@ import {redact} from '../../dist/src/telemetry.js';
 import type {DesktopService} from './service.js';
 import type {Conversation,Request,Run} from './types.js';
 import {saveAttachments,attachmentDigest} from './attachmentStorage.js';
+import {conversationDiscussion as runtimeConversationDiscussion} from '../../dist/src/conversation-discussion.js';
+import type {ConversationReply} from '../../src/conversation-discussion.js';
+import type {Config} from '../../src/schema.js';
 import {chatRoute} from './chatRouting.js';
+const conversationDiscussion=runtimeConversationDiscussion as typeof import('../../src/conversation-discussion.js').conversationDiscussion;
 
 type Saved=Omit<Conversation,'budget'|'status'|'lastMessage'>;
 const active=['planning','execute','executing','applying','verify','review'];
 export class SessionStore {
+ readonly discussionCalls=new Map<string,{controller:AbortController;promise:Promise<ConversationReply>}>();
  readonly inFlight=new Set<string>();
  readonly draining=new Set<string>();
  readonly file:string;
@@ -32,7 +37,7 @@ export class SessionStore {
   const project=this.service.inspectProject(r.projectPath!);
   const primary=r.decisionDiscussion?.participants.find(p=>p.id===r.decisionDiscussion?.primary)?.agent;
   if(primary&&r.decisionAgent&&JSON.stringify(primary)!==JSON.stringify(r.decisionAgent))throw Error('主决策者配置不匹配');
-  const session:Saved={id:randomUUID(),title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{executionAgent:structuredClone(r.executionAgent??{backend:"codex"}),decisionAgent:structuredClone(primary??r.decisionAgent??{backend:'claude-code'}),...(r.decisionDiscussion?{decisionDiscussion:structuredClone(r.decisionDiscussion)}:{}),mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
+  const session:Saved={id:randomUUID(),chatMode:r.chatMode??'develop',title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{executionAgent:structuredClone(r.executionAgent??{backend:"codex"}),decisionAgent:structuredClone(primary??r.decisionAgent??{backend:'claude-code'}),...(r.decisionDiscussion?{decisionDiscussion:structuredClone(r.decisionDiscussion)}:{}),mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
 
   if(session.selectedTests.some(t=>!project.testCommands.includes(t)))throw Error('测试命令与项目检测不匹配');
   const items=this.read();items.push(session);this.save(items);return this.public(session);
@@ -85,8 +90,8 @@ export class SessionStore {
     m.status=state.guidanceHistory?.some(item=>item.id===m.id)||status==='applied'?'executed':status==='processing'?'adjusting':status==='cancelled'?'cancelled':status==='pending'?'steering':'failed';
     m.error=m.status==='failed'?'引导投递记录不可用，请核查运行记录。':m.status==='steering'?['paused','failed','stopped'].includes(state.phase)?'任务已暂停，引导保留；请在聊天中明确恢复。':'已提交引导，正在寻找命令边界；一分钟内介入并交给决策者。':m.status==='adjusting'?['paused','failed','stopped'].includes(state.phase)?'调整已暂停，请在聊天中明确恢复；已有成果保留。':'决策者已接收，正在调整当前方向；完成后派发执行者。':undefined;
    }catch(error){m.status='failed';m.error=redact((error as Error).message);}
-   return {...m,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
-  }),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
+   return {...m,discussionReply:m.discussionReply?redact(m.discussionReply):undefined,discussionPlan:m.discussionPlan?redact(m.discussionPlan):undefined,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
+  }),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':session.chatMode==='discuss'?'discuss':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
  }
  list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
  detail(id:string){const session=this.public(this.get(id));return {session,runs:this.resolve(this.get(id)).runs};}
@@ -163,19 +168,62 @@ export class SessionStore {
    if(message){message.status='failed';message.autoQueued=false;message.error=redact((error as Error).message);this.update(fresh);}
   }finally{this.draining.delete(session.id);}
  }
+ async discuss(session:Saved,message:Saved['messages'][number],text:string):Promise<ConversationReply>{
+  const runtimeDir=path.join(this.service.data,'conversation-discussions',session.id);
+  const config:Config={allowedRepositories:[session.projectPath],runtimeDir,mode:session.settings.mode,projectMode:'direct',executionMode:'native',claudeExecutable:'C:/Users/WYL20/.local/bin/claude.exe',claudeStreaming:true,timeoutMs:0,mockScenario:'pass',tests:[],decisionAgent:session.settings.decisionAgent??{backend:'claude-code'}};
+  const history=session.messages.filter(m=>m.id!==message.id&&m.action==='discuss'&&m.discussionReply).flatMap(m=>[{role:'user' as const,text:m.text},{role:'assistant' as const,text:m.discussionReply!}]);
+  const controller=new AbortController(),promise=conversationDiscussion({runtimeDir,stateId:session.discussionStateId,projectPath:session.projectPath,sessionId:session.id,config,text,history,plan:session.discussionPlan??'',attachments:this.attachmentBytes(session,message)},id=>{session.discussionStateId=id;this.update(session);},controller.signal);
+  this.discussionCalls.set(session.id,{controller,promise});
+  try{return await promise;}finally{this.discussionCalls.delete(session.id);}
+ }
+ async stopDiscussions(){const calls=[...this.discussionCalls.values()];for(const call of calls)call.controller.abort();await Promise.allSettled(calls.map(call=>call.promise));}
+ async executeDiscussion(r:Request){
+  const session=this.get(r.sessionId!),release=this.acquire(session);this.inFlight.add(session.id);
+  try{
+   // Duplicate clicks return the already persisted dispatch, even after mode transition.
+   const existing=session.messages.find(m=>m.id===r.messageId);
+   if(existing){if(!existing.discussionExecution)throw Error('执行消息 ID 已用于其他消息');return this.public(session);}
+   if(session.legacy||session.chatMode!=='discuss'||!session.discussionPlan?.trim())throw Error('请先讨论出具体方案，再开始执行');
+   if(session.messages.some(m=>m.action==='discuss'&&['starting','failed','pending'].includes(m.status)))throw Error('讨论还有未完成或失败的消息，请先处理或取消');
+   const {runs,unavailableRuns}=this.resolve(session),last=runs.at(-1);
+   if(unavailableRuns.length)throw Error('历史 Run 不可用，请先核查原记录');
+   if(last&&last.phase!=='completed'||this.service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||active.includes(run.phase))))throw Error('项目仍有未结束任务，不能启动讨论方案');
+   const previousMode=session.settings.projectMode,previousProfile=session.profileId;
+   session.settings.projectMode=r.projectMode!;session.chatMode='develop';delete session.profileId;this.update(session);
+   const restore=()=>{const fresh=this.get(session.id);if(!fresh.messages.find(m=>m.id===r.messageId)?.runId){fresh.chatMode='discuss';fresh.settings.projectMode=previousMode;fresh.profileId=previousProfile;this.update(fresh);}return this.public(fresh);};
+   try{const result=await this.sendLocked({...r,operation:'sendSession',text:'按讨论方案执行：\n'+session.discussionPlan},false,true);return result.messages.find(m=>m.id===r.messageId)?.runId?result:restore();}
+   catch(error){restore();throw error;}
+  }finally{this.inFlight.delete(session.id);release();}
+ }
  private attachmentBytes(session:Saved,message:Saved['messages'][number]){
   return (message.attachments??[]).map(item=>{if(!item.path||!item.sha256)throw Error('此历史附件缺少完整性记录，请重新添加附件发送');const relative=path.relative(this.service.data,item.path).replaceAll('\\','/');if(!relative.startsWith('session-attachments/'+session.id+'/'+message.id+'/'))throw Error('附件会话归属不匹配');return {name:item.name,mimeType:item.mimeType,bytes:readNativeAttachment({...item,sha256:item.sha256,path:projectTarget(this.service.data,relative)})};});
  }
- private async sendLocked(r:Request,process:boolean){
+ private async sendLocked(r:Request,process:boolean,discussionExecution=false){
   const session=this.get(r.sessionId!);if(session.legacy)throw Error('历史会话只供回放；请新建会话并明确授权项目');
   let message=session.messages.find(m=>m.id===r.messageId);
   if(!process&&message){if(message.text!==r.text!.trim()||(message.attachmentDigest??attachmentDigest())!==attachmentDigest(r.attachments))throw Error('Message ID reused with different content');return this.public(session);}
   if(process&&(!message||!['pending','failed'].includes(message.status)))throw Error('需求已处理或已取消');
-  if(!message){if(session.messages.length>=1000)throw Error('会话消息已达上限');message={id:r.messageId!,time:new Date().toISOString(),text:r.text!.trim(),status:'pending',attachmentDigest:attachmentDigest(r.attachments),...(r.attachments?.length?{attachments:this.materializeAttachments(session.id,r.messageId!,r.attachments)}:{})};if(!message.text)throw Error('消息不能为空');session.messages.push(message);if(!session.manualTitle&&session.messages.length===1)session.title=message.text.replace(/\s+/g,' ').slice(0,32);}
+  if(!message){if(session.messages.length>=1000)throw Error('会话消息已达上限');message={...(discussionExecution?{discussionExecution:true}:{}),id:r.messageId!,time:new Date().toISOString(),text:r.text!.trim(),status:'pending',attachmentDigest:attachmentDigest(r.attachments),...(r.attachments?.length?{attachments:this.materializeAttachments(session.id,r.messageId!,r.attachments)}:{})};if(!message.text)throw Error('消息不能为空');session.messages.push(message);if(!session.manualTitle&&session.messages.length===1)session.title=message.text.replace(/\s+/g,' ').slice(0,32);}
   session.updatedAt=new Date().toISOString();this.update(session);
   if(session.settings.mode==='mock'&&!session.mockExplicit){message.status='failed';message.error='旧会话未记录明确的 Mock 测试选择；请新建真实会话，或明确选择 Mock 测试新建会话';this.update(session);return this.public(session);}
   const {runs:current,unavailableRuns}=this.resolve(session),last=current.at(-1);if(unavailableRuns.length){message.status='failed';message.error='会话关联的历史 Run 不可用；请查看具体原因，新建会话前确认项目状态';this.update(session);return this.public(session);}
   const projectRuns=this.service.overview().runs.filter(run=>run.source.toLowerCase()===session.projectPath.toLowerCase());
+  const wantsDiscussion=/^\/discuss(?:\s|$)/i.test(message.text)||session.chatMode==='discuss';
+  if(wantsDiscussion){
+   message.action='discuss';message.autoQueued=false;
+   if(projectRuns.some(run=>run.active||active.includes(run.phase))||last&&last.phase!=='completed'){
+    message.status='failed';message.error='当前会话或项目还有未结束的开发任务；请先处理原任务，或另建讨论会话。不会中断或恢复当前任务。';this.update(session);return this.public(session);
+   }
+   session.chatMode='discuss';
+   const text=message.text.replace(/^\/discuss(?:\s+|$)/i,'').trim();
+   if(!text&&!message.attachments?.length){message.status='recorded';message.discussionNotice=true;message.discussionReply='已进入讨论模式。告诉决策者你遇到的问题；讨论不会自动开始执行。';this.update(session);return this.public(session);}
+   message.status='starting';this.update(session);
+   try{
+    const reply=await this.discuss(session,message,text||'请查看附件并讨论其中的问题。');
+    message.discussionNotice=false;message.discussionReply=reply.reply;message.discussionPlan=reply.plan;session.discussionPlan=reply.plan;message.status='recorded';message.error=undefined;
+   }catch(error){message.status='failed';message.error=redact((error as Error).message);}
+   this.update(session);return this.public(session);
+  }
   const state=last?this.service.store(last.profileId,last.id).load():undefined;
   const route=chatRoute(message.text,last?{...last,nextPhase:state?.nextPhase}:undefined,Boolean(message.attachments?.length));
   message.action=route;message.error=undefined;message.autoQueued=false;
