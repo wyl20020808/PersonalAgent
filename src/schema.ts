@@ -3,12 +3,14 @@ import { Ajv } from 'ajv';
 const ajv = new Ajv({ allErrors: true, strict: true });
 const text = { type: 'string', minLength: 1, maxLength: 100000 };
 const object = (properties: Record<string, unknown>) => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
-export const decisionAgentSchema = { oneOf: [{ ...object({ backend: { const: 'codex' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, { ...object({ backend: { const: 'claude-code' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, object({ backend: { const: 'opencode' }, opencode: { ...object({ providerID: text, modelID: text, executable: text }), required: ['providerID', 'modelID'] } })] };
-export const decisionDiscussionSchema = object({ participants: { type: 'array', minItems: 2, maxItems: 2, items: object({ id: { enum: ['a', 'b'] }, agent: decisionAgentSchema }) }, primary: { enum: ['a', 'b'] }, rounds: { enum: [0, 1] } });
-export type DecisionChoice = { backend: 'codex'; model?: string } | { backend: 'claude-code'; model?: string } | { backend: 'opencode'; opencode: { providerID: string; modelID: string; executable?: string } };
+export const codexEfforts = ['minimal','low','medium','high','xhigh','max','ultra','persistent'] as const;
+export const claudeEfforts = ['low','medium','high','xhigh','max'] as const;
+export const decisionAgentSchema = { oneOf: [{ ...object({ backend: { const: 'codex' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' }, reasoningEffort: { enum: codexEfforts } }), required: ['backend'] }, { ...object({ backend: { const: 'claude-code' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' }, reasoningEffort: { enum: claudeEfforts } }), required: ['backend'] }, object({ backend: { const: 'opencode' }, opencode: { ...object({ providerID: text, modelID: text, executable: text, variant: { type:'string',pattern:'^[a-zA-Z0-9._-]{1,100}$' } }), required: ['providerID', 'modelID'] } })] };
+export const decisionDiscussionSchema = object({ participants: { type: 'array', minItems: 2, maxItems: 3, items: object({ id: { enum: ['a', 'b', 'c'] }, agent: decisionAgentSchema }) }, primary: { enum: ['a', 'b', 'c'] }, rounds: { enum: [0, 1] } });
+export type DecisionChoice = { backend: 'codex'; model?: string; reasoningEffort?: typeof codexEfforts[number] } | { backend: 'claude-code'; model?: string; reasoningEffort?: typeof claudeEfforts[number] } | { backend: 'opencode'; opencode: { providerID: string; modelID: string; executable?: string; variant?: string } };
 export type ExecutionChoice = DecisionChoice;
 export const executionAgentSchema = decisionAgentSchema;
-export interface DecisionDiscussion { participants: { id: 'a' | 'b'; agent: DecisionChoice }[]; primary: 'a' | 'b'; rounds: 0 | 1 }
+export interface DecisionDiscussion { participants: { id: 'a' | 'b' | 'c'; agent: DecisionChoice }[]; primary: 'a' | 'b' | 'c'; rounds: 0 | 1 }
 export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
 Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
@@ -67,7 +69,7 @@ export function normalizeConfig(config: Config): Config {
   if (config.projectMode && config.workspaceMode && config.projectMode !== config.workspaceMode) throw new Error('Conflicting projectMode and workspaceMode');
   const { workspaceMode, ...canonical } = config;
   const discussion = config.decisionDiscussion;
-  if (discussion && new Set(discussion.participants.map(p => p.id)).size !== 2) throw new Error('Two distinct decision participant IDs required');
+  if (discussion && (new Set(discussion.participants.map(p => p.id)).size !== discussion.participants.length || !discussion.participants.some(p => p.id === discussion.primary))) throw new Error('Distinct decision participant IDs and selected primary required');
   const primary = discussion?.participants.find(p => p.id === discussion.primary)?.agent;
   if (primary && config.decisionAgent && JSON.stringify(primary) !== JSON.stringify(config.decisionAgent)) throw new Error('Primary decision configuration mismatch');
   return { ...canonical, ...(primary ? { decisionAgent: primary } : {}), ...(config.projectMode || workspaceMode ? { projectMode: config.projectMode ?? workspaceMode } : {}) };

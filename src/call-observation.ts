@@ -22,7 +22,7 @@ export function sumTokens(rows: Tokens[]): Tokens {
   return result;
 }
 export interface CallUsage extends Tokens {
-  participantId?: 'a' | 'b'; discussionStage?: string;
+  participantId?: 'a' | 'b' | 'c'; discussionStage?: string;
   callId: string; runId: string; taskId: string | null; phase: CallPhase; agent: 'claude' | 'codex' | 'opencode'; workspace: string;
   manifestPath: string; mode: string; controllerCall: number; rework: boolean; resumed: boolean;
   model: string | null; models: string[]; modelRequests: number | null; source: string;

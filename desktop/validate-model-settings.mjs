@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
+import {spawn} from 'node:child_process';
+import {build} from 'esbuild';
+const directory=path.dirname(fileURLToPath(import.meta.url)),output=path.resolve(directory,'../validation/model-settings/ui');fs.mkdirSync(output,{recursive:true});
+await build({entryPoints:[path.join(directory,'model-dialog-preview.tsx')],bundle:true,format:'esm',outfile:path.join(output,'preview.js'),loader:{'.svg':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
+fs.mkdirSync(path.join(output,'assets/agents'),{recursive:true});for(const file of ['claude.svg','opencode.svg','openai.svg'])fs.copyFileSync(path.join(directory,'src/assets/agents',file),path.join(output,'assets/agents',file));
+fs.writeFileSync(path.join(output,'index.html'),'<html lang="zh-CN"><meta charset="UTF-8"><link rel="stylesheet" href="preview.css"><div id="root"></div><script type="module" src="preview.js"></script></html>');
+const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;const child=spawn(createRequire(import.meta.url)('electron'),[path.join(directory,'validate-model-settings.cjs')],{windowsHide:true,env,stdio:'inherit'});child.on('error',error=>{console.error(error);process.exitCode=1;});child.on('exit',code=>{process.exitCode=code??1;});

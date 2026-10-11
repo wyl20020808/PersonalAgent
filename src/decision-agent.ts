@@ -1,10 +1,10 @@
 import { realpathSync } from 'node:fs';
 import { FlowError } from './failure.js';
-import type { Config } from './schema.js';
+import type { Config, DecisionChoice } from './schema.js';
 import type { State, Store } from './store.js';
 import type { CallUsage } from './call-observation.js';
 
-export type DecisionIdentity = { backend: 'codex'; model?: string } | { backend: 'claude-code'; model?: string } | { backend: 'opencode'; providerID: string; modelID: string };
+export type DecisionIdentity = Exclude<DecisionChoice, {backend:'opencode'}> | { backend: 'opencode'; providerID: string; modelID: string; variant?: string };
 export interface DecisionSession { backend: DecisionIdentity['backend']; sessionId: string; runId: string; workspace: string; directory: string }
 export interface DecisionRequest {
   state: State; store: Store; role: 'plan' | 'review'; prompt: string; schema: object;
@@ -15,10 +15,10 @@ export interface DecisionResult<T> { output: T; sessionId: string; usage: CallUs
 export interface DecisionAgent { structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> }
 export function decisionIdentity(config: Config): DecisionIdentity {
   const choice = config.decisionAgent;
-  if (!choice || choice.backend === 'claude-code') return { backend: 'claude-code', ...(choice?.model ? { model: choice.model } : {}) };
-  if (choice.backend === 'codex') return { backend: 'codex', ...(choice.model ? { model: choice.model } : {}) };
+  if (!choice || choice.backend === 'claude-code') return { backend: 'claude-code', ...(choice?.model ? { model: choice.model } : {}), ...(choice?.reasoningEffort ? {reasoningEffort:choice.reasoningEffort} : {}) };
+  if (choice.backend === 'codex') return { backend: 'codex', ...(choice.model ? { model: choice.model } : {}), ...(choice.reasoningEffort ? {reasoningEffort:choice.reasoningEffort} : {}) };
   if (!choice.opencode?.providerID || !choice.opencode.modelID) throw new FlowError('supervisor', 'OpenCode providerID/modelID required');
-  return { backend: 'opencode', providerID: choice.opencode.providerID, modelID: choice.opencode.modelID };
+  return { backend: 'opencode', providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, ...(choice.opencode.variant ? {variant:choice.opencode.variant} : {}) };
 }
 export function assertDecisionState(state: State, config = state.config): DecisionIdentity {
   const identity = state.decisionAgent ?? { backend: 'claude-code' };

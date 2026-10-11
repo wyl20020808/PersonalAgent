@@ -2,6 +2,7 @@ import React,{useEffect,useState} from 'react';
 import type {DecisionAgent,DecisionModels,Run} from './types.js';
 import {Settings2} from 'lucide-react';
 import AgentModelDialog from './AgentModelDialog.js';
+import {useModelCatalog} from './modelCatalog.js';
 
 export function decisionLabel(selection?:DecisionAgent|Run['decisionAgent']):string {
  if(selection?.backend==='codex')return `Codex（${selection.model??'SDK 默认模型'}）`;
@@ -10,21 +11,12 @@ export function decisionLabel(selection?:DecisionAgent|Run['decisionAgent']):str
  return `OpenCode · ${model.providerID} / ${model.modelID}`;
 }
 export function useDecisionModels(value?:DecisionAgent,projectPath?:string,operation:"decisionModels"|"executionModels"="decisionModels"){
- const [models,setModels]=useState<DecisionModels|null>(null),[loading,setLoading]=useState(false),[revision,setRevision]=useState(0);
  const backend=value?.backend??'claude-code',selection=value?.backend==='opencode'?value.opencode:null;
- const scope=`${operation}:${backend}:${projectPath??''}:${revision}`;
- const [discoveredScope,setDiscoveredScope]=useState('');
- useEffect(()=>{
-  let live=true;
-  if(backend!=='opencode'){setLoading(false);setModels(null);return;}
-  setLoading(true);setModels(null);
-  void window.personalAgent.invoke<DecisionModels>({operation,...(projectPath?{projectPath}:{})}).then(result=>{if(live){setModels(result);setDiscoveredScope(scope);}}).catch(error=>{if(live){setModels({available:false,reason:error.message,providers:[]});setDiscoveredScope(scope);}}).finally(()=>{if(live)setLoading(false);});
-  return()=>{live=false;};
- },[backend,projectPath,revision,operation]);
+ const {data:models,loading,error,refresh}=useModelCatalog<DecisionModels>({operation,...(projectPath?{projectPath}:{})},backend==='opencode');
  const provider=models?.providers.find(p=>p.id===selection?.providerID),model=provider?.models.find(m=>m.id===selection?.modelID);
- const discovering=backend==='opencode'&&(loading||discoveredScope!==scope);
- const valid=backend!=='opencode'?(!value||value.backend==='opencode'||!value.model||/^[a-zA-Z0-9._:/-]{1,200}$/.test(value.model)):Boolean(!discovering&&models?.available&&model?.capabilities.tools===true&&model?.capabilities.structuredOutput===true);
- return {backend,selection,models,loading:discovering,provider,model,valid,refresh:()=>setRevision(n=>n+1)};
+ const discovering=backend==='opencode'&&!models&&!error;
+ const valid=backend!=='opencode'?(!value||value.backend==='opencode'||!value.model||/^[a-zA-Z0-9._:/-]{1,200}$/.test(value.model)):Boolean(models?.available&&model?.capabilities.tools===true&&model?.capabilities.structuredOutput===true&&(!selection?.variant||model.reasoningEfforts?.includes(selection.variant)));
+ return {backend,selection,models,loading:loading||discovering,provider,model,valid,error,refresh};
 }
 export default function DecisionAgentSelect({value,onChange,onValid,projectPath,disabled=false}:{value?:DecisionAgent;onChange:(value:DecisionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean}){
  const choice=value??{backend:'claude-code'},[settings,setSettings]=useState<DecisionAgent|null>(null);

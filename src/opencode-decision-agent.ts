@@ -71,7 +71,7 @@ export async function startOpencodeService(executable: string | undefined, direc
   } catch (error) { await close(); throw new FlowError('supervisor', redact((error as Error)?.message ?? 'OpenCode service startup failed')); }
 }
 
-export interface DiscoveredModel { id: string; name: string; capabilities: { tools: boolean | 'unknown'; structuredOutput: boolean | 'unknown'; images?: boolean | 'unknown' } }
+export interface DiscoveredModel { id: string; name: string; reasoningEfforts?: string[]; capabilities: { tools: boolean | 'unknown'; structuredOutput: boolean | 'unknown'; images?: boolean | 'unknown' } }
 export interface DiscoveredProvider { id: string; name: string; models: DiscoveredModel[] }
 export interface ModelDiscovery { available: boolean; reason: string; providers: DiscoveredProvider[] }
 export function resolvedSchema(api: any, schema: any, seen = new Set<string>()): any {
@@ -100,7 +100,7 @@ export async function models(service: OpenCodeService, directory: string, signal
   } else {
     const p = await service.client.provider.list({directory},options);
     const connected = new Set(p.data?.connected ?? []);
-    providers = (p.data?.all ?? []).filter(provider => connected.has(provider.id)).map(provider => ({id:redact(provider.id),name:redact(provider.name),models:Object.values(provider.models).map(model => ({id:redact(model.id),name:redact(model.name),capabilities:{tools:model.capabilities?.toolcall ?? 'unknown',structuredOutput:supportsStructuredOutput(service.openapi) && model.capabilities?.toolcall === true,images:model.capabilities?.input?.image??'unknown'}}))}));
+    providers = (p.data?.all ?? []).filter(provider => connected.has(provider.id)).map(provider => ({id:redact(provider.id),name:redact(provider.name),models:Object.values(provider.models).map(model => ({id:redact(model.id),name:redact(model.name),reasoningEfforts:Object.entries(model.variants??{}).filter(([id,options])=>/^[a-zA-Z0-9._-]{1,100}$/.test(id)&&options.disabled!==true).map(([id])=>id),capabilities:{tools:model.capabilities?.toolcall ?? 'unknown',structuredOutput:supportsStructuredOutput(service.openapi) && model.capabilities?.toolcall === true,images:model.capabilities?.input?.image??'unknown'}}))}));
   }
   providers = providers.filter(provider => provider.models.length);
   return { available: providers.length > 0 && supportsStructuredOutput(service.openapi), reason: !supportsStructuredOutput(service.openapi) ? 'OpenCode service lacks official JSON Schema structured output (format); prompt refused' : providers.length ? '' : 'No connected OpenCode providers/models', providers };
@@ -137,6 +137,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       const model = discovery.providers.find(p => p.id === identity.providerID)?.models.find(m => m.id === identity.modelID);
       if (!discovery.available) throw new FlowError('supervisor',discovery.reason);
       if (!model || model.capabilities.tools !== true || model.capabilities.structuredOutput !== true) throw new FlowError('supervisor','OpenCode model unavailable or lacks native tools/structured output');
+      if (identity.variant && !model.reasoningEfforts?.includes(identity.variant)) throw new FlowError('supervisor','OpenCode reasoning variant unavailable; refresh model selection');
       const parts=opencodeParts(prompt,runAttachments(state,store),model.capabilities.images);
       const client = service.client, options = { signal,throwOnError:true as const };
       const owner = `PersonalAgent:${state.id}:${workspace}${store.decisionParticipant?':'+store.decisionParticipant.participantId:''}`;
@@ -165,7 +166,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       } })();
       eventTask.catch(() => {});
       await ready;
-      const result = await client.session.prompt({sessionID,directory:workspace,model:{providerID:identity.providerID,modelID:identity.modelID},system:agentRules + interactionAgentRules,format:{type:'json_schema',schema:schema as Record<string,unknown>,retryCount:0},parts},options);
+      const result = await client.session.prompt({sessionID,directory:workspace,model:{providerID:identity.providerID,modelID:identity.modelID},...(identity.variant?{variant:identity.variant}:{}),system:agentRules + interactionAgentRules,format:{type:'json_schema',schema:schema as Record<string,unknown>,retryCount:0},parts},options);
       if (result.data?.info.sessionID !== sessionID || result.data.info.role !== 'assistant' || result.data.info.path?.cwd !== workspace) throw new FlowError('safety','OpenCode response Session/workspace mismatch');
       // Final native parts also carry public tool/text receipts. Capture them
       // even when the HTTP result overtakes the tail of the volatile SSE stream.

@@ -13,8 +13,8 @@ export const opinionSchema = { type: 'object', additionalProperties: false, requ
   disagreements: { type: 'array', maxItems: 30, items: { type: 'string', minLength: 1, maxLength: 10000 } },
   amendments: { type: 'array', maxItems: 30, items: { type: 'string', minLength: 1, maxLength: 10000 } }
 } };
-export interface DiscussionParticipant { id: 'a' | 'b'; agent: DecisionChoice; session?: DecisionSession; claudeSessionId: string | null; calls: number }
-export interface DiscussionStep { key: string; participantId: 'a' | 'b'; stage: DiscussionStage; status: 'running' | 'success' | 'failed' | 'interrupted'; output?: Plan | DiscussionOpinion; error?: string }
+export interface DiscussionParticipant { id: 'a' | 'b' | 'c'; agent: DecisionChoice; session?: DecisionSession; claudeSessionId: string | null; calls: number }
+export interface DiscussionStep { key: string; participantId: 'a' | 'b' | 'c'; stage: DiscussionStage; status: 'running' | 'success' | 'failed' | 'interrupted'; output?: Plan | DiscussionOpinion; error?: string }
 export interface DiscussionState { config: DecisionDiscussion; participants: DiscussionParticipant[]; steps: DiscussionStep[]; closed: boolean }
 export function initializeDiscussion(state: State): void {
   if (!state.config.decisionDiscussion) return;
@@ -47,7 +47,7 @@ function participantView(state: State, participant: DiscussionParticipant): Stat
 /** Existing adapters operate on one scoped identity. Only session/call mutations are
  * merged back into the real Run; all events receive immutable participant ownership.
  * Calls remain sequential under the Controller's Run and project locks. */
-export async function withParticipant<T>(state: State, store: Store, id: 'a' | 'b', stage: DiscussionStage, operation: (view: State, scoped: Store) => Promise<T>): Promise<T> {
+export async function withParticipant<T>(state: State, store: Store, id: 'a' | 'b' | 'c', stage: DiscussionStage, operation: (view: State, scoped: Store) => Promise<T>): Promise<T> {
   assertDiscussion(state);
   const participant = state.discussion!.participants.find(p => p.id === id)!;
   const view = participantView(state, participant);
@@ -70,7 +70,7 @@ export async function withParticipant<T>(state: State, store: Store, id: 'a' | '
   try { return await operation(view, scoped); }
   finally { scoped.save(view); }
 }
-export type DiscussionCall = (participant: 'a' | 'b', stage: DiscussionStage, schema: object, exchange?: object) => Promise<Plan | DiscussionOpinion>;
+export type DiscussionCall = (participant: 'a' | 'b' | 'c', stage: DiscussionStage, schema: object, exchange?: object) => Promise<Plan | DiscussionOpinion>;
 /** Only one initial collaborative cycle. Successful steps survive restart; retries
  * need the Controller's explicit resume decision. Replan is primary-only and labeled. */
 export async function discussPlan(state: State, store: Store, signal: AbortSignal, call: DiscussionCall): Promise<Plan> {
@@ -81,7 +81,7 @@ export async function discussPlan(state: State, store: Store, signal: AbortSigna
     store.audit('discussion-replan-output', { participantId: discussion.config.primary, participantAgent: discussion.participants.find(p=>p.id===discussion.config.primary)!.agent, primary: true, discussionStage: 'replan', mode: state.config.mode, output });
     return output;
   }
-  async function step(id: 'a' | 'b', stage: DiscussionStage, exchange?: object): Promise<Plan | DiscussionOpinion> {
+  async function step(id: 'a' | 'b' | 'c', stage: DiscussionStage, exchange?: object): Promise<Plan | DiscussionOpinion> {
     const key = `${stage}:${id}`;
     let saved = discussion.steps.find(s => s.key === key);
     if (saved?.status === 'success') return saved.output!;
@@ -114,9 +114,10 @@ export async function discussPlan(state: State, store: Store, signal: AbortSigna
   for (const participant of discussion.participants) drafts[participant.id] = await step(participant.id, 'draft') as Plan;
   const opinions: Record<string, DiscussionOpinion> = {};
   if (discussion.config.rounds === 1) for (const participant of discussion.participants) {
-    const peer = discussion.participants.find(p => p.id !== participant.id)!;
-    // Both see the same fixed drafts; B never receives A's round-one opinion.
-    opinions[participant.id] = await step(participant.id, 'discussion', { ownDraft: drafts[participant.id], peer: peer.id, peerDraft: drafts[peer.id] }) as DiscussionOpinion;
+    const peers = discussion.participants.filter(p => p.id !== participant.id);
+    // Each participant sees every fixed peer draft, never round-one opinions.
+    const exchange = peers.length === 1 ? { peer: peers[0]!.id, peerDraft: drafts[peers[0]!.id] } : { peerDrafts: Object.fromEntries(peers.map(p => [p.id, drafts[p.id]])) };
+    opinions[participant.id] = await step(participant.id, 'discussion', { ownDraft: drafts[participant.id], ...exchange }) as DiscussionOpinion;
   }
   return await step(discussion.config.primary, 'synthesis', { drafts, opinions, rounds: discussion.config.rounds }) as Plan;
 }

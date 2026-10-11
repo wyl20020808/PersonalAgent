@@ -107,11 +107,11 @@ function localOpenCode() {
 }
 
 test('single Codex Plan/Review, SDK schema/model/native permissions, separate execution, Context, usage and resume', async () => {
-  const f = await fixture({}, true), p = protocol(), done = await drive(f.store, new RealAgents(f.config, p.run));
+  const f = await fixture({decisionAgent:{backend:'codex',model:'fixture-model',reasoningEffort:'max'}}, true), p = protocol(), done = await drive(f.store, new RealAgents(f.config, p.run));
   assert.equal(done.phase, 'completed', done.reason); assert.equal(p.calls.length, 2); assert.equal(p.execution.length, 1);
   assert.equal(p.calls[0]!.resumed, false); assert.equal(p.calls[1]!.resumed, true);
   assert.equal(done.decisionSession?.backend, 'codex'); assert.notEqual(done.decisionSession?.sessionId, done.codexThreadId); assert.equal(done.claudeSessionId, null);
-  for (const call of p.calls) { assert.equal(call.options.model, 'fixture-model'); assert.equal(call.options.sandboxMode, 'read-only'); assert.equal(call.options.approvalPolicy, 'never'); assert.equal(call.options.workingDirectory, f.source); assert.ok(call.prompt.context.moduleCatalog.some((m: any) => m.id === 'fixture')); }
+  for (const call of p.calls) { assert.equal(call.options.model, 'fixture-model'); assert.equal(call.options.modelReasoningEffort, 'max'); assert.equal(call.options.sandboxMode, 'read-only'); assert.equal(call.options.approvalPolicy, 'never'); assert.equal(call.options.workingDirectory, f.source); assert.ok(call.prompt.context.moduleCatalog.some((m: any) => m.id === 'fixture')); }
   const usage = runUsage(f.store); assert.equal(usage.calls.filter(c => c.agent === 'codex' && c.phase !== 'execute').length, 2); assert.equal(usage.reported.codex.inputTokens, null); // executor fixture reports no usage
   assert.equal(usage.calls.find(c => c.phase === 'plan')!.inputTokens, 12); assert.equal(usage.calls.find(c => c.phase === 'review')!.controllerCall, 2);
   assert.equal(JSON.parse(fs.readFileSync(f.store.file('state.json'), 'utf8')).config.decisionAgent.model, 'fixture-model');

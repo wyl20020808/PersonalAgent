@@ -8,6 +8,7 @@ import './style.css';
 import GroupWorkspace from './GroupWorkspace.js';
 import './codex.css';
 import './chat-messages.css';
+import {preloadModelCatalogs} from './modelCatalog.js';
 
 type Page='chat'|'dashboard'|'run'|'delivery'|'history'|'settings';
 const phaseNames:Record<string,string>={planning:'规划中',execute:'准备执行',executing:'执行中',applying:'应用提案',verify:'独立验证',review:'审查中',paused:'等待决策',stopped:'已停止',failed:'失败',completed:'已完成',preview:'待审批',approved:'已批准',applied:'已应用',invalidated:'批准已失效',blocked:'应用受阻'};
@@ -30,6 +31,7 @@ function App(){
  const [collapsed,setCollapsed]=useState<Record<string,boolean>>(()=>{try{return JSON.parse(localStorage.getItem('personalagent:collapsed-projects')??'{}');}catch{return {};}}),[showAll,setShowAll]=useState<Record<string,boolean>>({}),[searching,setSearching]=useState(false);
  const [overview,setOverview]=useState<Overview|null>(null),[page,setPage]=useState<Page>('chat'),[selected,setSelected]=useState<Run|null>(null),[activity,setActivity]=useState<Event[]>([]),[deliveries,setDeliveries]=useState<Delivery[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[query,setQuery]=useState(''),[modal,setModal]=useState<'resume'|'preview'|'approve'|'apply'|'manual'|null>(null),[decision,setDecision]=useState(''),[branch,setBranch]=useState(''),[target,setTarget]=useState(''),[digest,setDigest]=useState(''),[file,setFile]=useState(''),[runTab,setRunTab]=useState<'tasks'|'tests'|'logs'>('tasks');
  const api=useCallback(<T,>(r:Request)=>window.personalAgent.invoke<T>(r),[]);
+ useEffect(()=>{preloadModelCatalogs();},[]);
  useEffect(()=>{window.scrollTo(0,0);},[page,selected?.id]);
  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),4500);return()=>clearTimeout(timer);},[notice]);
  useEffect(()=>{if(!modal)return;const dialog=document.querySelector<HTMLElement>('.modal');const previous=document.activeElement as HTMLElement|null;dialog?.querySelector<HTMLElement>('input,textarea,select,button')?.focus();const key=(event:KeyboardEvent)=>{if(event.key==='Escape'&&!busy){setModal(null);return;}if(event.key!=='Tab'||!dialog)return;const controls=Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select'));const first=controls[0],last=controls.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}};document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);previous?.focus();};},[modal,busy]);

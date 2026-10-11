@@ -1,0 +1,71 @@
+{
+  "passed": true,
+  "scope": "Hidden Electron component UI uses fixtures; separate real CLI discovery, no inference turns",
+  "checks": [
+    "Direct multi selection; both cards selected green",
+    "Codex actual supported effort options and independent participant settings",
+    "Three green decision cards; OpenCode model variants",
+    "Preload reused across reopen; only explicit refresh reloads",
+    "Claude CLI effort selection",
+    "Deselect peers, preserve primary, retain at least one decision",
+    "Execution model effort independent",
+    "Modal focus and cancel",
+    "390px model and reasoning dialog",
+    "Actual Codex CLI catalog and reasoning discovered from Electron"
+  ],
+  "state": {
+    "decision": {
+      "backend": "opencode",
+      "opencode": {
+        "providerID": "fixture",
+        "modelID": "tool-model",
+        "variant": "max"
+      }
+    },
+    "execution": {
+      "backend": "codex",
+      "model": "fixture-codex",
+      "reasoningEffort": "high"
+    },
+    "discussion": {
+      "participants": [
+        {
+          "id": "a",
+          "agent": {
+            "backend": "opencode",
+            "opencode": {
+              "providerID": "fixture",
+              "modelID": "tool-model",
+              "variant": "max"
+            }
+          }
+        },
+        {
+          "id": "b",
+          "agent": {
+            "backend": "codex",
+            "model": "fixture-codex",
+            "reasoningEffort": "max"
+          }
+        },
+        {
+          "id": "c",
+          "agent": {
+            "backend": "claude-code",
+            "model": "sonnet",
+            "reasoningEffort": "high"
+          }
+        }
+      ],
+      "primary": "a",
+      "rounds": 1
+    },
+    "valid": true
+  },
+  "queries": {
+    "claude-code": 1,
+    "codex": 1,
+    "decisionModels": 2,
+    "executionModels": 1
+  }
+}

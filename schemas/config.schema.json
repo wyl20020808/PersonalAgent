@@ -219,6 +219,18 @@
             "model": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+            },
+            "reasoningEffort": {
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultra",
+                "persistent"
+              ]
             }
           },
           "required": [
@@ -235,6 +247,15 @@
             "model": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+            },
+            "reasoningEffort": {
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
             }
           },
           "required": [
@@ -265,6 +286,10 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 100000
+                },
+                "variant": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9._-]{1,100}$"
                 }
               },
               "required": [
@@ -288,14 +313,15 @@
         "participants": {
           "type": "array",
           "minItems": 2,
-          "maxItems": 2,
+          "maxItems": 3,
           "items": {
             "type": "object",
             "properties": {
               "id": {
                 "enum": [
                   "a",
-                  "b"
+                  "b",
+                  "c"
                 ]
               },
               "agent": {
@@ -309,6 +335,18 @@
                       "model": {
                         "type": "string",
                         "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                      },
+                      "reasoningEffort": {
+                        "enum": [
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max",
+                          "ultra",
+                          "persistent"
+                        ]
                       }
                     },
                     "required": [
@@ -325,6 +363,15 @@
                       "model": {
                         "type": "string",
                         "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                      },
+                      "reasoningEffort": {
+                        "enum": [
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
                       }
                     },
                     "required": [
@@ -355,6 +402,10 @@
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 100000
+                          },
+                          "variant": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9._-]{1,100}$"
                           }
                         },
                         "required": [
@@ -383,7 +434,8 @@
         "primary": {
           "enum": [
             "a",
-            "b"
+            "b",
+            "c"
           ]
         },
         "rounds": {
@@ -411,6 +463,18 @@
             "model": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+            },
+            "reasoningEffort": {
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultra",
+                "persistent"
+              ]
             }
           },
           "required": [
@@ -427,6 +491,15 @@
             "model": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+            },
+            "reasoningEffort": {
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ]
             }
           },
           "required": [
@@ -457,6 +530,10 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 100000
+                },
+                "variant": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9._-]{1,100}$"
                 }
               },
               "required": [
