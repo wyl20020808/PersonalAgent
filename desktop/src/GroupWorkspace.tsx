@@ -39,6 +39,17 @@ function ToolContent({message}:{message:ChatMessage}){
   <details className="tool-raw"><summary>{tool?'原始工具记录':'查看工具记录（保留原格式）'}</summary><pre>{message.text}</pre></details>
  </div>;
 }
+function CompactOperation({message}:{message:ChatMessage}){
+ const tool=toolPresentation({kind:message.kind,text:message.text,title:message.title,source:message.details?.protocol});
+ const failed=['fail','failed'].includes(message.status);
+ const preview=tool?.command?.trim()?`${failed?'运行失败':message.status==='running'?'运行中':'已运行'} ${tool.command}`:tool?.paths?.length?`文件 ${tool.paths.join('、')}`:publicMessageText(message);
+ return <details className={`compact-operation status-${message.status}`} data-message-id={message.id}>
+  <summary>{tool?.paths?.length?<FileCode2 size={13}/>:<Code2 size={13}/>}<time dateTime={message.time}>{clock(message.time)}</time><span className="compact-operation-preview" title={preview}>{preview.replace(/\s+/g,' ')}</span>{failed&&<span className="negative">失败{tool?.exitCode!==undefined?` · ${tool.exitCode}`:''}</span>}</summary>
+  <div className="compact-operation-body">
+  {tool&&(tool.command?.trim()||tool.paths?.length||tool.output?.trim())?<>{tool.command?.trim()&&<pre className="compact-command">{tool.command}</pre>}{tool.paths?.length?<FileCards message={message}/>:null}{tool.output?.trim()&&<pre className="compact-output">{tool.output}</pre>}</>:message.text.trim()&&<pre className="compact-output">{publicMessageText(message)}</pre>}
+  </div>
+ </details>;
+}
 function MessageText({message}:{message:ChatMessage}){
  const command=message.category==='commands'||/执行事件|运行命令|Shell/.test(message.title);
  return command?<details className="command-details"><summary><Code2 size={14}/><span>运行命令</span><span className="command-status">{message.status==='running'?'运行中':message.status==='failed'||message.status==='fail'?'失败':'已记录'}</span></summary><div className="markdown"><SafeMarkdown text={message.text}/></div></details>:<Text text={message.text}/>;
@@ -65,7 +76,7 @@ export function EventGroup({group,expanded,onToggle}:{group:MessageGroup;expande
  const [shown,setShown]=useState(50);
  const first=group.messages[0],role=roles[first.role];
  if(group.messages.length===1&&group.category!=='执行操作')return <Message message={first}/>;
- return <article className={`group-message event-group status-${group.status} lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span><time>{clock(group.firstTime)} – {clock(group.lastTime)}</time></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{['fail','failed'].includes(group.status)?'含失败记录':group.status==='running'?'执行中':group.status==='success'?'已完成':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button>{!['命令','执行操作'].includes(group.category)&&<p className="group-preview">{messagePreview(first)}</p>}{expanded&&<div className="group-children">{group.messages.slice(0,shown).map(message=><Message key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div></div></article>;
+ return <article className={`group-message event-group status-${group.status} lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span><time>{clock(group.firstTime)} – {clock(group.lastTime)}</time></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{['fail','failed'].includes(group.status)?'含失败记录':group.status==='running'?'执行中':group.status==='success'?'已完成':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button>{!['命令','执行操作'].includes(group.category)&&<p className="group-preview">{messagePreview(first)}</p>}{expanded&&<div className={`group-children ${group.category==='执行操作'?'compact-children':''}`} tabIndex={group.category==='执行操作'?0:undefined} aria-label={group.category==='执行操作'?'执行操作明细':undefined}>{group.messages.slice(0,shown).map(message=>group.category==='执行操作'?<CompactOperation key={message.id} message={message}/>:<Message key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div></div></article>;
 }
 function ReviewSections({text}:{text:string}){
  const parts=text.split(/\n(?=(?:\*\*[^\n]+\*\*|#{1,3} [^\n]+)\s*\n)/);
