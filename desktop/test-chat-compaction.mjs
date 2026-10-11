@@ -4,9 +4,10 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {spawn} from 'node:child_process';
+import os from 'node:os';
 import {build} from 'esbuild';
 const directory=path.dirname(fileURLToPath(import.meta.url));
-const output=path.resolve(directory,'../validation/chat-compaction-ui');
+const output=path.join(os.tmpdir(),'personalagent-chat-compaction-ui',path.basename(path.dirname(directory)));
 fs.mkdirSync(output,{recursive:true});
 await build({stdin:{resolveDir:directory,loader:'tsx',contents:`
 import React,{useState} from 'react';
@@ -17,7 +18,7 @@ import {groupMessages} from './src/threadGrouping.ts';
 const message=(i,extra={})=>({id:String(i),timelineIndex:i,time:'2026-10-11T10:00:00Z',role:'codex',participantRole:'执行者',decisionStage:'execute',title:'Codex 执行事件',text:'echo test\\ncompleted · exit_code=0',kind:'tool',category:'commands',status:'success',runId:'run',taskId:'task',loop:1,scope:'execute:1',source:'audit',details:{protocol:'codex-sdk-runStreamed'},...extra});
 const files=message(10,{kind:'tests',details:{paths:['a.ts','b.ts','c.ts','d.ts','e.ts']}});
 const raw=[message(0),message(1,{title:'Codex 文件操作',category:'files',text:'completed\\n[{"path":"a.ts"}]'}),message(2,{kind:'output',category:'output',text:'修改完成'}),message(3),message(4,{kind:'output',category:'output',text:''}),message(5,{status:'fail',text:'false\\nfailed · exit_code=1\\nfailed output'})];
-function Fixture(){const [expanded,setExpanded]=useState({});return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}</section><section id="empty-command"><Message message={message(20)}/></section></FilePreviewContext.Provider>}
+function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}</section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button></section><section id="empty-command"><Message message={message(20)}/></section></FilePreviewContext.Provider>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `},bundle:true,format:'esm',outfile:path.join(output,'fixture.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
 fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>');
@@ -42,16 +43,26 @@ app.whenReady().then(async()=>{
    assert(cards().length===5&&toggle.getAttribute('aria-expanded')==='true','file expand');
    cards()[4].click();assert(document.body.dataset.opened==='e.ts','file preview click');
    toggle.click();await wait();assert(cards().length===3,'file collapse');
-   assert(document.querySelectorAll('#events > article').length===4,'tools/output/failure projection');
+   assert(document.querySelectorAll('#events > article').length===3,'tools/output/tools projection');
    const group=document.querySelector('#events .group-toggle');
    assert(group.getAttribute('aria-expanded')==='false','execution group starts folded');
    group.click();await wait();assert(document.querySelectorAll('#events .group-children article').length===2,'execution group expands');
    group.click();await wait();assert(!document.querySelector('#events .group-children'),'execution group collapses');
    assert(document.querySelector('#events [data-message-id="2"]').textContent.includes('修改完成'),'public output visible');
+   assert(!document.querySelector('#events [data-message-id="2"] .message-title'),'public output has no subtitle');
    assert(!document.querySelector('#events [data-message-id="4"]'),'empty output hidden');
-   assert(document.querySelector('#events [data-message-id="5"] .tool-output').open,'failure output visible');
+   const failureGroup=document.querySelectorAll('#events .group-toggle')[1];
+   assert(failureGroup.textContent.includes('含失败记录'),'failure is explicit in folded summary');
+   failureGroup.click();await wait();assert(document.querySelector('#events [data-message-id="5"] .tool-output').open,'failure output visible after expand');
    assert(!document.querySelector('#empty-command .tool-output'),'empty command output omitted');
-   return 'PASS: file preview 3/5/3, file click, execution fold, public output, failure, empty output';
+   const stream=document.querySelector('#stream .group-toggle');stream.click();await wait();
+   const streamId=document.querySelector('#stream article').dataset.groupId;
+   document.querySelector('#append-operation').click();await wait();
+   assert(document.querySelectorAll('#stream > article').length===1,'stream appends to existing group');
+   assert(document.querySelector('#stream article').dataset.groupId===streamId,'stream group ID stable');
+   assert(document.querySelector('#stream .group-toggle').getAttribute('aria-expanded')==='true','stream expansion retained');
+   assert(document.querySelectorAll('#stream .group-children article').length===3,'stream count increases from 2 to 3');
+   return 'PASS: file preview, output boundaries, subtitle removed, failures, stream 2/3 stable expansion';
   }}).toString()+')()'
  ).then(console.log);
  clearTimeout(timer);app.exit(0);
