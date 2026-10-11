@@ -16,7 +16,7 @@ import { orderTasks, assertPrerequisites } from './dependencies.js';
 import { captureBaseline, baselineDiff, reviewEvidence } from './incremental.js';
 import { assertOnboardingScope, assertRunContext } from './context-onboarding.js';
 import { loadProjectContext } from './project-context.js';
-import { assertPlanningContext, freezeTaskContext, checkTaskContext, contextReviewProblems, normalizeContractReferences, reviewContractCatalog, taskContextBaseline } from './context-review.js';
+import { assertPlanningContext, freezeTaskContext, checkTaskContext, taskContextBaseline } from './context-review.js';
 import { prepareUnlocked, pendingContextConfirmations } from './context-confirmation.js';
 import { decisionIdentity, assertDecisionState } from './decision-agent.js';
 import { assertExecutionState } from './opencode-execution-agent.js';
@@ -90,16 +90,6 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
   const reworkLimited = () => state.config.maxReworks !== undefined && state.reworks >= state.config.maxReworks;
-  function advanceReadyTask(): void {
-    const completed = state.completedTaskIds ?? [], deferred = state.deferredTaskIds ?? [];
-    const next = state.tasks.findIndex(task => !completed.includes(task.id) && !deferred.includes(task.id) && (task.dependsOn ?? []).every(id => completed.includes(id)));
-    state.reworks = 0; state.reviewRepairs = 0; state.reworkPending = false; state.failure = null; state.feedback = '';
-    if (next >= 0) { state.taskIndex = next; state.nextPhase = 'execute'; checkpoint('execute'); }
-    else if (deferred.length) {
-      state.taskIndex = state.tasks.findIndex(task => deferred.includes(task.id)); state.nextPhase = 'verify';
-      checkpoint('paused', 'deferred_by_work_mode / requires_system_authorization：相关节点验收 pending，其他可运行独立任务已处理。GUI/重型步骤需 idle 后明确恢复；系统高风险仍拒绝，idle 不授予授权。');
-    } else { state.taskIndex = state.tasks.length; state.nextPhase = 'execute'; checkpoint(pendingGuidance(store).length ? 'execute' : 'completed'); }
-  }
   async function agentOperation<T>(agent: 'claude' | 'codex' | 'opencode', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     assertOperationPolicy({ kind: 'model' });
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
@@ -124,11 +114,11 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     try { return await operation(signal); }
     catch (error) { if (timeout.aborted) throw new Error(`Timeout after ${timeoutMs} ms`); throw error; }
   }
-  async function checkedEvidence(): Promise<Evidence> {
+  async function checkedEvidence(reviewOnly = true): Promise<Evidence> {
     return withGuidanceHandoff(store,stop.signal,async signal=>{
     const contextReport = checkTaskContext(state, store);
     const finalNode = state.tasks.every((task, index) => index === state.taskIndex || state.completedTaskIds?.includes(task.id));
-    const evidence = await collectEvidence(state, signal, state.nativeExecution === true && finalNode);
+    const evidence = await collectEvidence(state, signal, state.nativeExecution === true && finalNode, reviewOnly);
     if (contextReport) {
       if (contextObservation(state, taskContextBaseline(state, store)?.context).digest !== contextReport.snapshot) throw new FlowError('safety', '模块检查后工作区变化；必须重新检查和独立验收');
       evidence.contextReport = contextReport;
@@ -272,26 +262,24 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         store.audit('edits-applied', { summary: edits.summary, paths: edits.changes.map(change => change.path) }); checkpoint('verify');
       } else if (state.phase === 'verify') {
         state.nextPhase = 'verify'; store.save(state);
-        state.evidence = await checkedEvidence();
-        if (state.evidence.issues.some(issue => issue.startsWith('Asset or large-file content changed;'))) { store.audit('independent-check',state.evidence); state.nextPhase='verify'; checkpoint('paused','Asset/large-file content requires human review; exact hashes are in evidence.diff. Automatic safety PASS and delivery are blocked. Preserve changes for manual resource inspection, or restore the recorded baseline before resuming.'); continue; }
-        if (!state.config.tests.length) { store.audit('independent-check',state.evidence); state.nextPhase='verify'; checkpoint('paused','No independent acceptance tests configured; human verification required'); continue; }
+        state.evidence = await checkedEvidence(true);
         const taskDiff = await baselineDiff(store, state, `task-${state.taskIndex}-baseline.json`, stop.signal);
         const roundDiff = await baselineDiff(store, state, `round-${state.loops}-baseline.json`, stop.signal);
         if (taskDiff !== undefined) state.evidence.taskDiff = taskDiff;
         if (roundDiff !== undefined) state.evidence.roundDiff = roundDiff;
         const contextSummary = reviewEvidence(state.evidence) as { fullDiffHash: string; taskDiffHash: string | null; roundDiffHash: string; diffOmitted: boolean };
         store.audit('diff-context', { fullDiffHash: contextSummary.fullDiffHash, taskDiffHash: contextSummary.taskDiffHash, roundDiffHash: contextSummary.roundDiffHash, diffOmitted: contextSummary.diffOmitted });
-        store.audit('independent-check', state.evidence); checkpoint('review');
+        store.audit('review-evidence', state.evidence); checkpoint('review');
       } else if (state.phase === 'review') {
         state.nextPhase = 'verify'; store.save(state);
         if (!state.evidence || await observeWorkspace(state, stop.signal) !== state.evidence.snapshotDigest || await workspaceHead(state,stop.signal) !== state.evidence.head) {
           if (state.nativeExecution) {
-            state.failure = classifyFailure(new FlowError('interrupted', '审查快照已变化；保留原生修改，恢复后重新独立验收'), 'review');
+            state.failure = classifyFailure(new FlowError('interrupted', '审查证据已变化；保留修改，恢复后重新交决策者'), 'review');
             store.audit('review-snapshot-interrupted', { loop: state.loops }); checkpoint('paused', state.failure.message); continue;
           }
-          throw new Error('Workspace changed after independent verification');
+          throw new Error('Workspace changed after evidence collection');
         }
-        const context = { runId: state.id, task: state.tasks[state.taskIndex], taskIndex: state.taskIndex, loop: state.loops, head: state.evidence.head, snapshotDigest: state.evidence.snapshotDigest, feedback: state.feedback, evidenceDigest: createHash('sha256').update(JSON.stringify({ tests: state.evidence.tests, issues: state.evidence.issues, passed: state.evidence.passed, executorExitCode: state.evidence.executorExitCode, ...(state.evidence.acceptanceRulesHash === undefined ? {} : { acceptanceRulesHash: state.evidence.acceptanceRulesHash }), ...(state.evidence.roundDiff === undefined ? {} : { roundDiff: state.evidence.roundDiff, taskDiff: state.evidence.taskDiff }) })).digest('hex') };
+        const context = { runId: state.id, task: state.tasks[state.taskIndex], taskIndex: state.taskIndex, loop: state.loops, head: state.evidence.head, snapshotDigest: state.evidence.snapshotDigest, feedback: state.feedback, evidenceDigest: createHash('sha256').update(JSON.stringify({ acceptanceMode: state.evidence.acceptanceMode, tests: state.evidence.tests, issues: state.evidence.issues, passed: state.evidence.passed, executorExitCode: state.evidence.executorExitCode, ...(state.evidence.acceptanceRulesHash === undefined ? {} : { acceptanceRulesHash: state.evidence.acceptanceRulesHash }), ...(state.evidence.roundDiff === undefined ? {} : { roundDiff: state.evidence.roundDiff, taskDiff: state.evidence.taskDiff }) })).digest('hex') };
         const key = createHash('sha256').update(JSON.stringify({ ...context, contextReport: state.evidence.contextReport })).digest('hex');
         const receipt = store.file(`review-${state.loops}-${key}.json`);
         let review: Review;
@@ -314,7 +302,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
             const roundDiff = await baselineDiff(store, state, `round-${state.loops}-baseline.json`, stop.signal);
             if (taskDiff !== undefined) state.evidence.taskDiff = taskDiff;
             if (roundDiff !== undefined) state.evidence.roundDiff = roundDiff;
-            store.audit('independent-check', state.evidence);
+            store.audit('review-evidence', state.evidence);
             state.nextPhase = 'verify'; checkpoint('paused', review.reason);
             for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
           }
@@ -324,49 +312,27 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
             // Review edits also need a bounded repair cycle, independent of paid usage.
             if (state.config.maxReworks !== undefined && (state.reviewRepairs ?? 0) >= Math.max(1, state.config.maxReworks)) {
               state.evidence = await checkedEvidence();
-              store.audit('independent-check', state.evidence);
+              store.audit('review-evidence', state.evidence);
               checkpoint('paused', 'Review repair limit reached');
             }
-            else { state.reviewRepairs = (state.reviewRepairs ?? 0) + 1; checkpoint('verify', 'Claude 修改后重新独立验收和审查'); }
+            else { state.reviewRepairs = (state.reviewRepairs ?? 0) + 1; checkpoint('verify', '决策者修改后重新审查最终成果'); }
           }
           continue;
         }
-        if (review.verdict === 'pass' && state.evidence.tests.some(test => test.status) &&
-            state.evidence.issues.every(issue => issue.startsWith('Pending acceptance operations:')) &&
-            contextReviewProblems(state.evidence.contextReport, review, normalizeContractReferences(review.contextReview?.checkedContracts ?? [], state.evidence.contextReport ? reviewContractCatalog(state) : [])).length === 0 &&
-            !(reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) {
-          const taskId = state.tasks[state.taskIndex]!.id;
-          state.deferredTaskIds ??= [];
-          if (!state.deferredTaskIds.includes(taskId)) state.deferredTaskIds.push(taskId);
-          store.audit('task-acceptance-pending', { taskId, review, tests: state.evidence.tests.filter(test => test.status), note: '代码和安全检查已执行；GUI/风险验收未通过，禁止交付；依赖该节点的任务等待，继续独立节点。' });
-          advanceReadyTask(); continue;
-        }
-        if (review.verdict === 'human') {
+        state.evidence.acceptanceMode = 'decision-user';
+        state.evidence.decisionReview = review;
+        if (review.verdict === 'pass') {
+          state.nextPhase = 'verify';
+          checkpoint('paused', '决策者验收通过，等待用户确认；Controller 不判定成果成败');
+        } else if (review.verdict === 'human') {
           state.nextPhase = 'verify'; checkpoint('paused', review.reason);
           for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
-        }
-        else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
-        else if (review.verdict === 'pass' && state.evidence?.passed) {
-          const catalog = state.evidence.contextReport ? reviewContractCatalog(state) : [];
-          const references = normalizeContractReferences(review.contextReview?.checkedContracts ?? [], catalog);
-          if (state.evidence.contextReport) store.audit('context-review-references', { receipt, snapshot: state.evidence.snapshotDigest, baselineDigest: state.evidence.contextReport.baselineDigest, raw: review.contextReview?.checkedContracts ?? [], ...references, catalog, catalogHash: createHash('sha256').update(JSON.stringify(catalog)).digest('hex') });
-          const contextProblems = contextReviewProblems(state.evidence.contextReport, review, references);
-          if (contextProblems.length) {
-            store.audit('review-vetoed', { reason: 'Project Context 审查缺少正式处理', contextProblems });
-            state.feedback = contextProblems.join('\n'); state.nextPhase = 'execute'; state.reworkPending = true;
-            checkpoint(reworkLimited() ? 'paused' : 'execute', reworkLimited() ? 'Rework limit reached' : state.feedback); continue;
-          }
-          if ((reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) { state.nextPhase = 'verify'; checkpoint('paused', 'Review context omitted diff; human inspection required'); continue; }
-          state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
-          if (!state.completedTaskIds.includes(state.tasks[state.taskIndex]!.id)) state.completedTaskIds.push(state.tasks[state.taskIndex]!.id);
-          state.deferredTaskIds = (state.deferredTaskIds ?? []).filter(id => id !== state.tasks[state.taskIndex]!.id);
-          advanceReadyTask();
+        } else if (review.verdict === 'fail') {
+          state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason);
         } else {
-          state.feedback = `${review.reason}\n${state.evidence?.issues.join('\n') ?? 'No evidence'}`;
-          if (review.verdict === 'pass') store.audit('review-vetoed', { reason: 'Independent verification failed' });
+          state.feedback = review.reason;
           state.nextPhase = 'execute'; state.reworkPending = true;
-          if (reworkLimited()) checkpoint('paused', 'Rework limit reached');
-          else checkpoint('execute');
+          checkpoint(reworkLimited() ? 'paused' : 'execute', reworkLimited() ? 'Rework limit reached' : review.reason);
         }
       } else { throw new Error(`Unexpected phase ${state.phase}`); }
       } catch(error) {

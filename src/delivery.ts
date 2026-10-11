@@ -1,3 +1,4 @@
+import { manualAcceptanceDigest } from './manual-acceptance.js';
 import { observationScope } from './project-observation.js';
 import { closeSync, existsSync, fsyncSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -105,20 +106,29 @@ async function fullDiff(repo: string, base: string): Promise<string> {
   return diff;
 }
 async function completionProof(store: Store, state: State): Promise<string> {
+  if (!state.evidence) throw new Error('Run lacks reviewed evidence');
   if (state.purpose === 'context-onboarding') { assertOnboardingScope(state, store); loadProjectContext(state.workspace, true); }
-  if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !state.evidence?.passed || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
-  if (await observeWorkspace(state) !== state.evidence.snapshotDigest || await workspaceHead(state) !== workspaceBaseHead(state)) throw new Error('Completed workspace changed');
+  if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !(state.evidence?.acceptanceMode === 'decision-user' ? state.evidence.userAccepted : state.evidence?.passed) || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
+  if (await observeWorkspace(state) !== state.evidence.snapshotDigest || await workspaceHead(state) !== (state.evidence.acceptanceMode === 'decision-user' ? state.evidence.head : workspaceBaseHead(state))) throw new Error('Completed workspace changed');
   const rules = await acceptanceRulesHash(state, true);
   if (rules !== state.evidence.acceptanceRulesHash) throw new Error('Acceptance rules changed since verification');
   const approvals = new Map<number, unknown>(); let previous = '', taskIndex = 0; let check: State['evidence'] = null;
-  let plan: unknown;
+  let plan: unknown; let decisionReview: unknown;
   for (const line of readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n')) {
     const { hash: recordedHash, ...record } = JSON.parse(line);
     if (record.previousHash !== previous || hash(JSON.stringify(record)) !== recordedHash) throw new Error('Run audit chain invalid'); previous = recordedHash;
     if (record.event === 'plan') plan = record.data.tasks;
     if (record.event === 'transition') { taskIndex = record.data.taskIndex; if (record.data.phase === 'executing') check = null; }
-    if (record.event === 'independent-check') check = record.data;
-    if (record.event === 'review' && record.data.verdict === 'pass') {
+    if (record.event === 'independent-check' || record.event === 'review-evidence') check = record.data;
+    if (record.event === 'review') decisionReview = record.data;
+    if (record.event === 'manual-acceptance' && record.data.evidence?.acceptanceMode === 'decision-user') {
+      const accepted = record.data.evidence as NonNullable<State['evidence']>;
+      const candidate = { ...state, phase: 'paused' as const, nextPhase: 'verify' as const, taskIndex: record.data.taskIndex, loops: record.data.loop, evidence: { ...accepted, userAccepted: false } };
+      if (check?.snapshotDigest === accepted.snapshotDigest && check.head === accepted.head && accepted.userAccepted &&
+          JSON.stringify(decisionReview) === JSON.stringify(accepted.decisionReview) && record.data.observations?.trim() &&
+          record.data.taskId === state.tasks[record.data.taskIndex]?.id && manualAcceptanceDigest(candidate) === record.data.digest && accepted.acceptanceRulesHash === rules) approvals.set(record.data.taskIndex, accepted);
+    }
+    if (state.evidence.acceptanceMode !== 'decision-user' && record.event === 'review' && record.data.verdict === 'pass') {
       // Only reviews refer to an active task. Completed transitions advance the
       // index beyond the plan and must not resolve a trusted task-stage mapping.
       const expectedTests = state.nativeExecution && taskIndex === state.tasks.length - 1 ? state.config.tests.length : testIndexes(state.tasks[taskIndex], state.config).length;
@@ -288,11 +298,11 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       if (journal.phase === 'applied') { store.audit('delivery-repeat-verified', { deliveryId: id, kind: 'direct', sourceWrites: 0 }); return journal; }
       journal.phase = 'applying'; save(store, journal);
       const run = store.load();
-      const evidence = await collectEvidence({ ...run, taskIndex: run.tasks.length - 1 }, new AbortController().signal, true);
+      const evidence = await collectEvidence({ ...run, taskIndex: run.tasks.length - 1 }, new AbortController().signal, true, run.evidence?.acceptanceMode === 'decision-user');
       atomicJson(path.join(directory(store, id), 'final-check.json'), evidence);
       store.audit('delivery-independent-check', { deliveryId: id, kind: 'direct', ...evidence, sourceWrites: 0 });
-      if (!evidence.passed || evidence.snapshotDigest !== delivery.workspaceSnapshot || evidence.acceptanceRulesHash !== delivery.rulesHash) throw new Error('Direct delivery final independent verification failed');
-      journal.phase = 'applied'; journal.reason = run.snapshotPolicy === 'none' ? `配置测试已通过，现有成果已确认；${observationScope}` : '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
+      if ((run.evidence?.acceptanceMode !== 'decision-user' && !evidence.passed) || evidence.snapshotDigest !== delivery.workspaceSnapshot || evidence.acceptanceRulesHash !== delivery.rulesHash) throw new Error('Direct delivery final independent verification failed');
+      journal.phase = 'applied'; journal.reason = run.evidence?.acceptanceMode === 'decision-user' ? '决策者审查及用户验收已确认；Controller 未执行验收测试，未重复写入项目文件。' : run.snapshotPolicy === 'none' ? `配置测试已通过，现有成果已确认；${observationScope}` : '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
     }
     const projectRelease=lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}});
     try {const legacyRelease=delivery.branch==='project-files'?()=>{}:targetLock(delivery.target,options.resume??false);release=()=>{try{legacyRelease();}finally{projectRelease();}};}catch(error){projectRelease();throw error;}

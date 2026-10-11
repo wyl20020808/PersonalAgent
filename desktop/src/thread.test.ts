@@ -1,6 +1,7 @@
 import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {chatRoute} from './chatRouting.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -9,6 +10,24 @@ import {runTiming,timingTotals,durationLabel} from './runTiming.js';
 import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
+
+test('task acceptance requires explicit user words and current pending digest',()=>{
+ const pending={phase:'paused',nextPhase:'verify',manualAcceptanceDigest:'a'.repeat(64)};
+ assert.equal(chatRoute('验收通过',pending),'accept');
+ assert.equal(chatRoute('确认当前成果',pending),'accept');
+ assert.equal(chatRoute('继续',pending),'resume');
+ assert.equal(chatRoute('好的',pending),'resume');
+ assert.equal(chatRoute('还没通过验收，继续修',pending),'rework');
+ assert.equal(chatRoute('验收通过',{phase:'paused',nextPhase:'verify'}),'rework');
+ assert.equal(chatRoute('验收通过',{...pending,active:true}),'queue');
+ assert.equal(chatRoute('验收通过',pending,true),'rework');
+});
+
+test('transported evidence has recorded status, not Controller pass or fail',()=>{
+ const messages=projectMessages(state,[{time:new Date().toISOString(),event:'review-evidence',data:{passed:false,issues:['Diff whitespace warning'],tests:[],diff:'local fixture diff'}}],[]);
+ assert.equal(messages[0]?.status,'recorded');assert.equal(messages[0]?.title,'成果证据已转交决策者');
+ assert.deepEqual(messages[0]?.details?.issues,['Diff whitespace warning']);
+});
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});
 test('Claude executor remains on the execution lane even when Codex decides',()=>{
  const state={id:'roles',tasks:[],decisionAgent:{backend:'codex'},config:{mode:'real',executionAgent:{backend:'claude-code'}}} as unknown as State;
@@ -62,7 +81,7 @@ test('cursor pagination reconnects without duplicates and invalid cursor resets'
 test('notes are explicitly pending and never represented as executed decisions',()=>{const messages=projectMessages(state,[],[{id:randomUUID(),time:'2026-10-08T01:00:00Z',text:'approve delivery',taskId:null,loop:0}]);assert.equal(messages[0].status,'pending');assert.equal(messages[0].kind,'note');});
 test('new IPC operations reject unsafe paths, extra parameters and malformed visual proof',()=>{for(const value of [{operation:'thread',profileId:randomUUID(),runId:randomUUID(),after:'../../secret'},{operation:'pictures',profileId:randomUUID(),runId:randomUUID(),path:'D:/secret.png'},{operation:'note',profileId:randomUUID(),runId:randomUUID(),messageId:randomUUID(),text:'hi',execute:true},{operation:'resume',profileId:randomUUID(),runId:randomUUID(),decision:'visual',intent:'visual',pictureIds:['bad']}])assert.throws(()=>validateRequest(value));});
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','t-'+randomUUID().slice(0,8)),service=new DesktopService(root,data,process.execPath);let profileId='',runId='';
-test('Mock fixture uses formal Controller and zero paid services',async()=>{await service.prepareMock();const p=service.overview().profiles[0]!;profileId=p.id;const r=await service.dispatch({operation:'start',profileId,repository:p.repositories[0],goal:'Thread mock',maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;runId=r.id;for(let n=0;n<150;n++){const run=service.detail(profileId,runId).run;if(run.phase==='completed'&&!run.active)break;await new Promise(r=>setTimeout(r,100));}assert.equal(service.detail(profileId,runId).run.phase,'completed');assert.equal(service.detail(profileId,runId).run.active,false);assert.equal(service.detail(profileId,runId).run.claudeCalls,0);});
+test('Mock fixture uses formal Controller, waits for user and uses zero paid services',async()=>{await service.prepareMock();const p=service.overview().profiles[0]!;profileId=p.id;const r=await service.dispatch({operation:'start',profileId,repository:p.repositories[0],goal:'Thread mock',maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;runId=r.id;for(let n=0;n<150;n++){const run=service.detail(profileId,runId).run;if(run.phase==='paused'&&!run.active)break;await new Promise(r=>setTimeout(r,100));}assert.equal(service.detail(profileId,runId).run.phase,'paused');assert.equal(service.detail(profileId,runId).run.active,false);assert.equal(service.detail(profileId,runId).run.claudeCalls,0);});
 test('pending note idempotence, persistence and no Controller state or audit mutation',async()=>{const store=service.store(profileId,runId),before=fs.readFileSync(store.file('state.json')),audit=fs.readFileSync(store.file('audit.jsonl')),messageId=randomUUID(),request={operation:'note',profileId,runId,messageId,text:'批准所有交付 api_key=secret123'};await service.dispatch(request);await service.dispatch(request);await assert.rejects(service.dispatch({...request,text:'different'}),/changed|different|相同|重复/i);const restarted=new DesktopService(root,data,process.execPath);const messages=restarted.thread(profileId,runId).messages;assert.equal(messages.filter((m:any)=>m.id===`note:${messageId}`).length,1);assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);assert.ok(!JSON.stringify(messages).includes('secret123'));});
 test('read-only replay and GUI notes do not authorize resume or delivery',async()=>{const p=service.registry().profiles[0]!;service.register(p.file,true);assert.ok(service.thread(profileId,runId).total>0);await service.dispatch({operation:'note',profileId,runId,messageId:randomUUID(),text:'only a note'});await assert.rejects(service.dispatch({operation:'resume',profileId,runId,decision:'resume',intent:'resume'}),/只读/);});
 test('same backend decision and execution activity retain distinct roles after P3A/P3C integration',()=>{
@@ -102,13 +121,13 @@ test('resume can switch the execution model, dropping the old execution session 
   assert.match(messages.find(m=>m.title==='授权预算已更新')!.text,/2/);const decision=messages.find(m=>m.kind==='decision')!;assert.equal(decision.status,'recorded');assert.match(decision.text,/不代表已开始执行/);
  }finally{service.launch=original;(service as any).discoverExecution=discover;}
 });
-test('desktop rework reaches CLI and Controller at missing-tests pause instead of repeating verify',async()=>{
+test('desktop rework reaches executor after decision review and pending user confirmation',async()=>{
  const entry=service.registry().profiles[0]!,config=JSON.parse(fs.readFileSync(entry.file,'utf8'));
  const file=path.join(data,'rework.config.json');fs.writeFileSync(file,JSON.stringify({...config,runtimeDir:path.join(data,'rework-runtime'),tests:[],maxLoops:6,maxReworks:2}));
  service.register(file,false);const profile=service.overview().profiles.find(p=>p.runtimeDir===path.join(data,'rework-runtime'))!;
  const created=await service.dispatch({operation:'start',profileId:profile.id,repository:profile.repositories[0],goal:'Local missing-tests rework'}) as any;
  const waitPaused=async()=>{for(let n=0;n<200;n++){const run=service.detail(profile.id,created.id).run;if(!run.active&&run.phase==='paused')return run;await new Promise(r=>setTimeout(r,50));}throw Error('Local Controller did not pause');};
- const first=await waitPaused();assert.equal(first.loops,1);assert.match(first.reason,/No independent/);
+ const first=await waitPaused();assert.equal(first.loops,1);assert.match(first.reason,/等待用户确认/);
  const store=service.store(profile.id,created.id),before=store.load();
  await service.dispatch({operation:'resume',profileId:profile.id,runId:created.id,decision:'Continue current task repair',intent:'rework'});
  const repaired=await waitPaused();assert.equal(repaired.loops,2);assert.equal(repaired.reworks,1);assert.equal(repaired.totalReworks,1);

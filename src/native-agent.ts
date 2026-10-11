@@ -7,7 +7,7 @@ import { codexObservation } from './call-observation.js';
 import { editSchema, nativeResultSchema, validate, type ExecutionResult } from './schema.js';
 
 // Collaboration rules; native tools remain owned by the CLI/SDK.
-export const agentRules = `围绕用户授权的项目目标工作，优先复用已有代码和工具。可自主读取、搜索、编辑文件，执行 Shell、构建、测试、调试及使用本机配置的网络、Skills、hooks、MCP 等能力。修改后主动测试；遇到失败优先自主分析并修复，可在同一次调用内反复修复。重大架构变化先请求用户确认。不修改无关项目，不擅自删除重要数据或覆盖用户成果。未经明确批准不得推送远程仓库、发布或部署。保留 Controller 正式交付审批，不自行提交、合并或交付。不得伪造工具、测试、审查或模型输出；完成后报告实际改动和验证结果。Agent 自测不等于 Controller 独立验收。Claude 以规划、审查和指导为主，必要时可直接修复小问题；Codex 以开发为主。Controller 顺序调度二者，调用结束前不得留下后台写入进程。遵守仓库已有规则。所有报告使用中文。`;
+export const agentRules = `围绕用户授权的项目目标工作，优先复用已有代码和工具。可自主读取、搜索、编辑文件，执行 Shell、构建、测试、调试及使用本机配置的网络、Skills、hooks、MCP 等能力。修改后主动测试；遇到失败优先自主分析并修复，可在同一次调用内反复修复。重大架构变化先请求用户确认。不修改无关项目，不擅自删除重要数据或覆盖用户成果。未经明确批准不得推送远程仓库、发布或部署。保留 Controller 正式交付审批，不自行提交、合并或交付。不得伪造工具、测试、审查或模型输出；完成后报告实际改动和验证结果。执行者自测不等于决策者验收或用户确认。执行者完成后先交配置的决策者验收；Controller 只负责调度、收集证据、维护权限及交付授权记录，不执行验收测试、不判定成果成败。决策者自行选择必要验证并给出结论，再交用户最终确认。Claude 以规划、审查和指导为主，必要时可直接修复小问题；Codex 以开发为主。Controller 顺序调度二者，调用结束前不得留下后台写入进程。遵守仓库已有规则。所有报告使用中文。`;
 
 export function nativeThreadOptions(workspace: string): ThreadOptions {
   return { workingDirectory: workspace, skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' };

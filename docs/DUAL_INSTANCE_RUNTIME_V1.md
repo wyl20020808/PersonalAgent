@@ -48,3 +48,12 @@ MAIN 原有外部配置、历史 Run、预算和审计保留在原处，不迁�
 `test/dual-instance.test.ts` 检查数据误用、无预授权的真实模式本地注入、同步 MAIN/DEV Mock 子进程、数据隔离和跨进程项目写入冲突。`desktop/validate-dual-instance.mjs` 使用隔离测试数据和真实 Electron 窗口、正式 IPC/Mock Controller，检查同时启动、独立 Session/Run、历史读取和单实例退出。没有调用真实模型。
 
 TEST 启动：`powershell -NoProfile -File D:\PersonalAgent-worktrees\test\Start-TEST.ps1`。桌面 PersonalAgent TEST 快捷方式使用无控制台启动包装器；不会自动启动任务或更新 DEV。
+
+
+## 决策者验收、用户确认（2026-10-11）
+
+本次按用户明确要求修订验收职责：执行者提交实际成果与自测记录，配置的决策者（双决策模式为主决策者）自行判断验收方法、运行必要验证并给出结论，再交用户最终确认。Controller 只负责信息传递、上下文保护、顺序调度、运行恢复、审计及权限/授权记录；不执行一套固定测试替决策者或用户判定成果成功或失败，也不以 tests 为空、程序检查结果、Diff 告警或 Context 报告自动否决决策者结论。观察记录原样交给决策者及用户。
+
+决策者 pass 后保持暂停等待用户；human 交用户决定；rework 才调度执行者返工；fail 原样记录决策者终止意见。用户可在聊天明确发送“验收通过”确认当前成果；“继续”不代表批准。确认绑定当前 Run、任务、轮次、审查结论和已观察成果摘要，变化后重新审查，不重放已完成执行。测试未执行时保持 passed=false，不虚报测试通过。用户确认与正式交付批准分别记录；锁、路径权限、进程异常和证据有效性约束仍保留，运行异常不得冒充成果验收失败。历史 independent-check 审计保留原事实；旧验收顺序不再指导新流程。
+
+本任务由外部 Codex 在独立 Worktree 开发，显式采用用户提供的 V2.1 条件式本地 TEST 集成授权；不依据此 Worktree 的旧 V2 摘要要求重复审批。DEV/MAIN 更新、实例替换、推送和发布仍须对应授权。

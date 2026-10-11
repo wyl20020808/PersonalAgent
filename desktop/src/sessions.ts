@@ -188,6 +188,13 @@ export class SessionStore {
    message.status='pending';message.autoQueued=Boolean(last?.active||last&&active.includes(last.phase));message.action='queue';message.error=message.autoQueued?'当前任务完成后自动处理；如任务中断，将保留消息等待你的新指令。':'同项目有其他任务运行，已保留消息，请待其结束后重试。';this.update(session);return this.public(session);
   }
   if(route==='acknowledge'){message.status='recorded';this.update(session);return this.public(session);}
+  if(last&&route==='accept'){
+   try{
+    await this.service.dispatch({operation:'manualAccept',profileId:last.profileId,runId:last.id,digest:last.manualAcceptanceDigest!,decision:message.text});
+    message.runId=last.id;message.status='executed';this.update(session);
+   }catch(error){message.status='failed';message.error=redact((error as Error).message);this.update(session);}
+   return this.public(session);
+  }
   if(last&&(route==='resume'||route==='rework')){
    try{
     const request:Request={operation:'resume',profileId:last.profileId,runId:last.id,decision:message.text,intent:route};

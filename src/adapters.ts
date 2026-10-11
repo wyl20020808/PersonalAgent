@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Config, Edits, ExecutionResult, Plan, Review } from './schema.js';
@@ -67,6 +69,11 @@ export class MockAgents implements Agents {
   async review(state: State, store?: Store): Promise<Review> {
     if (state.discussion && store) return withParticipant(state, store, state.discussion.config.primary, 'review', async (view, scoped) => { mockParticipantSession(view, scoped); return this.review(view); });
     if (this.config.mockScenario === 'human' && !state.feedback) return { verdict: 'human', reason: 'Need user decision' };
+    if (state.evidence?.acceptanceMode === 'decision-user') {
+      const task = state.tasks[state.taskIndex]!;
+      const correct = readFileSync(path.join(state.workspace, `${task.id}.txt`), 'utf8') === `${task.id}\n`;
+      return { verdict: correct ? 'pass' : 'rework', reason: correct ? 'Local fixture inspected executor file; Waiting for user acceptance' : 'Fix executor file' };
+    }
     return { verdict: state.evidence?.passed ? 'pass' : 'rework', reason: state.evidence?.passed ? 'Verified' : 'Fix failed checks' };
   }
 }

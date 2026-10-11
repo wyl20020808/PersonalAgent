@@ -40,7 +40,7 @@ export function claudePublicEvent(value:any):PublicActivity|null {
 export function codexPublicEvent(value:any):PublicActivity|null {
   const item=value.item;
   if(value.type==='turn.started')return {key:'turn.started',kind:'stage',title:'Codex 开始执行',text:'已收到 Controller 派发的任务'};
-  if(value.type==='turn.completed')return {key:'turn.completed',kind:'stage',title:'Codex 回合完成',text:'原生执行回合完成；尚不代表测试通过，需 Controller 独立验收'};
+  if(value.type==='turn.completed')return {key:'turn.completed',kind:'stage',title:'Codex 回合完成',text:'原生执行回合完成；尚不代表测试通过，待决策者验收，再交用户确认'};
   if(value.type==='error' && /^Reconnecting\.\.\./.test(value.message??''))return {key:`retry:${value.message}`,kind:'retry',title:'Codex 正在重连',text:value.message};
   if(value.type==='turn.failed'||value.type==='error')return {key:`${value.type}:${value.error?.message??value.message}`,kind:'error',title:'Codex 连接或执行异常',text:value.error?.message??value.message??'未知异常'};
   if(!item||!['item.started','item.updated','item.completed'].includes(value.type))return null;

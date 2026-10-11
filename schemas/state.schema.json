@@ -737,6 +737,156 @@
         {
           "type": "object",
           "properties": {
+            "acceptanceMode": {
+              "const": "decision-user"
+            },
+            "decisionReview": {
+              "type": "object",
+              "properties": {
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "rework",
+                    "human",
+                    "fail"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 100000
+                },
+                "contextReview": {
+                  "type": "object",
+                  "properties": {
+                    "expansionReason": {
+                      "type": "string"
+                    },
+                    "unmappedReason": {
+                      "type": "string"
+                    },
+                    "checkedContracts": {
+                      "type": "array",
+                      "description": "实际已核对的精确契约 ID，例如 [\"hud\",\"geometry\"]；不填标题或文件名，不编造核对。旧输出的精确相对路径仅由 Controller 按本轮安全清单兼容。",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100000
+                      }
+                    },
+                    "modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "moduleId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          },
+                          "documentUpdated": {
+                            "type": "boolean"
+                          },
+                          "noUpdateReason": {
+                            "type": "string"
+                          },
+                          "checkedFiles": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100000
+                            }
+                          },
+                          "constraintsChanged": {
+                            "type": "boolean"
+                          },
+                          "disposition": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": [
+                          "moduleId",
+                          "documentUpdated",
+                          "noUpdateReason",
+                          "checkedFiles",
+                          "constraintsChanged",
+                          "disposition"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "confirmationNotes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "expansionReason",
+                    "unmappedReason",
+                    "checkedContracts",
+                    "modules"
+                  ],
+                  "additionalProperties": false
+                },
+                "contextConfirmations": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "relative": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100000
+                      },
+                      "action": {
+                        "enum": [
+                          "accepted",
+                          "rejected",
+                          "superseded"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "relative",
+                      "action"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "verdict",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            "userAccepted": {
+              "type": "boolean"
+            },
             "verificationScope": {
               "type": "string"
             },
