@@ -15,19 +15,59 @@ import {claimGuidance,guidanceStatus,pendingGuidance} from '../../dist/src/steer
 import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+const settleDiscussion=async(service:DesktopService,id:string)=>{for(let i=0;i<150;i++){if(!service.sessions.discussionJobs.has(id))return service.sessions.detail(id).session;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('Discussion did not settle');};
 
 test('Discuss dropdown and slash share persistent multi-turn discussion without launching development',async()=>{
  for(const dropdown of [true,false]){
   const {service,data,project}=fixture();let launches=0;service.launch=()=>{launches++;};
   const original=fs.readFileSync(path.join(project,'user.txt'),'utf8');
   const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',...(dropdown?{chatMode:'discuss'}:{})}) as Conversation;
-  const first=await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:dropdown?'如何修复问题？':'/discuss 如何修复问题？'}) as Conversation;
+  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:dropdown?'如何修复问题？':'/discuss 如何修复问题？'});
+  const first=await settleDiscussion(service,session.id);
   assert.equal(first.chatMode,'discuss');assert.equal(first.runs.length,0);assert.equal(first.status,'discuss');assert.ok(first.discussionPlan);assert.ok(first.messages.at(-1)?.discussionReply);assert.equal(first.directAuthorized,false);
-  const next=new DesktopService(root,data,process.execPath),second=await next.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续，开始执行吧'}) as Conversation;
+  const next=new DesktopService(root,data,process.execPath);await next.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续，开始执行吧'});
+  const second=await settleDiscussion(next,session.id);
   assert.equal(second.chatMode,'discuss');assert.equal(second.messages.at(-1)?.action,'discuss');assert.ok(second.messages.at(-1)?.discussionReply);assert.equal(second.discussionStateId,first.discussionStateId);assert.equal(second.runs.length,0);assert.equal(next.overview().profiles.length,0);assert.equal(launches,0);assert.equal(fs.readFileSync(path.join(project,'user.txt'),'utf8'),original);
  }
 });
 
+test('discussion acknowledges before response, queues continuations in order, and blocks execution until completion',async()=>{
+ const {service,project}=fixture(),session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ let finish!:()=>void;const gate=new Promise<void>(resolve=>finish=resolve),calls:string[]=[];
+ service.sessions.discuss=async(_session,_message,text)=>{calls.push(text);if(calls.length===1)await gate;return {reply:'回复 '+text,plan:'方案 '+text};};
+ const id=randomUUID(),first=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:id,text:'first'});
+ assert.equal(first.messages[0].status,'starting');assert.equal(first.messages[0].text,'first');assert.equal(first.discussionPlan,undefined);assert.deepEqual(calls,['first']);
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:id,text:'first'});assert.equal(calls.length,1);
+ const second=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'second'});assert.equal(second.messages[1].status,'pending');
+ const thirdId=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:thirdId,text:'cancelled'});service.sessions.edit({operation:'cancelSessionMessage',sessionId:session.id,messageId:thirdId},true);
+ await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:session.id,messageId:randomUUID(),projectMode:'direct'}),/具体方案|未完成/);
+ finish();const complete=await settleDiscussion(service,session.id);assert.deepEqual(calls,['first','second']);assert.equal(complete.discussionPlan,'方案 second');assert.equal(complete.messages[2].status,'cancelled');assert.equal(fs.existsSync(service.sessions.lockPath(service.sessions.get(session.id))),false);assert.equal(service.overview().runs.length,0);
+});
+test('failed background discussion keeps user message and draft, and does not replay queued work',async()=>{
+ const {service,project}=fixture(),session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ let reject!:(error:Error)=>void;const gate=new Promise<never>((_resolve,rejectGate)=>reject=rejectGate);let calls=0;service.sessions.discuss=async()=>{calls++;return gate;};
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first'});await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'later'});reject(Error('transport disconnected'));
+ const complete=await settleDiscussion(service,session.id);assert.equal(complete.messages[0].status,'failed');assert.match(complete.messages[0].error!,/transport disconnected/);assert.equal(complete.messages[1].status,'pending');assert.equal(complete.messages[1].autoQueued,false);assert.equal(calls,1);
+ const restarted=new DesktopService(root,service.data,process.execPath);restarted.sessions.detail(session.id);assert.equal(calls,1);assert.equal(restarted.sessions.get(session.id).messages[0].text,'first');
+});
+
+test('queued mode notice does not strand the following edited discussion message',async()=>{
+ const {service,project}=fixture(),session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ let finish!:()=>void;const gate=new Promise<void>(resolve=>finish=resolve),calls:string[]=[];
+ service.sessions.discuss=async(_session,_message,text)=>{calls.push(text);if(calls.length===1)await gate;return {reply:text,plan:text};};
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'/discuss'});
+ const last=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:last,text:'old'});service.sessions.edit({operation:'editSessionMessage',sessionId:session.id,messageId:last,text:'edited'});
+ finish();for(let i=0;i<100&&service.sessions.get(session.id).messages.at(-1)?.status!=='recorded';i++)await new Promise(resolve=>setTimeout(resolve,10));
+ assert.deepEqual(calls,['first','edited']);assert.equal(service.sessions.get(session.id).messages[1].discussionNotice,true);assert.equal(service.sessions.get(session.id).messages[2].status,'recorded');
+});
+
+test('unavailable discussion audit does not discard durable user messages',async()=>{
+ const {service,project}=fixture(),session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'durable question'});await settleDiscussion(service,session.id);
+ const saved=service.sessions.get(session.id);saved.discussionStateId=randomUUID();service.sessions.update(saved);
+ const detail=service.sessions.detail(session.id);assert.equal(detail.session.messages[0].text,'durable question');assert.equal(detail.discussionMessages.length,0);assert.match(detail.discussionError!,/不可用/);
+});
 test('bare /discuss enters discussion, duplicate sends are idempotent and /discussx stays a development goal',async()=>{
  const {service,project}=fixture();service.launch=()=>{};
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'}),id=randomUUID();
@@ -43,6 +83,7 @@ test('discussion execution requires direct authorization, retains context and st
  const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'保持现有文件，新增功能'});
+ await settleDiscussion(service,session.id);
  const plan=service.sessions.get(session.id).discussionPlan;
  await assert.rejects(service.dispatch({operation:'executeDiscussion',sessionId:session.id,messageId:randomUUID(),projectMode:'direct'}),/明确授权/);assert.equal(service.sessions.get(session.id).chatMode,'discuss');assert.equal(launches,0);
  const failed=service.sessions.get(session.id).messages.at(-1)!;service.sessions.edit({operation:'cancelSessionMessage',sessionId:session.id,messageId:failed.id},true);

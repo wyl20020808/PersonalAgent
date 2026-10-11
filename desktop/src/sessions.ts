@@ -1,3 +1,5 @@
+import {Store} from '../../dist/src/store.js';
+import {projectMessages} from './thread.js';
 import {bindRunAttachments,readNativeAttachment,stageRunAttachments} from '../../dist/src/multimodal.js';
 import {publishGuidance,guidanceStatus,cancelGuidance,readGuidance} from '../../dist/src/steering.js';
 import {projectTarget} from '../../dist/src/project-files.js';
@@ -19,13 +21,15 @@ type Saved=Omit<Conversation,'budget'|'status'|'lastMessage'>;
 const active=['planning','execute','executing','applying','verify','review'];
 export class SessionStore {
  readonly discussionCalls=new Map<string,{controller:AbortController;promise:Promise<ConversationReply>}>();
+ readonly discussionJobs=new Map<string,Promise<void>>();
+ private stoppingDiscussions=false;
  readonly inFlight=new Set<string>();
  readonly draining=new Set<string>();
  readonly file:string;
  constructor(readonly service:DesktopService){this.file=path.join(service.data,'sessions.json');}
  lockPath(session:Saved){return path.join(this.service.data,'session-project-'+createHash('sha256').update(session.projectPath.toLowerCase()).digest('hex')+'.lock');}
  lockAlive(file:string){if(!fs.existsSync(file))return false;try{const pid=JSON.parse(fs.readFileSync(file,'utf8')).pid;if(!Number.isInteger(pid)||pid<1)return true;try{process.kill(pid,0);return true;}catch(error){return (error as NodeJS.ErrnoException).code!=='ESRCH';}}catch{return true;}}
- acquire(session:Saved){const file=this.lockPath(session);if(fs.existsSync(file)&&!this.lockAlive(file))fs.unlinkSync(file);let descriptor:number;try{descriptor=fs.openSync(file,'wx');}catch{throw Error('此项目正在处理消息，请稍后重试；未重复启动');}fs.writeFileSync(descriptor,JSON.stringify({pid:process.pid,sessionId:session.id}));fs.fsyncSync(descriptor);return ()=>{fs.closeSync(descriptor);fs.unlinkSync(file);};}
+ acquire(session:Saved){const file=this.lockPath(session);if(this.discussionJobs.has(session.id)&&fs.existsSync(file)){const owner=JSON.parse(fs.readFileSync(file,'utf8'));if(owner.pid===process.pid&&owner.sessionId===session.id)return ()=>{};}if(fs.existsSync(file)&&!this.lockAlive(file))fs.unlinkSync(file);let descriptor:number;try{descriptor=fs.openSync(file,'wx');}catch{throw Error('此项目正在处理消息，请稍后重试；未重复启动');}fs.writeFileSync(descriptor,JSON.stringify({pid:process.pid,sessionId:session.id}));fs.fsyncSync(descriptor);return ()=>{fs.closeSync(descriptor);fs.unlinkSync(file);};}
  read():Saved[]{const items:Saved[]=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):[];return items.map(s=>({...s,settings:{...s.settings,decisionAgent:s.settings.decisionAgent??{backend:'claude-code'}}}));}
  save(items:Saved[]){atomicJson(this.file,items);}
  get(id:string){const session=this.read().find(s=>s.id===id);if(!session)throw Error('会话不存在');return session;}
@@ -82,7 +86,7 @@ export class SessionStore {
   // An interrupted launch is never silently retried: locate its durable Controller link.
   let changed=false;
   for(const message of session.messages){if(message.status==='starting'&&message.runId){message.status='executed';changed=true;}else if(message.status==='starting'&&!this.inFlight.has(session.id)&&!this.lockAlive(this.lockPath(session))){message.status='failed';message.error='启动中断；请检查运行记录后明确重试。';changed=true;}}
-  if(changed)this.update(session);
+  if(changed){for(const waiting of session.messages)if(waiting.action==='discuss'&&waiting.status==='pending')waiting.autoQueued=false;this.update(session);}
   return {...session,runs:session.runs.map(ref=>({...ref,profileId:runs.find(r=>r.id===ref.id)?.profileId??ref.profileId})),unavailableRuns,title:redact(session.title),messages:session.messages.map(original=>{
    const m={...original};
    if(m.guidanceRunId)try{
@@ -90,11 +94,19 @@ export class SessionStore {
     m.status=state.guidanceHistory?.some(item=>item.id===m.id)||status==='applied'?'executed':status==='processing'?'adjusting':status==='cancelled'?'cancelled':status==='pending'?'steering':'failed';
     m.error=m.status==='failed'?'引导投递记录不可用，请核查运行记录。':m.status==='steering'?['paused','failed','stopped'].includes(state.phase)?'任务已暂停，引导保留；请在聊天中明确恢复。':'已提交引导，正在寻找命令边界；一分钟内介入并交给决策者。':m.status==='adjusting'?['paused','failed','stopped'].includes(state.phase)?'调整已暂停，请在聊天中明确恢复；已有成果保留。':'决策者已接收，正在调整当前方向；完成后派发执行者。':undefined;
    }catch(error){m.status='failed';m.error=redact((error as Error).message);}
-   return {...m,discussionReply:m.discussionReply?redact(m.discussionReply):undefined,discussionPlan:m.discussionPlan?redact(m.discussionPlan):undefined,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
+   return {...m,discussionDraft:m.discussionDraft?redact(m.discussionDraft):undefined,discussionProgress:m.discussionProgress?redact(m.discussionProgress):undefined,discussionReply:m.discussionReply?redact(m.discussionReply):undefined,discussionPlan:m.discussionPlan?redact(m.discussionPlan):undefined,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
   }),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':session.chatMode==='discuss'?'discuss':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
  }
  list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
- detail(id:string){const session=this.public(this.get(id));return {session,runs:this.resolve(this.get(id)).runs};}
+ detail(id:string){
+  const session=this.public(this.get(id));let discussionMessages:import('./types.js').ChatMessage[]=[],discussionError:string|undefined;
+  if(session.discussionStateId)try{const store=new Store(path.join(this.service.data,'conversation-discussions',session.id),session.discussionStateId),state=store.load();
+   if(state.purpose!=='conversation-discussion'||state.source!==fs.realpathSync(session.projectPath))throw Error('讨论记录与会话项目不匹配');
+   const events=this.service.audit(store).filter(e=>e.event==='agent-activity'&&e.data.kind!=='output'&&!String(e.data.title).includes('StructuredOutput'));
+   discussionMessages=projectMessages(state,events,[]).map(message=>({...message,id:'discussion:'+state.id+':'+message.id,participantRole:'决策者',decisionStage:'discussion',source:'discussion:'+session.id+':'+message.source}));
+  }catch(error){discussionError='讨论过程记录不可用：'+redact((error as Error).message);}
+  return {session,runs:this.resolve(this.get(id)).runs,discussionMessages,discussionError};
+ }
  private guidanceStore(session:Saved,runId:string){const ref=session.runs.find(run=>run.id===runId);if(!ref)throw Error('消息 Run 与会话归属不匹配');const run=this.run(ref,session);return this.service.store(run.profileId,run.id);}
  attachment(r:Request){
   const session=this.get(r.sessionId!),message=session.messages.find(m=>m.id===r.messageId),item=message?.attachments?.find(a=>a.sha256===r.digest);
@@ -132,15 +144,49 @@ export class SessionStore {
    const message=session.messages.find(m=>m.id===r.messageId);
    if(!message||!['pending','failed','steering'].includes(message.status))throw Error('仅可修改或删除尚未生效的需求');
    if(message.guidanceRunId){const store=this.guidanceStore(session,message.guidanceRunId);if(store.load().guidanceHistory?.some(item=>item.id===message.id))throw Error('决策者已接收此消息，不能再删除或修改');cancelGuidance(store,message.id);delete message.guidanceRunId;}
-   if(cancel){message.status='cancelled';message.autoQueued=false;}else{message.text=r.text!.trim();if(!message.text)throw Error('消息不能为空');message.error=undefined;message.status='pending';message.action='queue';message.autoQueued=Boolean(this.resolve(session).runs.at(-1)?.active);}
+   if(cancel){message.status='cancelled';message.autoQueued=false;}else{message.text=r.text!.trim();if(!message.text)throw Error('消息不能为空');message.error=undefined;message.status='pending';const discussion=message.action==='discuss';message.action=discussion?'discuss':'queue';message.autoQueued=discussion?this.discussionJobs.has(session.id):Boolean(this.resolve(session).runs.at(-1)?.active);}
    session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);
   }finally{release();}
  }
  async send(r:Request,process=false){
+  if(this.stoppingDiscussions)throw Error('应用正在退出，请稍后重新打开');
   const session=this.get(r.sessionId!);
-  const release=this.acquire(session);
-  this.inFlight.add(session.id);
-  try{return await this.sendLocked(r,process);}finally{this.inFlight.delete(session.id);release();}
+  if(this.discussionJobs.has(session.id)){
+   const existing=session.messages.find(m=>m.id===r.messageId);
+   if(existing){if(!process&&(existing.text!==r.text!.trim()||(existing.attachmentDigest??attachmentDigest())!==attachmentDigest(r.attachments)))throw Error('Message ID reused with different content');return this.public(session);}
+   if(process)throw Error('消息不存在');
+   if(session.messages.length>=1000)throw Error('会话消息已达上限');
+   const text=r.text!.trim();if(!text)throw Error('消息不能为空');
+   session.messages.push({id:r.messageId!,time:new Date().toISOString(),text,status:'pending',action:'discuss',autoQueued:true,attachmentDigest:attachmentDigest(r.attachments),...(r.attachments?.length?{attachments:this.materializeAttachments(session.id,r.messageId!,r.attachments)}:{})});
+   session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);
+  }
+  const release=this.acquire(session);this.inFlight.add(session.id);
+  try{return await this.sendLocked(r,process);}finally{
+   const job=this.discussionJobs.get(session.id);
+   if(job)void job.finally(()=>{this.discussionJobs.delete(session.id);this.inFlight.delete(session.id);release();if(!this.stoppingDiscussions)void this.drainDiscussion(session.id).catch(()=>{});}).catch(()=>{});
+   else{this.inFlight.delete(session.id);release();}
+  }
+ }
+ private async drainDiscussion(id:string){
+  while(!this.stoppingDiscussions&&!this.discussionJobs.has(id)){
+   const message=this.get(id).messages.find(m=>m.action==='discuss'&&m.status==='pending'&&m.autoQueued);
+   if(!message)return;
+   try{await this.send({operation:'processSessionMessage',sessionId:id,messageId:message.id},true);}
+   catch(error){const fresh=this.get(id),target=fresh.messages.find(m=>m.id===message.id)!;target.status='failed';target.error=redact((error as Error).message);for(const waiting of fresh.messages)if(waiting.action==='discuss'&&waiting.status==='pending')waiting.autoQueued=false;this.update(fresh);return;}
+  }
+ }
+ private async completeDiscussion(id:string,messageId:string,text:string){
+  try{
+   const session=this.get(id),message=session.messages.find(m=>m.id===messageId)!;
+   const reply=await this.discuss(session,message,text);
+   const fresh=this.get(id),target=fresh.messages.find(m=>m.id===messageId)!;
+   target.discussionNotice=false;target.discussionReply=reply.reply;target.discussionReplyTime??=new Date().toISOString();target.discussionPlan=reply.plan;fresh.discussionPlan=reply.plan;target.status='recorded';target.error=undefined;delete target.discussionDraft;delete target.discussionProgress;
+   fresh.updatedAt=new Date().toISOString();this.update(fresh);
+  }catch(error){
+   const fresh=this.get(id),target=fresh.messages.find(m=>m.id===messageId)!;target.status='failed';target.error=redact((error as Error).message);target.discussionProgress='回复未完成，部分内容仅供参考';
+   for(const waiting of fresh.messages)if(waiting.action==='discuss'&&waiting.status==='pending')waiting.autoQueued=false;
+   fresh.updatedAt=new Date().toISOString();this.update(fresh);
+  }
  }
  /** Owned completion or explicit final user acceptance advances queued work. Reads/restarts never replay it. */
  async drainCompleted(runId:string){
@@ -172,11 +218,13 @@ export class SessionStore {
   const runtimeDir=path.join(this.service.data,'conversation-discussions',session.id);
   const config:Config={allowedRepositories:[session.projectPath],runtimeDir,mode:session.settings.mode,projectMode:'direct',executionMode:'native',claudeExecutable:'C:/Users/WYL20/.local/bin/claude.exe',claudeStreaming:true,timeoutMs:0,mockScenario:'pass',tests:[],decisionAgent:session.settings.decisionAgent??{backend:'claude-code'}};
   const history=session.messages.filter(m=>m.id!==message.id&&m.action==='discuss'&&m.discussionReply).flatMap(m=>[{role:'user' as const,text:m.text},{role:'assistant' as const,text:m.discussionReply!}]);
-  const controller=new AbortController(),promise=conversationDiscussion({runtimeDir,stateId:session.discussionStateId,projectPath:session.projectPath,sessionId:session.id,config,text,history,plan:session.discussionPlan??'',attachments:this.attachmentBytes(session,message)},id=>{session.discussionStateId=id;this.update(session);},controller.signal);
+  let lastProgress=0;
+  const onProgress=(progress:import('../../src/discussion-stream.js').DiscussionProgress)=>{if(Date.now()-lastProgress<100)return;lastProgress=Date.now();const fresh=this.get(session.id),target=fresh.messages.find(m=>m.id===message.id)!;if(progress.reply!==undefined){target.discussionDraft=progress.reply;if(progress.reply)target.discussionReplyTime??=new Date().toISOString();}if(progress.status)target.discussionProgress=progress.status;fresh.updatedAt=new Date().toISOString();this.update(fresh);};
+  const controller=new AbortController(),promise=conversationDiscussion({nodeExecutable:this.service.node,onProgress,runtimeDir,stateId:session.discussionStateId,projectPath:session.projectPath,sessionId:session.id,config,text,history,plan:session.discussionPlan??'',attachments:this.attachmentBytes(session,message)},id=>{const fresh=this.get(session.id);fresh.discussionStateId=id;this.update(fresh);},controller.signal);
   this.discussionCalls.set(session.id,{controller,promise});
   try{return await promise;}finally{this.discussionCalls.delete(session.id);}
  }
- async stopDiscussions(){const calls=[...this.discussionCalls.values()];for(const call of calls)call.controller.abort();await Promise.allSettled(calls.map(call=>call.promise));}
+ async stopDiscussions(){this.stoppingDiscussions=true;const calls=[...this.discussionCalls.values()];for(const call of calls)call.controller.abort();await Promise.allSettled([...calls.map(call=>call.promise),...this.discussionJobs.values()]);}
  async executeDiscussion(r:Request){
   const session=this.get(r.sessionId!),release=this.acquire(session);this.inFlight.add(session.id);
   try{
@@ -217,13 +265,11 @@ export class SessionStore {
    session.chatMode='discuss';
    const text=message.text.replace(/^\/discuss(?:\s+|$)/i,'').trim();
    if(!text&&!message.attachments?.length){message.status='recorded';message.discussionNotice=true;message.discussionReply='已进入讨论模式。告诉决策者你遇到的问题；讨论不会自动开始执行。';this.update(session);return this.public(session);}
-   message.status='starting';this.update(session);
-   try{
-    const reply=await this.discuss(session,message,text||'请查看附件并讨论其中的问题。');
-    message.discussionNotice=false;message.discussionReply=reply.reply;message.discussionPlan=reply.plan;session.discussionPlan=reply.plan;message.status='recorded';message.error=undefined;
-   }catch(error){message.status='failed';message.error=redact((error as Error).message);}
-   this.update(session);return this.public(session);
+   message.status='starting';message.discussionProgress='决策者正在连接…';delete message.discussionDraft;delete message.discussionReply;delete message.discussionReplyTime;message.error=undefined;this.update(session);
+   const job=this.completeDiscussion(session.id,message.id,text||'请查看附件并讨论其中的问题。');this.discussionJobs.set(session.id,job);
+   return this.public(this.get(session.id));
   }
+
   const state=last?this.service.store(last.profileId,last.id).load():undefined;
   const route=chatRoute(message.text,last?{...last,nextPhase:state?.nextPhase}:undefined,Boolean(message.attachments?.length));
   message.action=route;message.error=undefined;message.autoQueued=false;

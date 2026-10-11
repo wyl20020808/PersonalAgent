@@ -2,6 +2,7 @@ import {fileURLToPath} from 'node:url';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {chatRoute} from './chatRouting.js';
+import {sessionDiscussionReply} from './chatPresentation.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -10,6 +11,17 @@ import {runTiming,timingTotals,durationLabel} from './runTiming.js';
 import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
+
+test('held discussion queue has no running indicator and reply uses first public output time',()=>{
+ const reply=sessionDiscussionReply({id:'a',time:'2026-10-11T10:00:00Z',discussionReplyTime:'2026-10-11T10:00:10Z',text:'question',status:'pending',action:'discuss',autoQueued:false},'fixture')!;
+ assert.equal(reply.status,'pending');assert.match(reply.text,/重试或取消/);assert.equal(reply.time,'2026-10-11T10:00:10Z');
+});
+
+test('public stream replaces one bubble while retaining latest evidence and separate invocation identity',()=>{
+ const event=(hash:string,text:string,scope='claude:1')=>({hash,time:'2026-10-11T10:00:00.000Z',event:'agent-activity',data:{agent:'claude',phase:'plan',kind:'output',scope,streamId:'public-answer',title:'public',text}});
+ const messages=projectMessages(state,[event('first','Hello'),event('latest','Hello world'),event('next','Other call','claude:2')],[]);
+ assert.equal(messages.length,2);assert.equal(messages[0].id,'audit:first');assert.equal(messages[0].text,'Hello world');assert.equal(messages[0].details?.evidenceMessageId,'audit:latest');assert.equal(messages[0].participantRole,'决策者');assert.equal(messages[1].id,'audit:next');
+});
 
 test('task acceptance requires explicit user words and current pending digest',()=>{
  const pending={phase:'paused',nextPhase:'verify',manualAcceptanceDigest:'a'.repeat(64)};

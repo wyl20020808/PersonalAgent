@@ -28,7 +28,14 @@ test('compact keeps lifecycle and ownership boundaries while failures stay expli
  for(const extra of [{kind:'error'}, {kind:'stage'}, {kind:'session'}, {role:'controller' as const}, {participantId:'b'}, {runId:'other'}, {taskId:'other'}, {loop:2}, {scope:'execute:2'}])assert.equal(groupMessages([message(0),message(1,extra)],true).length,2);
  const failed=groupMessages([message(0),message(1,{status:'fail'}),message(2)],true);
  assert.equal(failed.length,1);assert.equal(failed[0].status,'fail');assert.equal(failed[0].messages.length,3);
- assert.equal(groupMessages([message(0,{role:'claude',participantRole:'决策者',decisionStage:'plan'}),message(1,{role:'claude',participantRole:'决策者',decisionStage:'plan',category:'files'})],true).length,2);
+ assert.equal(groupMessages([message(0,{role:'claude',participantRole:'决策者',decisionStage:'plan'}),message(1,{role:'claude',participantRole:'决策者',decisionStage:'plan',category:'files'})],true).length,1);
+});
+test('decision tools use the same compact groups and public-response boundaries as execution tools',()=>{
+ const raw=[message(0,{role:'claude',participantRole:'决策者',decisionStage:'discussion'}),message(1,{role:'claude',participantRole:'决策者',decisionStage:'discussion',category:'files'}),message(2,{role:'claude',participantRole:'决策者',decisionStage:'discussion',kind:'output',category:'output',text:'公开回复'})];
+ const groups=groupMessages(raw,true);assert.deepEqual(groups.map(group=>group.messages.length),[2,1]);assert.equal(groups[0].category,'执行操作');
+ const receiving=message(3,{role:'claude',kind:'receiving',text:'已收到 100 个字符'});assert.equal(groupMessages([receiving],true).length,0);assert.equal(groupMessages([receiving],false).length,1);
+ const metadata=message(4,{role:'claude',kind:'session',details:{protocol:'claude-cli-stream-json'}});assert.equal(groupMessages([metadata],true).length,0);assert.equal(groupMessages([metadata],false).length,1);
+ const failed=message(5,{role:'claude',kind:'stage',status:'fail',details:{protocol:'claude-cli-stream-json'}});assert.equal(groupMessages([failed],true).length,1);
 });
 test('audit gaps no longer fragment an execution burst; public output starts a new stable group',()=>{
  const raw=[message(0,{timelineIndex:10,status:'running'}),message(1,{timelineIndex:12}),message(2,{timelineIndex:20,category:'files'}),message(3,{timelineIndex:21,kind:'output',category:'output',text:'公开回复'}),message(4,{timelineIndex:30})];

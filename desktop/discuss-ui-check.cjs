@@ -6,7 +6,7 @@ fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.
 app.whenReady().then(async()=>{
  const {build}=await import('esbuild'),{DesktopService}=await import('./out/service.js');
  const output=path.join(data,'renderer');fs.mkdirSync(output,{recursive:true});
- await build({entryPoints:[path.join(__dirname,'discuss-preview.tsx')],bundle:true,format:'esm',outfile:path.join(output,'preview.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
+ await build({entryPoints:[path.join(__dirname,'discuss-preview.tsx')],bundle:true,format:'esm',outfile:path.join(output,'preview.js'),loader:{'.svg':'dataurl','.png':'dataurl','.woff':'file','.woff2':'file','.ttf':'file'},define:{'process.env.NODE_ENV':'"production"'}});
  fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><link rel="stylesheet" href="preview.css"><div id="root"></div><script type="module" src="preview.js"></script></html>');
  const service=new DesktopService(root,data,process.execPath);let launches=0;service.launch=()=>{launches++;};
  const window=new BrowserWindow({show:false,width:1100,height:900,webPreferences:{preload:path.join(__dirname,'out/preload.cjs'),contextIsolation:true,nodeIntegration:false}});

@@ -9,6 +9,7 @@ import { activityRecorder, redact } from './telemetry.js';
 import { agentRules } from './native-agent.js';
 import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { nativeAgentEnv } from './workspace.js';
+import {DiscussionStream} from './discussion-stream.js';
 import { codexGuidanceBoundary } from './guidance-handoff.js';
 
 export class CodexDecisionAgent implements DecisionAgent {
@@ -25,10 +26,11 @@ export class CodexDecisionAgent implements DecisionAgent {
     state.claudeCalls = (state.claudeCalls ?? 0) + 1; store.save(state);
     const observation = new CallObservation(state, store, role, prompt, context, !!threadId, 'codex');
     const record = activityRecorder(state, store, 'codex', observation.usage.callId, role);
+    const discussionStream=new DiscussionStream(request.onPublicProgress);
     store.audit('codex-decision-call-start', { ...scope, callId: observation.usage.callId, call: state.claudeCalls, threadId, configuredModel: state.decisionAgent.model ?? null });
     let output: unknown, seenResult = false, ownedThread: string | null = null, completed = false, turnCompleted = false;
     try {
-      const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
+      const result = await this.run(request.nodeExecutable??process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
         cwd: store.dir, env: nativeAgentEnv(), signal, interaction: { kind: 'model' }, timeoutMs: request.timeoutMs, streamOutput: true,
         input: JSON.stringify({ ...scope, participantId: scope.participantId ?? undefined, discussionStage: scope.discussionStage ?? undefined,
           threadId, attachments:runAttachments(state,store), model: state.decisionAgent.model, reasoningEffort: state.decisionAgent.reasoningEffort, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules + interactionAgentRules,
@@ -44,7 +46,7 @@ export class CodexDecisionAgent implements DecisionAgent {
             store.audit('codex-decision-thread', { ...scope, callId: observation.usage.callId, sessionId: event.id, resumed: !!threadId });
           } else {
             if (!ownedThread) throw new FlowError('safety', 'Codex Decision event without owned Thread');
-            if (event.type === 'observation') { codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
+            if (event.type === 'observation') { discussionStream.codex(event.data);codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
             else if (event.type === 'activity') record(event.data);
             else if (event.type === 'result') { seenResult = true; output = event.data; }
             else throw Error('Unexpected Codex Decision worker protocol');
