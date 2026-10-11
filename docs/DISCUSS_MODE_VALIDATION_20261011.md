@@ -32,4 +32,14 @@
 
 用户可见的实际 PersonalAgent 窗口验收尚未进行。隐藏测试渲染器和真实 Claude 会话分别验证 UI 流程与原生讨论，不能代替用户桌面试用。
 
-本地 TEST 集成使用 Git common directory 中的 `personalagent-test-integration.lock`。整合前核对目标干净、无进行中的 Git 操作和基线变化；持锁完成提交与正常 Git 合并，整合后核查 source tree 与任务最终内容一致，并在独立任务 Worktree 复验最终组合。TEST 运行产物、用户真实数据和活跃实例不在本任务替换范围。
+首次本地 TEST 集成使用 Git common directory 中的 `personalagent-test-integration.lock`。整合前核对目标干净、无进行中的 Git 操作和基线变化；持锁完成提交与正常 Git 合并，整合后核查 source tree 与任务最终内容一致，并在独立任务 Worktree 复验最终组合。首次交付未替换 TEST 运行产物，所以当时仍然打开的 TEST 窗口没有加载此功能。
+
+## 后续入口补齐与菜单优化
+
+用户要求合入 DEV，并反馈 TEST 窗口没有入口、输入斜杠没有命令选择，要求美化工作方式菜单。核查确认当时 TEST 源码是 c004054，但 Electron 仍显示旧构建；DEV 尚未合入。
+
+- 工作方式改为自定义菜单，包含直接开发、隔离开发、先聊天 · Discuss。增加图标、用途说明、选中标记、柔和背景与阴影；支持方向键导航、Escape、失焦和点击外部关闭。
+- 输入 `/` 或 `/discuss` 的前缀显示命令列表。点击、Enter 或 Tab 选择 `/discuss `，选择后保留输入焦点；Escape 关闭，选择操作不会自动调用模型。
+- 最终 TypeScript 检查、桌面构建、讨论相关 5 项回归通过。隐藏 Electron 测试额外验证自定义菜单、斜杠菜单和 Enter 选择；实际讨论、方案预览与一次执行派单仍通过。
+- 隐藏测试截图人工检查菜单布局：圆角浮层、图标、说明、选中态可见且未裁切。证据目录 `.v3c3/discuss-ui-58c0e5ec-8b33-49ae-b4ae-f7bda6a0262f`。该截图是测试渲染器，不能冒充用户窗口验收。
+- 更新前确认 TEST、DEV Electron 均已退出；全局项目锁无存活 PID，没有 Controller 子进程。DEV 已有 State 均为 paused/failed，TEST 无开发 State。保留 Sessions/profiles/Run State/audit 哈希与 DEV 未跟踪文件，先整合 TEST，再按用户授权整合 DEV。
