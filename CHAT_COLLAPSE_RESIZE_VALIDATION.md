@@ -21,4 +21,8 @@
 
 ## TEST 集成授权与复验
 
-2026-10-11 用户明确要求合入 TEST。续接已全文读取当前治理 V2.1、AGENTS.md 和统一规则；按当前规则接入本任务。合并范围仅包含文件折叠、面板调宽及相应验证文件。TEST 已前进至 `0e82cb4007c416e11a02b55fd9bcf8c2d60f12d4`，须在共享 Git common directory 取得本任务集成锁后，将最新 TEST 整合进任务分支并复验组合。GUI pending 如实保留；本地 TEST 合并不代表真实 Electron 或 Controller 独立验收通过。DEV/MAIN、运行实例和远程仓库不在本次交付范围。
+2026-10-11 用户明确要求合入 TEST。续接已全文读取当前治理 V2.1、AGENTS.md 和统一规则；按当前规则接入本任务。TEST 合入前提交为 `0e82cb4007c416e11a02b55fd9bcf8c2d60f12d4`。已在共享 Git common directory 独占创建本任务集成锁，最新 TEST 无冲突整合进任务分支（组合提交 `07deb6f6a81027734e4d81875bcb5c76a8257369`），原功能任务提交为 `9b04c57`。
+
+组合复验：前后端构建、类型检查和 headless 交互验证通过。首次定向回归为 70/73，通过单独运行 thread 回归复现 3 个 `Run still active` 失败；干净 TEST 基线单跑 thread 为 23/23。测试 fixture 在看到 completed 后未等待进程退出，后续恢复断言可能早于 children 清理。修正 fixture 等待 `completed && !active` 并新增 inactive 断言，保留生产恢复门禁与全部测试；最终 thread、fileChanges、sessions 定向回归为 73/73，通过。日志保存在任务工作区 `desktop/.validation/combined-tests.log`。
+
+合并范围包含文件折叠、面板调宽、相应验证文件，以及上述 thread fixture 生命周期等待修正；没有生产后端行为变更。GUI pending 如实保留；本地 TEST 合并不代表真实 Electron 或 Controller 独立验收通过。DEV/MAIN、运行实例和远程仓库不在本次交付范围。合入后的提交和工作区核查结果记录在本任务 `.validation/test-integration.json`；合并后保持集成锁直至目标检查完成。
