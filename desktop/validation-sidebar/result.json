@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "checks": [
+    "right layout",
+    "decision moved",
+    "file tabs",
+    "keyboard selection",
+    "deduplication",
+    "close",
+    "two picture tabs",
+    "collapse restore",
+    "1000 and 700 px no overflow",
+    "identity reset",
+    "completed evidence available",
+    "navigation never authorizes"
+  ],
+  "errors": []
+}

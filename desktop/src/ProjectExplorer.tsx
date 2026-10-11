@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {File,Folder,LoaderCircle,X} from 'lucide-react';
 import type {ProjectFile} from './types.js';
 type Listing={entries:{name:string;directory:boolean}[];truncated:boolean};
-export default function ProjectExplorer({projectPath}:{projectPath?:string}) {
+export default function ProjectExplorer({projectPath,onPreview}:{projectPath?:string;onPreview?:(file:ProjectFile)=>void}) {
  const [directory,setDirectory]=useState(''),[query,setQuery]=useState('');
  const [listing,setListing]=useState<Listing>({entries:[],truncated:false});
  const [selected,setSelected]=useState<ProjectFile|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
@@ -15,7 +15,7 @@ export default function ProjectExplorer({projectPath}:{projectPath?:string}) {
  },[projectPath,directory]);
  const open=async(name:string)=>{
   const id=++request.current;setSelected(null);setError('');setLoading(true);
-  try{const value=await window.personalAgent.invoke<ProjectFile>({operation:'readProjectFile',projectPath,file:directory?directory+'/'+name:name});if(request.current===id)setSelected(value);}
+  try{const value=await window.personalAgent.invoke<ProjectFile>({operation:'readProjectFile',projectPath,file:directory?directory+'/'+name:name});if(request.current===id){if(onPreview)onPreview(value);else setSelected(value);}}
   catch(e){if(request.current===id)setError((e as Error).message);}
   finally{if(request.current===id)setLoading(false);}
  };
