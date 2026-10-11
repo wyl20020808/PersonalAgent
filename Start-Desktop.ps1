@@ -1,9 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $desktopRoot = Join-Path $PSScriptRoot 'desktop'
 if (-not $env:PERSONALAGENT_INSTANCE) { $env:PERSONALAGENT_INSTANCE = 'main' }
-if ($env:PERSONALAGENT_INSTANCE -notin @('main', 'dev')) { throw 'PERSONALAGENT_INSTANCE must be main or dev' }
+if ($env:PERSONALAGENT_INSTANCE -notin @('main', 'dev', 'test')) { throw 'PERSONALAGENT_INSTANCE must be main, dev or test' }
 if (-not $env:PERSONAL_AGENT_DESKTOP_DATA) {
-    $env:PERSONAL_AGENT_DESKTOP_DATA = if ($env:PERSONALAGENT_INSTANCE -eq 'main') { Join-Path $PSScriptRoot '.desktop-data' } else { 'D:\PersonalAgent-data\instances\dev' }
+    $env:PERSONAL_AGENT_DESKTOP_DATA = if ($env:PERSONALAGENT_INSTANCE -eq 'main') { Join-Path $PSScriptRoot '.desktop-data' } else { Join-Path 'D:\PersonalAgent-data\instances' $env:PERSONALAGENT_INSTANCE }
 }
 $desktopTemp = Join-Path $env:PERSONAL_AGENT_DESKTOP_DATA 'tmp'
 New-Item -ItemType Directory -Path $desktopTemp -Force | Out-Null
