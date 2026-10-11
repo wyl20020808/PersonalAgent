@@ -1,5 +1,11 @@
 # 统一 Agent 工作规则
 
+## PersonalAgent 自身开发的分支规则
+
+PersonalAgent 自身开发遵循 [三分支治理规则 V2](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md) 全文：MAIN 暂留稳定版本；DEV 执行真实任务；TEST 持续集成和试用。新功能和普通修复从 TEST 创建独立任务分支及 Worktree，先交付 TEST，再将完整验收候选按审批在安全节点交付 DEV。DEV 紧急修复从 DEV 创建并同步回 TEST；MAIN hotfix 从 MAIN 创建并同步必要修复到 DEV、TEST。当前允许外部 Codex 开发会话迭代，不要求 MAIN 发起；其他目标项目的分支规则遵循其自身约定。旧任务 Worktree 开工前必须核对并显式接入当前规则，不能依赖主目录规则自动同步。
+
+## 通用协作规则
+
 这些规则约束协作行为，不通过禁用原生工具实施。Controller 也将相同规则传入 Agent 调用；目标仓库已有的规则继续生效。
 
 1. 围绕用户授权的项目目标工作，优先复用已有代码和工具。

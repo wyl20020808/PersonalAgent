@@ -2,6 +2,8 @@
 
 实现与验收来源见 `V03C_UNIFIED_VALIDATION.md`。两份契约文件采用相同定义。
 
+PersonalAgent 自身开发另须全文遵循 [三分支治理规则 V2](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md)：MAIN 暂留稳定版本，DEV 执行真实任务，TEST 持续集成和试用。新功能和普通修复从 TEST 创建独立任务 Worktree，先交付 TEST；完整候选验收和正式审批后在安全节点更新 DEV。DEV 紧急修复从 DEV 创建并同步 TEST；MAIN hotfix 从 MAIN 创建并同步必要修复到 DEV、TEST。当前可由外部 Codex 承接，不要求 MAIN 发起。此规则不表示 TEST 启动或三实例隔离已经实现，也不改变其他项目自身的分支规则及以下执行模式契约。
+
 - `mode: mock | real` 选择 Agent 来源；`executionMode: native | proposal` 选择执行协议；`projectMode: direct | isolated` 选择工作目录，三个维度分别处理。
 - `projectMode` 是规范字段。旧 `workspaceMode` 可读入并迁移；两个字段同时出现且不同必须拒绝。持久化只写 `projectMode`。
 - 直接开发必须使用 native，持有匹配真实项目路径的 `directAuthorization: { projectPath, acknowledgedAt }`。修改即时发生；最终交付确认不重复写源目录。

@@ -2,7 +2,9 @@
 
 遵循 @AGENT_WORK_RULES.md。
 
-PersonalAgent 分支与自我迭代治理规则：@docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md
+PersonalAgent 三分支开发与使用治理规则 V2（沿用 V1 路径）：@docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md
+
+MAIN 暂留稳定版本；DEV 执行真实任务并固定运行版本；TEST 持续集成和试用。当前可由外部 Codex 开发会话迭代，不要求 MAIN 发起。新功能和普通修复从最新 TEST 明确提交创建独立 feature/fix Worktree，先交付 TEST；完整候选批次验收并获正式交付审批后，在安全节点更新 DEV。DEV 紧急 fix 从 DEV 创建，验收交付后同步 TEST。MAIN hotfix 从 MAIN 创建，必要修复同步 DEV 和 TEST。正式发布 MAIN 仍须用户明确批准。
 
 持续实战改进与问题反馈规则：@problems/README.md
 

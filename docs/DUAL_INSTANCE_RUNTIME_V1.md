@@ -1,8 +1,14 @@
-# MAIN/DEV 双实例运行隔离 V1
+# MAIN/DEV 现有运行接口与 TEST 建设边界（治理 V2）
 
-MAIN 用于 PersonalAgent 自我开发，应选择基于最新 dev 创建的独立 feature/fix Worktree。DEV 用于其他独立项目。实例身份由进程级 `PERSONALAGENT_INSTANCE=main|dev` 指定，与 Git 分支无关。没有新增模型、认证或计费渠道。
+2026-10-11 分工按 [三分支治理规则 V2](PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md) 更新：MAIN 暂留稳定版本，DEV 执行真实任务，TEST 持续集成和试用。当前由外部 Codex 开发会话迭代，不要求 MAIN 启动。新功能和普通修复从 TEST 创建独立 feature/fix Worktree，先整合 TEST；完整候选验收及正式审批后，在安全节点更新 DEV。DEV 紧急修复从 DEV 创建并同步 TEST；MAIN hotfix 从 MAIN 创建并同步必要修复到 DEV、TEST。
 
-## 启动
+以下描述现有 MAIN/DEV 接口：实例身份由进程级 `PERSONALAGENT_INSTANCE=main|dev` 指定，与 Git 分支无关。本文没有新增模型、认证或计费渠道，也没有将 TEST 实例身份加入产品接口。
+
+## TEST 环境建设要求（尚待实现与验收）
+
+TEST Worktree 为 `D:\PersonalAgent-worktrees\test`，已从 DEV 提交 `05f13a829bb76adf50e17455b7e8b785b1b277c6` 创建 `test` 分支；这不代表启动与运行隔离已完成。独立启动入口、TEST 实例身份及独立构建、配置、业务数据、Session、Run、Controller runtime、Electron 单实例锁、日志、缓存和临时目录均须实际实现与验收。不能仅创建 test 分支或擅自传入 `PERSONALAGENT_INSTANCE=test` 就宣称支持 TEST。不得复用 DEV 可写业务目录，不迁移或清空其真实任务历史；三环境共存还须验证跨实例项目写入保护。现有两实例验证不能证明 TEST 隔离完成。
+
+## 现有 MAIN/DEV 启动
 
 在两个独立 PowerShell 进程中分别执行：
 
@@ -25,7 +31,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\PersonalAgent\Start-DEV.p
 | 日志、临时文件、缓存 | `logs`、`tmp`、`cache`、`crash-dumps` | 同结构位于 DEV 根目录 |
 | 窗口位置和大小 | `window.json` | 独立 `window.json` |
 
-MAIN 原有外部配置、历史 Run、预算和审计仍在原处，没有迁移、清空或复制认证。DEV 新建空白运行目录，不能导入位于 DEV 数据目录外的可写 Controller runtime；显式只读历史回放可并存。目录的 `instance.json` 防止 MAIN/DEV 误用同一业务目录。窗口标题与侧栏始终显示 MAIN/DEV。
+MAIN 原有外部配置、历史 Run、预算和审计保留在原处，不迁移、清空或复制认证。DEV 使用其独立运行目录，不能导入位于 DEV 数据目录外的可写 Controller runtime；显式只读历史回放可并存。目录的 `instance.json` 防止 MAIN/DEV 误用同一业务目录。现有窗口标题与侧栏显示 MAIN/DEV；此描述不代表 TEST 标识已实现。
 
 产品仅使用 Electron IPC 与自定义 `personalagent://` 协议，没有 HTTP 监听端口；因此无需固定端口分配。验证工具的调试管道不作为产品服务。
 
@@ -35,7 +41,7 @@ MAIN 原有外部配置、历史 Run、预算和审计仍在原处，没有迁�
 
 2026-10-09 按用户明确决定移除内部付费预算保护。MAIN、DEV 和 CLI 可直接使用已配置的真实 Agent，无需共享预算授权文件或余额预约。原有预算文件保留在磁盘上，但不参与新 Run 的运行许可判断；历史字段和用量仍可读取。服务商认证、限流和订阅额度耗尽正常报告。
 
-执行轮数、返工次数、审查修复循环、超时与交付审批继续生效。今后预算若重新设计，应作为独立可选功能；本次不实现。
+按 2026-10-11 用户修订，桌面端 Run 不设执行轮数、返工次数和审查修复次数上限；脚本或 CLI 显式配置的 maxLoops、maxReworks 才生效。用量计数、超时、写入锁、隔离与交付审批保留。执行模型、单决策者切换和连接恢复遵循治理 V2 中保留的最新修订。今后预算若重新设计，应作为独立可选功能；本次不实现。
 
 ## 验证
 

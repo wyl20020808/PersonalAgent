@@ -1,5 +1,11 @@
 # PersonalAgent：Windows 本地双 Agent 控制器
 
+## 当前开发与使用分工（2026-10-11，治理 V2）
+
+MAIN 暂时保留稳定版本；DEV 执行真实项目任务，任务期间固定运行版本；TEST 持续集成和试用新功能。当前由外部 Codex 开发会话迭代，不要求 MAIN 软件发起。日常新功能和普通修复从最新 TEST 明确提交创建独立 feature/fix 分支和 Worktree，开发、测试、审查及正式交付审批后先整合 TEST；完整候选批次验收后，在 DEV 的安全节点按审批更新 DEV。DEV 紧急修复从 DEV 创建，交付后同步 TEST；MAIN hotfix 从 MAIN 创建，必要修复同步 DEV、TEST。MAIN 正式发布须另获用户明确批准。
+
+完整约定见 [三分支治理规则 V2](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md)，现有启动接口见 [MAIN/DEV 运行说明与 TEST 建设边界](docs/DUAL_INSTANCE_RUNTIME_V1.md)。TEST 分支及 Worktree 已从 DEV 提交 `05f13a829bb76adf50e17455b7e8b785b1b277c6` 创建；启动入口和运行隔离仍需实际实现和验收；本次规则修订不代表已完成三实例支持。历史版本说明和验收报告仅说明对应版本事实，不作为新任务的开发分支规则。
+
 ## 当前开发流程：不再强制 Project Snapshot（2026-10-10）
 
 选择项目目录并确认 Direct 写入授权后，CC Plan、Codex Execute、CC Review 使用原生工具按需读取、开发和测试。新 Run 不做全项目内容备份、全量哈希、轮次快照或每轮 Git fsck；项目容量和文件数量不再触发 Snapshot 启动限制。Git 与非 Git 均支持 Direct。Project Context 模块、契约、checked_files、Session/Run、工具调用审计和人工确认保留。
