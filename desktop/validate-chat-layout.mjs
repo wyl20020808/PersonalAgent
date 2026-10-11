@@ -1,0 +1,31 @@
+import {createRequire} from 'node:module';
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const require=createRequire(import.meta.url);
+const {chromium}=require('C:/Users/WYL20/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+await fs.mkdir('.validation/chat-layout',{recursive:true});
+await build({entryPoints:['test/chat-layout.tsx'],bundle:true,outfile:'.validation/chat-layout/fixture.js',format:'esm'});
+const server=http.createServer(async(request,response)=>{const name=request.url==='/fixture.js'?'fixture.js':request.url==='/fixture.css'?'fixture.css':null;response.setHeader('Content-Type',name?.endsWith('.js')?'text/javascript':name?'text/css':'text/html');response.end(name?await fs.readFile('.validation/chat-layout/'+name):'<link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script>');});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+try{
+ const page=await browser.newPage({viewport:{width:1600,height:1000}});
+ await page.goto(`http://127.0.0.1:${server.address().port}`);
+ const width=id=>page.locator('#'+id).evaluate(element=>element.getBoundingClientRect().width);
+ const drag=async(label,delta)=>{const handle=page.getByRole('separator',{name:label,exact:true}),box=await handle.boundingBox();await page.mouse.move(box.x+3,box.y+50);await page.mouse.down();await page.mouse.move(box.x+3+delta,box.y+50,{steps:8});await page.mouse.up();};
+ assert.equal(await page.locator('.chat-file-card').count(),0);
+ await page.locator('.chat-file-list summary').click();await page.locator('.chat-file-card').first().waitFor();assert.equal(await page.locator('.chat-file-card').count(),2);
+ await page.locator('.chat-file-card').first().click();assert.equal(await page.evaluate(()=>document.body.dataset.opened),'src/a.ts');
+ await page.locator('.chat-file-list summary').click();await page.waitForFunction(()=>!document.querySelector('.chat-file-card'));
+ await drag('left',80);assert.equal(await width('left'),332);
+ await drag('right',-100);assert.equal(await width('right'),540);
+ await page.getByRole('separator',{name:'right',exact:true}).press('ArrowRight');assert.equal(await width('right'),530);
+ await drag('right',1000);assert.equal(await width('right'),240);
+ await drag('left',-1000);assert.equal(await width('left'),180);
+ await drag('left',60);await drag('right',-80);await page.reload();await page.locator('#left').waitFor();assert.equal(await width('left'),240);assert.equal(await width('right'),320);assert.equal(await page.locator('.chat-file-card').count(),0);
+ await page.setViewportSize({width:1000,height:800});assert.equal(await width('right'),320);assert.ok(await page.locator('.conversation-column').evaluate(element=>element.getBoundingClientRect().width)>=280);
+ await page.setViewportSize({width:760,height:800});assert.equal(await page.getByRole('separator',{name:'right',exact:true}).isVisible(),false);
+ console.log('PASS: default fold, expand/collapse, file click, both drags, keyboard, minimum bounds, persisted widths, responsive layout (isolated headless component fixture).');
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
