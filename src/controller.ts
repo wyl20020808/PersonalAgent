@@ -116,8 +116,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     try { return await operation(signal); }
     catch (error) { if (timeout.aborted) throw new Error(`Timeout after ${timeoutMs} ms`); throw error; }
   }
-  async function checkedEvidence(reviewOnly = true): Promise<Evidence> {
-    return withGuidanceHandoff(store,stop.signal,async signal=>{
+  async function checkedEvidence(reviewOnly = true, handoff = true): Promise<Evidence> {
+    const collect = async (signal: AbortSignal) => {
     const contextReport = checkTaskContext(state, store);
     const finalNode = state.tasks.every((task, index) => index === state.taskIndex || state.completedTaskIds?.includes(task.id));
     const evidence = await collectEvidence(state, signal, state.nativeExecution === true && finalNode, reviewOnly);
@@ -126,7 +126,9 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       evidence.contextReport = contextReport;
     }
     return evidence;
-    });
+    };
+    // Receipt validation precedes the loop's guidance boundary; no Agent is active here.
+    return handoff ? withGuidanceHandoff(store, stop.signal, collect) : collect(stop.signal);
   }
   try {
     if (state.phase === 'completed') return state;
@@ -139,6 +141,11 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       if (!decision?.trim() || !['paused', 'failed', 'stopped'].includes(state.phase)) throw new Error('Changing limits requires paused run and explicit --decision');
       const nextConfig = { ...state.config, ...Object.fromEntries(Object.entries(limits).filter(([, value]) => value !== undefined)) };
       validate(configSchema, nextConfig); state.config = nextConfig; store.save(state); store.audit('limits-updated', limits);
+    }
+    if (decision?.trim() && state.phase === 'failed' && state.failure?.kind === 'unknown' && state.failure.stage === 'paused' &&
+        state.failure.message === new GuidanceHandoff(false).message && state.nextPhase === 'verify' && pendingGuidance(store).length && recordedPass(store, state)) {
+      store.audit('guidance-failure-reclassified', { failure: state.failure, decision, taskId: state.tasks[state.taskIndex]?.id, note: '旧 pass 恢复校验误将正常引导交接记为 unknown；保留旧错误审计，重新核对实际成果后恢复' });
+      state.failure = null; checkpoint('paused', '旧 pass 引导交接恢复；实际成果仍须重新核对');
     }
     if (state.phase === 'failed' && state.failure && !state.failure.recoverable) return state;
     if (state.phase === 'executing' && state.nativeExecution && existsSync(store.file(`native-result-${state.loops}.json`))) {
@@ -162,7 +169,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       if (intent === 'resume' && state.phase === 'paused' && state.nextPhase === 'verify' && state.evidence?.acceptanceMode === 'decision-user' && recordedPass(store, state)) {
         state.completedTaskIds ??= state.tasks.some(task => task.dependsOn?.length) ? [] : state.tasks.slice(0, state.taskIndex).map(task => task.id);
         assertPrerequisites(state.tasks, state.taskIndex, state.completedTaskIds);
-        const current = await checkedEvidence();
+        const current = await checkedEvidence(true, false);
         current.decisionReview = state.evidence.decisionReview;
         current.taskDiff = state.evidence.taskDiff; current.roundDiff = state.evidence.roundDiff;
         current.contextReport = state.evidence.contextReport;

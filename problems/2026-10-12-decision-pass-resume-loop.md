@@ -13,3 +13,5 @@
 - 范围限制：原 Run 的观察根仍为 OpenWorld Primary，执行者建立的独立游戏 Worktree 需要决策者用原生工具核查；本次没有重构任意子 Worktree 的观察绑定。
 
 说明与证据：[Controller 自主推进及 OpenWorld 案例](../docs/CONTROLLER_AUTONOMY_OPENWORLD_20261012.md)。
+
+2026-10-12 DEV 交付进展：用户批准后已将 42f195b 正常快进 DEV，停止旧程序后备份原业务和构建；22950 个业务文件、54 个未跟踪文件校验一致，构建与类型检查通过。原 Run 正式恢复时，预先投递的授权 guidance 在 while 之前的历史 pass 核验中触发 GuidanceHandoff，旧外层 catch 错记 unknown/nonrecoverable；没有新增模型调用或重复执行。补修复将历史 receipt 只读核验与 Agent 交接分开，消息随后在正式循环边界处理；精确识别已被误记的旧暂停 pass 引导错误，通过正式恢复入口记录重分类，保留错误审计并重新核对成果。其他不可恢复失败不放行。新增正常预投递、历史误分类恢复和无关失败仍拒绝三项回归。现场恢复结果以交付目录中的实际记录为准。

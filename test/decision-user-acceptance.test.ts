@@ -9,6 +9,8 @@ import { previewDelivery, approveDelivery, applyDelivery } from '../src/delivery
 import { git } from '../src/workspace.js';
 import type { Agents } from '../src/adapters.js';
 import type { Config, Review } from '../src/schema.js';
+import { publishGuidance, guidanceStatus } from '../src/steering.js';
+import { GuidanceHandoff } from '../src/guidance-handoff.js';
 
 const root = path.resolve('.validation', 'decision-user-' + randomUUID().slice(0,8));
 async function fixture(verdict: Review['verdict'] = 'pass', noTests = false) {
@@ -131,4 +133,20 @@ test('continue old pass with changed result reviews again without replaying exec
 test('explicit rework on old pass executes and reviews again',async()=>{
   const f=await legacyPass();const state=await drive(f.store,f.agents,'修改成果',undefined,undefined,'rework');
   assert.equal(state.phase,'completed');assert.deepEqual(f.count(),{executions:2,reviews:2});
+});
+
+for(const historicalFailure of [false,true])test(`old pass with queued guidance preserves acceptance before replan; historical failure ${historicalFailure}`,async()=>{
+  const f=await legacyPass(),state=f.store.load();
+  if(historicalFailure){state.phase='failed';state.failure={kind:'unknown',stage:'paused',message:new GuidanceHandoff(false).message,recoverable:false};f.store.save(state);f.store.audit('transition',{phase:'failed',taskIndex:0,loops:state.loops});f.store.audit('error',state.failure);}
+  const message={id:randomUUID(),sessionId:randomUUID(),runId:f.store.id,text:'Routine stages continue automatically',time:new Date().toISOString(),attachments:[]};publishGuidance(f.store,message);
+  let replans=0;f.agents.plan=async current=>{replans++;assert.deepEqual(current.completedTaskIds,['edit']);assert.equal(current.guidancePending?.id,message.id);return{humanDecision:null,tasks:[]};};
+  f.agents.execute=async()=>{throw Error('Completed work must never replay');};f.agents.review=async()=>{throw Error('Unchanged accepted work must never review again');};
+  const done=await drive(f.store,f.agents,'继续原 Run 并处理新授权');assert.equal(done.phase,'completed',done.reason);assert.equal(replans,1);assert.deepEqual(f.count(),{executions:1,reviews:1});assert.equal(guidanceStatus(f.store,message.id),'applied');
+  assert.equal(events(f).filter(e=>e.event==='guidance-failure-reclassified').length,historicalFailure?1:0);
+});
+
+test('ordinary nonrecoverable failure remains blocked despite queued guidance',async()=>{
+  const f=await legacyPass(),state=f.store.load();state.phase='failed';state.failure={kind:'unknown',stage:'paused',message:'Unrelated real failure',recoverable:false};f.store.save(state);
+  publishGuidance(f.store,{id:randomUUID(),sessionId:randomUUID(),runId:f.store.id,text:'Continue',time:new Date().toISOString(),attachments:[]});
+  const done=await drive(f.store,f.agents,'继续');assert.equal(done.phase,'failed');assert.equal(done.failure?.message,'Unrelated real failure');assert.deepEqual(f.count(),{executions:1,reviews:1});
 });
