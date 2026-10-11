@@ -843,6 +843,174 @@
         }
       ]
     },
+    "guidancePending": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sessionId",
+        "runId",
+        "text",
+        "time",
+        "attachments"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000
+        },
+        "time": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attachments": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "mimeType",
+              "size",
+              "file",
+              "sha256"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              },
+              "mimeType": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/gif",
+                  "image/webp",
+                  "text/plain"
+                ]
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 104857600
+              },
+              "file": {
+                "type": "string",
+                "pattern": "^user-attachments/[a-f0-9-]{36}\\.(png|jpg|gif|webp|txt)$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "guidanceHistory": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "sessionId",
+          "runId",
+          "text",
+          "time",
+          "attachments"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "sessionId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "runId": {
+            "type": "string",
+            "pattern": "^[a-f0-9-]{36}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "time": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "attachments": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "mimeType",
+                "size",
+                "file",
+                "sha256"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "mimeType": {
+                  "enum": [
+                    "image/png",
+                    "image/jpeg",
+                    "image/gif",
+                    "image/webp",
+                    "text/plain"
+                  ]
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 104857600
+                },
+                "file": {
+                  "type": "string",
+                  "pattern": "^user-attachments/[a-f0-9-]{36}\\.(png|jpg|gif|webp|txt)$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "userAttachments": {
       "type": "array",
       "maxItems": 8,

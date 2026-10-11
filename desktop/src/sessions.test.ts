@@ -10,6 +10,8 @@ import {groupMessages} from './threadGrouping.js';
 import {projectMessages} from './thread.js';
 import type {ChatMessage,Conversation} from './types.js';
 import type {State} from '../../src/store.js';
+import {claimGuidance,guidanceStatus,pendingGuidance} from '../../dist/src/steering.js';
+import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 test('P3C executor selection is independent, validated and durable; history defaults to Codex',async()=>{
@@ -259,4 +261,54 @@ test('complete long output is fetched by stable event ID and verified against au
 });
 test('thread projection cache avoids re-reading unchanged audit and invalidates on append or tampering',async()=>{
  const {service}=fixture();await service.prepareMock();const profile=service.overview().profiles[0];service.launch=()=>{};const run=await service.start({operation:'start',profileId:profile.id,repository:profile.repositories[0],goal:'cache proof',maxClaudeCalls:5,maxLoops:4,maxReworks:1});let reads=0;const original=service.audit.bind(service);service.audit=store=>{reads++;return original(store);};const initial=service.thread(profile.id,run.id);service.thread(profile.id,run.id);assert.equal(reads,1);const store=service.store(profile.id,run.id);store.audit('agent-activity',{agent:'codex',kind:'summary',title:'progress',text:'actual fixture event'});assert.equal(service.thread(profile.id,run.id).total,initial.total+1);assert.equal(reads,2);fs.appendFileSync(store.file('audit.jsonl'),'{}\n');assert.throws(()=>service.thread(profile.id,run.id),/integrity/);
+});
+
+test('promote queued input with image/file into the owned Run without touching Controller state/audit; cancel before claim',async()=>{
+ const {service,project,data}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first task',directAcknowledged:true});
+ const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id);
+ service.children.set(run.id,{} as any);
+ try{
+  const id=randomUUID(),png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5ioAAAAASUVORK5CYII=';
+  const attachments=[{name:'pixel.png',mimeType:'image/png',size:Buffer.from(png,'base64').length,dataUrl:'data:image/png;base64,'+png},{name:'requirements.md',mimeType:'text/plain',size:5,content:'later'}];
+  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:id,text:'adjust with attachments',attachments});
+  const before=fs.readFileSync(store.file('state.json')),audit=fs.readFileSync(store.file('audit.jsonl'));
+  const promoted=await service.dispatch({operation:'steerSessionMessage',sessionId:session.id,messageId:id}) as Conversation;
+  assert.equal(promoted.messages.at(-1)?.status,'steering');assert.equal(promoted.runs.length,1);assert.equal(pendingGuidance(store)[0].attachments.length,2);
+  assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);
+  await service.dispatch({operation:'steerSessionMessage',sessionId:session.id,messageId:id});assert.equal(pendingGuidance(store).length,1);
+  const restarted=new DesktopService(root,data,process.execPath);assert.equal(restarted.sessions.detail(session.id).session.messages.at(-1)?.status,'steering');
+  const image=await service.dispatch({operation:'sessionAttachment',sessionId:session.id,messageId:id,digest:promoted.messages.at(-1)!.attachments![0].sha256}) as {dataUrl:string};assert.equal(image.dataUrl,'data:image/png;base64,'+png);
+  assert.throws(()=>service.sessions.attachment({operation:'sessionAttachment',sessionId:session.id,messageId:randomUUID(),digest:promoted.messages.at(-1)!.attachments![0].sha256}),/不存在/);
+  await service.dispatch({operation:'cancelSessionMessage',sessionId:session.id,messageId:id});assert.equal(guidanceStatus(store,id),'cancelled');assert.equal(pendingGuidance(store).length,0);
+  assert.deepEqual(fs.readFileSync(store.file('state.json')),before);
+ }finally{service.children.delete(run.id);}
+});
+
+test('claimed guidance rejects deletion/edit and projects adjusting; accepted guidance projects executed',async()=>{
+ const {service,project}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first',directAcknowledged:true});
+ const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id);service.children.set(run.id,{} as any);
+ try{
+  const id=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:id,text:'change next'});await service.sessions.steer({operation:'steerSessionMessage',sessionId:session.id,messageId:id});
+  const input=claimGuidance(store)!;assert.equal(service.sessions.detail(session.id).session.messages.at(-1)?.status,'adjusting');
+  await assert.rejects(service.dispatch({operation:'cancelSessionMessage',sessionId:session.id,messageId:id}),/已接收/);
+  await assert.rejects(service.dispatch({operation:'editSessionMessage',sessionId:session.id,messageId:id,text:'replacement'}),/已接收/);
+  const state=store.load();state.guidanceHistory=[input];store.save(state);
+  assert.equal(service.sessions.detail(session.id).session.messages.at(-1)?.status,'executed');assert.equal(runAttachments(state,store).length,0);
+ }finally{service.children.delete(run.id);}
+});
+
+test('editing promoted but unclaimed message withdraws its old content before requeue',async()=>{
+ const {service,project}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first',directAcknowledged:true});
+ const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id);service.children.set(run.id,{} as any);
+ try{
+  const id=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:id,text:'old request'});await service.sessions.steer({operation:'steerSessionMessage',sessionId:session.id,messageId:id});
+  const edited=service.sessions.edit({operation:'editSessionMessage',sessionId:session.id,messageId:id,text:'new request'});assert.equal(edited.messages.at(-1)?.status,'pending');assert.equal(pendingGuidance(store).length,0);
+  await service.sessions.steer({operation:'steerSessionMessage',sessionId:session.id,messageId:id});assert.equal(pendingGuidance(store)[0].text,'new request');
+ }finally{service.children.delete(run.id);}
 });

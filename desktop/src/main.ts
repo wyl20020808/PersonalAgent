@@ -40,7 +40,7 @@ if(locked)app.whenReady().then(async()=>{
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
   const r=validateRequest(raw);
   try{
-   if(r.operation==='sendSession'||r.operation==='processSessionMessage'){
+   if(r.operation==='sendSession'||r.operation==='processSessionMessage'||r.operation==='steerSessionMessage'){
     const {session,runs}=service.sessions.detail(r.sessionId!),last=runs.at(-1);
     const projectActive=service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)));
     const text=r.text??session.messages.find(m=>m.id===r.messageId)?.text??'';

@@ -1,4 +1,5 @@
-import {bindRunAttachments,readNativeAttachment} from '../../dist/src/multimodal.js';
+import {bindRunAttachments,readNativeAttachment,stageRunAttachments} from '../../dist/src/multimodal.js';
+import {publishGuidance,guidanceStatus,cancelGuidance,readGuidance} from '../../dist/src/steering.js';
 import {projectTarget} from '../../dist/src/project-files.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,12 +77,59 @@ export class SessionStore {
   let changed=false;
   for(const message of session.messages){if(message.status==='starting'&&message.runId){message.status='executed';changed=true;}else if(message.status==='starting'&&!this.inFlight.has(session.id)&&!this.lockAlive(this.lockPath(session))){message.status='failed';message.error='启动中断；请检查运行记录后明确重试。';changed=true;}}
   if(changed)this.update(session);
-  return {...session,runs:session.runs.map(ref=>({...ref,profileId:runs.find(r=>r.id===ref.id)?.profileId??ref.profileId})),unavailableRuns,title:redact(session.title),messages:session.messages.map(m=>({...m,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))})),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
+  return {...session,runs:session.runs.map(ref=>({...ref,profileId:runs.find(r=>r.id===ref.id)?.profileId??ref.profileId})),unavailableRuns,title:redact(session.title),messages:session.messages.map(original=>{
+   const m={...original};
+   if(m.guidanceRunId)try{
+    const store=this.guidanceStore(session,m.guidanceRunId),state=store.load(),status=guidanceStatus(store,m.id);
+    m.status=state.guidanceHistory?.some(item=>item.id===m.id)||status==='applied'?'executed':status==='processing'?'adjusting':status==='cancelled'?'cancelled':status==='pending'?'steering':'failed';
+    m.error=m.status==='failed'?'引导投递记录不可用，请核查运行记录。':m.status==='steering'?['paused','failed','stopped'].includes(state.phase)?'任务已暂停，引导保留；请在聊天中明确恢复。':'将在当前小任务验收后交给决策者，当前调用继续执行。':m.status==='adjusting'?['paused','failed','stopped'].includes(state.phase)?'调整已暂停，请在聊天中明确恢复；已有成果保留。':'决策者正在调整后续计划。':undefined;
+   }catch(error){m.status='failed';m.error=redact((error as Error).message);}
+   return {...m,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
+  }),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
  }
  list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
  detail(id:string){const session=this.public(this.get(id));return {session,runs:this.resolve(this.get(id)).runs};}
+ private guidanceStore(session:Saved,runId:string){const ref=session.runs.find(run=>run.id===runId);if(!ref)throw Error('消息 Run 与会话归属不匹配');const run=this.run(ref,session);return this.service.store(run.profileId,run.id);}
+ attachment(r:Request){
+  const session=this.get(r.sessionId!),message=session.messages.find(m=>m.id===r.messageId),item=message?.attachments?.find(a=>a.sha256===r.digest);
+  if(!message||!item||!item.mimeType.startsWith('image/'))throw Error('图片附件不存在');
+  const bytes=this.attachmentBytes(session,message)[message.attachments!.indexOf(item)]!.bytes;
+  return {name:item.name,dataUrl:`data:${item.mimeType};base64,${bytes.toString('base64')}`};
+ }
+ async steer(r:Request){
+  const session=this.get(r.sessionId!),release=this.acquire(session);
+  try{
+   if(session.legacy)throw Error('历史会话只供回放');
+   const message=session.messages.find(m=>m.id===r.messageId);if(!message)throw Error('消息不存在');
+   if(message.guidanceRunId){const status=guidanceStatus(this.guidanceStore(session,message.guidanceRunId),message.id);if(status&&status!=='cancelled')return this.public(session);}
+   if(!['pending','failed'].includes(message.status))throw Error('需求已处理或已取消');
+   const {runs,unavailableRuns}=this.resolve(session);if(unavailableRuns.length)throw Error('历史 Run 不可用，不能投递引导');
+   const last=runs.at(-1);
+   if(!last||!active.includes(last.phase))return await this.sendLocked(r,true);
+   this.service.writable(last.profileId);
+   if(!last.active)throw Error('当前 Controller 已退出；请先明确恢复任务，再发送引导');
+   const store=this.service.store(last.profileId,last.id),existing=readGuidance(store,message.id);
+   if(existing&&guidanceStatus(store,message.id)!=='cancelled'){
+    if(existing.sessionId!==session.id||existing.text!==message.text)throw Error('投递记录与消息不匹配，拒绝覆盖');
+   }else{
+    const refs=stageRunAttachments(store,this.attachmentBytes(session,message));
+    publishGuidance(store,{id:message.id,sessionId:session.id,runId:last.id,text:message.text,time:new Date().toISOString(),attachments:refs});
+   }
+   message.action='steer';message.guidanceRunId=last.id;message.runId=last.id;message.autoQueued=false;message.status='steering';message.error=undefined;
+   session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);
+  }finally{release();}
+ }
  rename(id:string,title:string){const session=this.get(id),release=this.acquire(session);try{session.title=title.trim();if(!session.title)throw Error('会话名称不能为空');session.manualTitle=true;session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);}finally{release();}}
- edit(r:Request,cancel=false){const session=this.get(r.sessionId!),release=this.acquire(session);try{const message=session.messages.find(m=>m.id===r.messageId);if(!message||!['pending','failed'].includes(message.status))throw Error('仅可修改或取消尚未生效的需求');if(cancel)message.status='cancelled';else{message.text=r.text!.trim();if(!message.text)throw Error('消息不能为空');message.error=undefined;message.status='pending';}session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);}finally{release();}}
+ edit(r:Request,cancel=false){
+  const session=this.get(r.sessionId!),release=this.acquire(session);
+  try{
+   const message=session.messages.find(m=>m.id===r.messageId);
+   if(!message||!['pending','failed','steering'].includes(message.status))throw Error('仅可修改或删除尚未生效的需求');
+   if(message.guidanceRunId){const store=this.guidanceStore(session,message.guidanceRunId);if(store.load().guidanceHistory?.some(item=>item.id===message.id))throw Error('决策者已接收此消息，不能再删除或修改');cancelGuidance(store,message.id);delete message.guidanceRunId;}
+   if(cancel){message.status='cancelled';message.autoQueued=false;}else{message.text=r.text!.trim();if(!message.text)throw Error('消息不能为空');message.error=undefined;message.status='pending';message.action='queue';message.autoQueued=Boolean(this.resolve(session).runs.at(-1)?.active);}
+   session.updatedAt=new Date().toISOString();this.update(session);return this.public(session);
+  }finally{release();}
+ }
  async send(r:Request,process=false){
   const session=this.get(r.sessionId!);
   const release=this.acquire(session);
@@ -99,6 +147,11 @@ export class SessionStore {
    for(let remaining=session.messages.length;remaining>0;remaining--){
     const fresh=this.get(session.id),last=this.resolve(fresh).runs.at(-1);
     if(!last||last.active||last.phase!=='completed'||last.id!==runId)return;
+    // A click can arrive after the final completion checkpoint. Preserve it as queued work.
+    for(const waiting of fresh.messages)if(waiting.guidanceRunId===runId&&guidanceStatus(this.guidanceStore(fresh,runId),waiting.id)==='pending'){
+     cancelGuidance(this.guidanceStore(fresh,runId),waiting.id);delete waiting.guidanceRunId;waiting.status='pending';waiting.autoQueued=true;
+    }
+    this.update(fresh);
     const message=fresh.messages.find(m=>m.status==='pending'&&m.autoQueued);
     if(!message)return;selectedId=message.id;
     const result=await this.send({operation:'processSessionMessage',sessionId:session.id,messageId:message.id},true);

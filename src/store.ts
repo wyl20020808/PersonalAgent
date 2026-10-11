@@ -9,10 +9,13 @@ import { failureKinds, type Failure } from './failure.js';
 import type { ContextReport } from './context-review.js';
 import type { DecisionIdentity, DecisionSession } from './decision-agent.js';
 import {attachmentRefSchema,type AttachmentRef} from './attachment-types.js';
+import {guidanceSchema,type Guidance} from './steering.js';
 
 export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify' | 'review' | 'paused' | 'stopped' | 'failed' | 'completed';
 export interface Evidence { verificationScope?: string; contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
+  guidancePending?: Guidance;
+  guidanceHistory?: Guidance[];
   userAttachments?: AttachmentRef[];
   executionSession?: { backend: 'opencode'; providerID: string; modelID: string; sessionId: string; runId: string; workspace: string; directory: string };
   executionAttempt?: { loop: number; taskId: string; status: 'running' | 'success' | 'failed' | 'interrupted' };
@@ -41,6 +44,8 @@ const stateProperties = {
 };
 export const stateSchema = { type: 'object', properties: { ...stateProperties, snapshotPolicy: { const: 'none' }, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
+  guidancePending: guidanceSchema,
+  guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},
   userAttachments: {type:'array',maxItems:8,items:attachmentRefSchema},
   executionSession: { type: 'object', additionalProperties: false, required: ['backend','providerID','modelID','sessionId','runId','workspace','directory'], properties: { backend: { const: 'opencode' }, providerID: str, modelID: str, sessionId: str, runId: str, workspace: str, directory: str } },
   executionAttempt: { type: 'object', additionalProperties: false, required: ['loop','taskId','status'], properties: { loop: integer, taskId: str, status: { enum: ['running','success','failed','interrupted'] } } },
