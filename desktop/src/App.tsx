@@ -7,6 +7,7 @@ import './style.css';
 import GroupWorkspace from './GroupWorkspace.js';
 import ProjectCreate from './ProjectCreate.js';
 import './codex.css';
+import './chat-messages.css';
 
 type Page='chat'|'dashboard'|'create'|'run'|'delivery'|'history'|'settings';
 const phaseNames:Record<string,string>={planning:'规划中',execute:'准备执行',executing:'执行中',applying:'应用提案',verify:'独立验证',review:'审查中',paused:'等待决策',stopped:'已停止',failed:'失败',completed:'已完成',preview:'待审批',approved:'已批准',applied:'已应用',invalidated:'批准已失效',blocked:'应用受阻'};

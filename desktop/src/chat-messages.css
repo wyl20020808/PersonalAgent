@@ -1,0 +1,38 @@
+/* Message layout follows the function in this Run, independently of provider. */
+.chat-feed .group-message.lane-decision,.chat-feed .group-message.lane-system{align-self:flex-start;flex-direction:row}
+.chat-feed .group-message.lane-execution{align-self:flex-end;flex-direction:row-reverse}
+.chat-feed .group-message.lane-user{align-self:center;flex-direction:row;width:auto;max-width:min(82%,760px)}
+.chat-feed .group-message .message-main{min-width:0;flex:1}
+.chat-feed .group-message{width:min(84%,850px);min-width:0}
+.chat-feed .group-message .message-meta{flex-direction:row;flex-wrap:wrap;gap:6px 10px}
+.chat-feed .group-message .message-meta time{margin-left:auto;margin-right:0}
+.chat-feed .group-message.lane-execution .message-meta{flex-direction:row-reverse}
+.chat-feed .group-message.lane-execution .message-meta time{margin-left:0;margin-right:auto}
+.chat-feed .group-message .message-content{padding:16px 18px;border:1px solid #e2e7ee;border-radius:14px;background:#fff;overflow-wrap:anywhere}
+.chat-feed .group-message.lane-user .message-content{background:#f3f5f8}
+.chat-feed .group-message.lane-system .message-content{background:#f6f8fb}
+.chat-feed .group-message.status-fail .message-content,.chat-feed .group-message.status-failed .message-content,.chat-feed .group-message.kind-error .message-content{background:#fff7f5;border-color:#edc7c0}
+.chat-feed .group-message>.person-icon{display:grid;place-items:center;flex-shrink:0;align-self:flex-start;width:32px;height:32px;border-radius:10px;margin:0;padding:0}
+.chat-feed .agent-logo{display:grid;place-items:center;width:22px;height:22px}
+.chat-feed .agent-logo img{display:block;width:22px;height:22px;object-fit:contain}
+.chat-feed .group-message .message-title{display:flex;gap:8px;align-items:center;line-height:1.5;margin-bottom:8px;color:#27364b;font-size:14px}
+.chat-feed .group-message .markdown{color:#27364b;line-height:1.75;font-size:14px}
+.chat-feed .markdown li,.chat-feed .markdown ul,.chat-feed .markdown ol{color:#27364b}
+.chat-feed .chat-test-card{margin-top:16px;border:1px solid #dce3ec;border-radius:10px;background:#fff;overflow:hidden}
+.chat-feed .chat-test-card details{border:0;padding:0}
+.chat-feed .chat-test-card summary{padding:12px;gap:12px;color:#40536b;flex-wrap:wrap}
+.chat-feed .chat-test-card summary>span{color:#40536b}
+.chat-feed .chat-test-card .positive{color:#27644d}.chat-feed .chat-test-card .negative{color:#a33326}
+.chat-feed .chat-diff{margin-top:14px}.chat-feed .chat-diff summary{padding:5px 0;color:#40536b}
+.chat-feed .source-reference{margin-top:10px;text-align:left}
+.chat-feed .group-message.system-message{align-self:flex-start;margin:0 0 18px 42px;width:auto;max-width:calc(100% - 42px);text-align:left;justify-content:flex-start}
+.chat-feed .system-message summary{justify-content:flex-start;gap:8px;flex-wrap:wrap}
+.tool-heading{display:flex;align-items:center;gap:8px;font-size:13px;color:#40536b;flex-wrap:wrap}
+.tool-status{margin-left:auto;color:#526174;font-size:12px}.tool-status.status-fail{color:#a33326}.tool-status.status-success{color:#27644d}
+.tool-record pre,.step-record{font:12px/1.65 "Cascadia Code",Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;max-height:320px;overflow:auto;color:#27364b;background:#f5f7fa;padding:12px;border-radius:8px;text-align:left}
+.tool-record summary{cursor:pointer;color:#40536b;font-size:12px;padding-top:12px}
+.tool-record .file-chips{margin:12px 0}.tool-record .file-chips span{max-width:100%;overflow-wrap:anywhere}
+.chat-feed .group-children>.group-message{width:100%;max-width:100%}
+.chat-feed .group-toggle{flex-wrap:wrap}.chat-feed .group-toggle>span{white-space:normal}
+.chat-feed summary:focus-visible,.chat-feed button:focus-visible{outline:2px solid #6488bc;outline-offset:3px}
+@media(max-width:700px){.chat-feed{padding:16px 12px}.chat-feed .group-message{width:94%;max-width:94%;gap:8px}.chat-feed .group-message .message-content{padding:12px}.chat-feed .group-message.lane-user{max-width:90%}.chat-feed .message-meta>span{font-size:11px}}

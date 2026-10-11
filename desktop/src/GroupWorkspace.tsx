@@ -8,6 +8,7 @@ import Markdown from 'react-markdown';
 import {ArrowDown,ArrowUp,Ellipsis,Folder,FolderOpen,LoaderCircle,PanelRight,ArrowUpRight,Check,CheckCircle2,ChevronDown,Clock3,Code2,FileCode2,GitBranch,Image as ImageIcon,Layers3,MessageSquare,Pause,Play,Send,ShieldCheck,TriangleAlert,X} from 'lucide-react';
 import type {DecisionAgent,DecisionDiscussion,SessionDraft,ChatMessage,Conversation,Picture,Profile,Project,Run,ThreadPage} from './types.js';
 import {groupMessages,type MessageGroup} from './threadGrouping.js';
+import {messageLane,toolPresentation,publicMessageText,messagePreview} from './chatPresentation.js';
 import './group.css';
 
 const roles={opencode:{name:'OpenCode',description:'规划 · 审查',letter:'O'},user:{name:'你',description:'项目负责人',letter:'你'},claude:{name:'Claude Code',description:'规划 · 审查',letter:'C'},codex:{name:'Codex',description:'执行者',letter:'X'},controller:{name:'Controller',description:'独立系统事件',letter:'P'}};
@@ -17,15 +18,25 @@ const labels:Record<string,string>={planning:'CC 正在规划',execute:'准备�
 const clock=(time:string)=>new Date(time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 export function SafeMarkdown({text}:{text:string}){return <Markdown skipHtml components={{a:({children})=><span className="markdown-link">{children}</span>,img:()=>null}}>{text}</Markdown>;}
 function Text({text}:{text:string}){const [expanded,setExpanded]=useState(false);return text.length>650?<details className="message-fold" onToggle={e=>setExpanded(e.currentTarget.open)}><summary><SafeMarkdown text={text.split('\n')[0].slice(0,240)}/><span>展开完整内容<ChevronDown size={13}/></span></summary>{expanded&&<div className="markdown"><SafeMarkdown text={text}/></div>}</details>:<div className="markdown"><SafeMarkdown text={text}/></div>;}
-const Message=React.memo(function Message({message}:{message:ChatMessage}){
+function ToolContent({message}:{message:ChatMessage}){
+ const tool=toolPresentation({kind:message.kind,text:message.text,title:message.title,source:message.details?.protocol});
+ return <div className="tool-record">
+  <div className="tool-heading"><Code2 size={15}/><strong>{tool?.label??'工具记录'}</strong><span className={`tool-status status-${message.status}`}>{({success:'已完成',running:'执行中',fail:'执行失败'} as Record<string,string>)[message.status]??'已记录'}{tool?.exitCode!==undefined?` · 退出码 ${tool.exitCode}`:''}</span></div>
+  {tool?.command&&<pre className="tool-command">{tool.command}</pre>}
+  {tool?.paths&&<div className="file-chips">{tool.paths.map((path,index)=><span key={index}><FileCode2 size={13}/>{path}</span>)}</div>}
+  {tool?.output!==undefined&&<details className="tool-output" open={message.status==='fail'}><summary>命令 / 工具输出</summary><pre>{tool.output||'无输出'}</pre></details>}
+  <details className="tool-raw"><summary>{tool?'原始工具记录':'查看工具记录（保留原格式）'}</summary><pre>{message.text}</pre></details>
+ </div>;
+}
+export const Message=React.memo(function Message({message}:{message:ChatMessage}){
  const [evidence,setEvidence]=useState<{event:unknown;text:string}|null>(null),[evidenceError,setEvidenceError]=useState(''),[evidencePage,setEvidencePage]=useState(0);
  const evidenceText=evidence?(evidence.text||JSON.stringify(evidence.event,null,2)):'';
  const role=roles[message.role]??roles.controller;
  if(message.role==='controller'&&['phase','dispatch','session','exit'].includes(message.kind))return <article className={`group-message role-controller kind-${message.kind} status-${message.status} system-message`} data-message-id={message.id}><details><summary><ShieldCheck size={12}/><span>Controller · {message.title}</span><time dateTime={message.time}>{clock(message.time)}</time><ChevronDown size={12}/></summary><div className="system-evidence"><SafeMarkdown text={message.text||'阶段状态来自 Controller 检查点'}/><code>{message.source}{message.taskId?' · '+message.taskId:''}{message.loop?' · 第 '+message.loop+' 轮':''}</code></div></details></article>;
- return <article className={`group-message role-${message.role} kind-${message.kind} status-${message.status}`} data-message-id={message.id} data-participant-id={message.participantId} data-decision-stage={message.decisionStage}>
+ return <article className={`group-message lane-${messageLane(message)} role-${message.role} kind-${message.kind} status-${message.status}`} data-message-id={message.id} data-participant-id={message.participantId} data-decision-stage={message.decisionStage}>
   <Avatar role={message.role}/>
   <div className="message-main"><div className="message-meta"><strong>{message.participantName??role.name}</strong><span>{message.participantRole??role.description}</span><time dateTime={message.time}>{clock(message.time)}</time></div>
-   <div className="message-content"><div className="message-title">{message.title}{message.status==='pending'&&<span className="pending-label">未生效</span>}{message.status==='pass'&&<CheckCircle2 size={14}/>}</div>{message.kind==='error'?<details className="message-fold" open={message.text.length<=650}><summary>完整失败原因</summary><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{message.text}</pre></details>:<Text text={message.text}/>}
+   <div className="message-content"><div className="message-title">{message.title}{message.status==='pending'&&<span className="pending-label">未生效</span>}{message.status==='pass'&&<CheckCircle2 size={14}/>}</div>{message.kind==='error'?<details className="message-fold" open={message.text.length<=650}><summary>完整失败原因</summary><pre style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{message.text}</pre></details>:message.kind==='tool'?<ToolContent message={message}/>:message.kind==='todo'?<pre className="step-record">{message.text}</pre>:<Text text={publicMessageText(message)}/>}
     {message.details?.tasks&&<div className="chat-plan">{message.details.tasks.map((t,i)=><details key={t.id}><summary><span className="step-number">{i+1}</span><strong>{t.id}</strong><span>{t.dependsOn?.length?'依赖 '+t.dependsOn.join('、'):'起始任务'}</span><ChevronDown size={13}/></summary><SafeMarkdown text={t.instruction}/><ul>{t.acceptance.map((a,n)=><li key={n}>{a}</li>)}</ul></details>)}</div>}
     {message.details?.paths&&<div className="file-chips">{message.details.paths.map(p=><span key={p}><FileCode2 size={12}/>{p}</span>)}</div>}
     {message.details?.tests&&<div className="chat-test-card">{message.details.tests.map((t,i)=><details key={i}><summary><span className={t.exitCode===0?'positive':'negative'}>{t.exitCode===0?<CheckCircle2 size={14}/>:<TriangleAlert size={14}/>}验收命令 {i+1}</span><span>退出码 {t.exitCode}</span><ChevronDown size={13}/></summary><pre>{t.stdout||'无标准输出'}{t.stderr?'\n'+t.stderr:''}</pre></details>)}</div>}
@@ -34,11 +45,11 @@ const Message=React.memo(function Message({message}:{message:ChatMessage}){
   </div>
  </article>;
 });
-function EventGroup({group,expanded,onToggle}:{group:MessageGroup;expanded:boolean;onToggle:()=>void}){
+export function EventGroup({group,expanded,onToggle}:{group:MessageGroup;expanded:boolean;onToggle:()=>void}){
  const [shown,setShown]=useState(50);
  const first=group.messages[0],role=roles[first.role];
  if(group.messages.length===1)return <Message message={first}/>;
- return <article className={`group-message event-group role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span><time>{clock(group.firstTime)} – {clock(group.lastTime)}</time></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{group.status==='running'?'含未完成记录':group.status==='success'?'成功':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button><p className="group-preview">{first.text.split('\n')[0].slice(0,160)}</p>{expanded&&<div className="group-children">{group.messages.slice(0,shown).map(message=><Message key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div></div></article>;
+ return <article className={`group-message event-group lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span><time>{clock(group.firstTime)} – {clock(group.lastTime)}</time></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{group.status==='running'?'含未完成记录':group.status==='success'?'成功':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button><p className="group-preview">{messagePreview(first)}</p>{expanded&&<div className="group-children">{group.messages.slice(0,shown).map(message=><Message key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div></div></article>;
 }
 function ReviewSections({text}:{text:string}){
  const parts=text.split(/\n(?=(?:\*\*[^\n]+\*\*|#{1,3} [^\n]+)\s*\n)/);

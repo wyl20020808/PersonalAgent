@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: output words cannot override command exit status
+ok 1 - output words cannot override command exit status
+  ---
+  duration_ms: 2.0602
+  type: 'test'
+  ...
+# Subtest: structured statuses ignore escaped output and preserve actual tool errors
+ok 2 - structured statuses ignore escaped output and preserve actual tool errors
+  ---
+  duration_ms: 0.5698
+  type: 'test'
+  ...
+# Subtest: commands, file operations and truncated records retain evidence
+ok 3 - commands, file operations and truncated records retain evidence
+  ---
+  duration_ms: 2.1803
+  type: 'test'
+  ...
+# Subtest: OpenCode public output unwraps only known execution envelopes; group preview hides protocol noise
+ok 4 - OpenCode public output unwraps only known execution envelopes; group preview hides protocol noise
+  ---
+  duration_ms: 0.4221
+  type: 'test'
+  ...
+# Subtest: role lanes distinguish same provider; users stay centered and Controller stays separate
+ok 5 - role lanes distinguish same provider; users stay centered and Controller stays separate
+  ---
+  duration_ms: 0.5389
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 149.544

@@ -1,3 +1,4 @@
+import {activityStatus,toolPresentation} from './chatPresentation.js';
 import {redact} from '../../dist/src/telemetry.js';
 import type {State} from '../../src/store.js';
 import type {ChatMessage,Note} from './types.js';
@@ -44,7 +45,7 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    else continue;
    const visibleText=redact(String(text??''));
    const owner=d.participantId?d:state.discussion&&(['review','planning-human-decision'].includes(e.event)||['agent-start','agent-finish'].includes(e.event)&&d.role==='review')?{participantId:state.discussion.config.primary,participantAgent:state.discussion.participants.find(p=>p.id===state.discussion!.config.primary)!.agent,primary:true}:undefined;
-   const executionEvent=d.role==='execute'||e.event.startsWith('opencode-exec')||e.event==='native-result'&&executionRole==='opencode'||e.event==='agent-activity'&&d.scope?.startsWith('opencode-execute:');
+   const executionEvent=(d.role==='execute'||d.phase==='execute')||e.event.startsWith('opencode-exec')||e.event==='native-result'||e.event==='agent-activity'&&d.scope?.startsWith('opencode-execute:');
    result.push({...((owner&&role!=='controller')?{participantId:owner.participantId,participantName:(owner.participantAgent.backend==='codex'?'Codex':owner.participantAgent.backend==='opencode'?'OpenCode':'Claude Code')+' '+owner.participantId.toUpperCase(),participantRole:owner.primary?'主决策者':'决策者',decisionStage:d.discussionStage}:{}),...(executionEvent?{participantRole:'执行者',participantName:executionName,decisionStage:'execute'}:{}),id:`audit:${e.hash}`,time:e.time,role,...(role===decisionRole&&!owner&&!executionEvent&&(['plan','review','planning-human-decision'].includes(e.event)||e.event==='agent-activity'&&(d.phase==='plan'||d.phase==='review'||d.agent!=='codex')||['agent-start','agent-finish'].includes(e.event)&&d.role!=='execute')?{participantRole:'决策者'}:{}),title:redact(String(title)),text:visibleText,kind,status,runId:state.id,taskId:d.discussionStage&&d.discussionStage!=='review'?null:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,scope:d.scope,timelineIndex,category:e.event==='agent-activity'?activityCategory(d):undefined,source:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
  }
  for(const note of notes)result.push({id:`note:${note.id}`,time:note.time,role:'user',title:'补充需求 · 已记录，尚未生效',text:note.text,kind:'note',status:'pending',runId:state.id,taskId:note.taskId,loop:note.loop,source:`desktop-note:${note.id}`});
@@ -52,17 +53,12 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
 }
 function activityCategory(data:any):string {
  if(data.kind!=='tool')return data.kind;
+ const view=toolPresentation(data);if(view?.command)return 'commands';if(view?.paths?.length)return 'files';
  try{const tool=JSON.parse(data.text).receipt?.tool;if(['write','edit','apply_patch'].includes(tool))return 'files';if(tool==='bash')return 'commands';}catch{/* legacy public text */}
  if(/文件|file/i.test(data.title))return 'files';
  if(/执行事件|命令|Shell/.test(data.title))return 'commands';
  // Unstructured legacy tools are grouped only when their exact titles match.
  return 'tool:'+data.title;
-}
-function activityStatus(data:any):string {
- if(data.kind==='error'||/"status":"error"/.test(data.text??'')||/exit_code=-?[1-9]\d*\b|"is_error":true|"error":(?!null)[{\"]|\bfailed\b/.test(data.text??''))return 'fail';
- if(/"status":"(?:pending|running)"|exit_code=pending|\bin_progress\b|正在执行/.test(data.text??''))return 'running';
- if(/exit_code=0\b|"status":"completed"/.test(data.text??''))return 'success';
- return 'recorded';
 }
 export {groupMessages} from './threadGrouping.js';
 export function messagePage(messages:ChatMessage[],after?:string){

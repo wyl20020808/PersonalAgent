@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "fixture": true,
+  "headless": true,
+  "base": "32ec301e59868db120904c873ca123f6fc9b7743",
+  "checks": [
+    "role placement",
+    "user centered",
+    "three official logos loaded",
+    "Controller padding",
+    "failure output visible",
+    "group expansion",
+    "480px overflow",
+    "no page errors"
+  ],
+  "errors": []
+}
