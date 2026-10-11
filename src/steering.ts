@@ -46,11 +46,20 @@ export function pendingGuidance(store:Store):Guidance[]{
 export function claimGuidance(store:Store,appliedIds:string[]=[]):Guidance|undefined{
  prepare(store);
  // A crash between atomic claim and state persistence retains the exact input.
- for(const name of fs.readdirSync(store.file('guidance/processing')).filter(name=>/^[a-f0-9-]{36}\.json$/.test(name))){
-  const message=validate<Guidance>(guidanceSchema,JSON.parse(fs.readFileSync(projectTarget(store.file('guidance/processing'),name),'utf8')));
-  if(message.runId!==store.id||name!==message.id+'.json')throw Error('引导消息归属不匹配');
+ for(const message of processingGuidance(store)){
   if(appliedIds.includes(message.id)){finishGuidance(store,message);continue;}return message;
  }
+ return claimPendingGuidance(store);
+}
+export function processingGuidance(store:Store):Guidance[]{
+ const directory=store.file('guidance/processing');if(!fs.existsSync(directory))return [];
+ return fs.readdirSync(directory).filter(name=>/^[a-f0-9-]{36}\.json$/.test(name)).map(name=>{
+  const message=validate<Guidance>(guidanceSchema,JSON.parse(fs.readFileSync(projectTarget(directory,name),'utf8')));
+  if(message.runId!==store.id||name!==message.id+'.json')throw Error('引导消息归属不匹配');return message;
+ }).sort((a,b)=>(a.sequence??0)-(b.sequence??0)||a.time.localeCompare(b.time));
+}
+export function claimPendingGuidance(store:Store):Guidance|undefined{
+ prepare(store);
  for(const message of pendingGuidance(store)){
   // Validate before claiming: damaged pending inputs remain removable by the user.
   validateGuidanceAttachments(store,message);

@@ -39,7 +39,7 @@ export function codexObservation(event: any): object | null {
     const { id, type, command, status, exit_code } = event.item;
     return { type: event.type, item: { id, type, command: redactCommand(command), status, exit_code } };
   }
-  if (event.type === 'item.completed' && event.item?.type === 'mcp_tool_call') return { type: event.type, item: { id: event.item.id, type: event.item.type } };
+  if (['item.started','item.updated','item.completed'].includes(event.type) && ['mcp_tool_call','file_change'].includes(event.item?.type)) return { type: event.type, item: { id: event.item.id, type: event.item.type } };
   return null;
 }
 

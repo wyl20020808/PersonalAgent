@@ -9,6 +9,7 @@ import { activityRecorder, redact } from './telemetry.js';
 import { agentRules } from './native-agent.js';
 import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { nativeAgentEnv } from './workspace.js';
+import { codexGuidanceBoundary } from './guidance-handoff.js';
 
 export class CodexDecisionAgent implements DecisionAgent {
   constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess) {}
@@ -43,7 +44,7 @@ export class CodexDecisionAgent implements DecisionAgent {
             store.audit('codex-decision-thread', { ...scope, callId: observation.usage.callId, sessionId: event.id, resumed: !!threadId });
           } else {
             if (!ownedThread) throw new FlowError('safety', 'Codex Decision event without owned Thread');
-            if (event.type === 'observation') { if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
+            if (event.type === 'observation') { codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
             else if (event.type === 'activity') record(event.data);
             else if (event.type === 'result') { seenResult = true; output = event.data; }
             else throw Error('Unexpected Codex Decision worker protocol');

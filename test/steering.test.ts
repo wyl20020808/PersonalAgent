@@ -21,10 +21,10 @@ async function fixture(){
 function message(store:Store,text='change remaining task'):Guidance{return {id:randomUUID(),sessionId:randomUUID(),runId:store.id,time:new Date().toISOString(),text,attachments:[]};}
 function gate(){let resolve!:()=>void;const promise=new Promise<void>(done=>{resolve=done;});return {promise,resolve};}
 
-test('running native call is not aborted; acceptance precedes replan and completed task never repeats',async()=>{
+test('guidance after native result reaches decision before Review; existing writes never repeat',async()=>{
  const {store,repo}=await fixture(),entered=gate(),release=gate(),order:string[]=[];let firstCalls=0;
  const agents:Agents={executionMode:'native',
-  async plan(state){order.push(state.guidancePending?'replan':'plan');if(state.guidancePending){assert.deepEqual(state.completedTaskIds,['first']);assert.equal(state.evidence?.passed,true);assert.match(state.goal,/change remaining/);return {tasks:[task('new',['first'])],humanDecision:null};}return {tasks:[task('first'),task('original',['first'])],humanDecision:null};},
+  async plan(state){order.push(state.guidancePending?'replan':'plan');if(state.guidancePending){assert.deepEqual(state.completedTaskIds,[]);assert.equal(state.evidence,null);assert.match(state.goal,/change remaining/);return {tasks:[task('new')],humanDecision:null};}return {tasks:[task('first'),task('original',['first'])],humanDecision:null};},
   async execute(state,_store,signal){const id=state.tasks[state.taskIndex]!.id;order.push('execute-'+id);if(id==='first'){firstCalls++;entered.resolve();await release.promise;assert.equal(signal.aborted,false);fs.writeFileSync(path.join(repo,'first.txt'),'once');}else{assert.equal(id,'new');fs.writeFileSync(path.join(repo,'new.txt'),'adjusted');}return {mode:'native',summary:id};},
   async review(state){order.push('review-'+state.tasks[state.taskIndex]!.id);return {verdict:'pass',reason:'files checked'};}
  };
@@ -33,12 +33,12 @@ test('running native call is not aborted; acceptance precedes replan and complet
  input.attachments=stageRunAttachments(store,[{name:'requirements.md',mimeType:'text/plain',bytes:Buffer.from('keep first result')}]);
  publishGuidance(store,input);assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);assert.equal(guidanceStatus(store,input.id),'pending');
  release.resolve();const state=await running;
- assert.equal(state.phase,'completed',state.reason);assert.equal(firstCalls,1);assert.deepEqual(state.completedTaskIds,['first','new']);assert.deepEqual(order,['plan','execute-first','review-first','replan','execute-new','review-new']);assert.equal(guidanceStatus(store,input.id),'applied');assert.equal(state.guidancePending,undefined);assert.equal(runAttachments(state,store)[0]!.name,'requirements.md');
+ assert.equal(state.phase,'completed',state.reason);assert.equal(firstCalls,1);assert.deepEqual(state.completedTaskIds,['new']);assert.deepEqual(order,['plan','execute-first','replan','execute-new','review-new']);assert.equal(guidanceStatus(store,input.id),'applied');assert.equal(state.guidancePending,undefined);assert.equal(runAttachments(state,store)[0]!.name,'requirements.md');
 });
 
 test('guidance on final task can add work to the same Run, preserving the completed ID',async()=>{
  const {store,repo}=await fixture();let plans=0;
- const agents:Agents={executionMode:'native',async plan(state){plans++;return {tasks:state.guidancePending?[task('new',['first'])]:[task('first')],humanDecision:null};},async execute(state){if(state.tasks[state.taskIndex]!.id==='first'){fs.writeFileSync(path.join(repo,'first.txt'),'once');publishGuidance(store,message(store));}else fs.writeFileSync(path.join(repo,'new.txt'),'adjusted');return {mode:'native',summary:'done'};},async review(){return {verdict:'pass',reason:'checked'};}};
+ const agents:Agents={executionMode:'native',async plan(state){plans++;return {tasks:state.guidancePending?[task('new',['first'])]:[task('first')],humanDecision:null};},async execute(state){if(state.tasks[state.taskIndex]!.id==='first')fs.writeFileSync(path.join(repo,'first.txt'),'once');else fs.writeFileSync(path.join(repo,'new.txt'),'adjusted');return {mode:'native',summary:'done'};},async review(state){if(state.tasks[state.taskIndex]!.id==='first')publishGuidance(store,message(store));return {verdict:'pass',reason:'checked'};}};
  const state=await drive(store,agents);assert.equal(state.phase,'completed',state.reason);assert.equal(plans,2);assert.equal(state.loops,2);assert.equal(state.guidanceHistory?.length,1);
 });
 
@@ -53,16 +53,16 @@ test('multiple promoted messages keep click order; a deleted one never reaches t
  const first=claimGuidance(store)!;assert.equal(first.id,a.id);assert.equal(claimGuidance(store,[a.id])?.id,c.id);
 });
 
-test('a failed review must finish rework before guidance; execution feedback is cleared',async()=>{
+test('guidance after failed Review reaches decision before another rework; execution feedback is cleared',async()=>{
  const {store,repo}=await fixture();let attempts=0;const order:string[]=[];
  const input=message(store);
- const agents:Agents={executionMode:'native',async plan(state){order.push(state.guidancePending?'replan':'plan');if(state.guidancePending){assert.equal(attempts,2);assert.deepEqual(state.completedTaskIds,['first']);return {tasks:[task('new',['first'])],humanDecision:null};}return {tasks:[task('first')],humanDecision:null};},async execute(state){const id=state.tasks[state.taskIndex]!.id;order.push('execute-'+id);if(id==='first'){attempts++;fs.writeFileSync(path.join(repo,'first.txt'),'once');if(attempts===1)publishGuidance(store,input);}else{assert.equal(state.feedback,'');fs.writeFileSync(path.join(repo,'new.txt'),'adjusted');}return {mode:'native',summary:id};},async review(state){order.push('review-'+state.tasks[state.taskIndex]!.id);return {verdict:attempts===1?'rework':'pass',reason:'independent review'};}};
- const state=await drive(store,agents);assert.equal(state.phase,'completed',state.reason);assert.equal(state.totalReworks,1);assert.deepEqual(order,['plan','execute-first','review-first','execute-first','review-first','replan','execute-new','review-new']);
+ const agents:Agents={executionMode:'native',async plan(state){order.push(state.guidancePending?'replan':'plan');if(state.guidancePending){assert.equal(attempts,1);assert.deepEqual(state.completedTaskIds,[]);return {tasks:[task('new')],humanDecision:null};}return {tasks:[task('first')],humanDecision:null};},async execute(state){const id=state.tasks[state.taskIndex]!.id;order.push('execute-'+id);if(id==='first'){attempts++;fs.writeFileSync(path.join(repo,'first.txt'),'once');}else{assert.equal(state.feedback,'');fs.writeFileSync(path.join(repo,'new.txt'),'adjusted');}return {mode:'native',summary:id};},async review(state){const id=state.tasks[state.taskIndex]!.id;order.push('review-'+id);if(id==='first')publishGuidance(store,input);return {verdict:id==='first'?'rework':'pass',reason:'independent review'};}};
+ const state=await drive(store,agents);assert.equal(state.phase,'completed',state.reason);assert.equal(state.totalReworks,0);assert.deepEqual(order,['plan','execute-first','review-first','replan','execute-new','review-new']);
 });
 
 test('pending guidance cannot bypass an explicit rework limit',async()=>{
  const {store,repo}=await fixture(),state=store.load();state.config.maxReworks=0;store.save(state);const input=message(store);
- const agents:Agents={executionMode:'native',async plan(){return {tasks:[task('first')],humanDecision:null};},async execute(){fs.writeFileSync(path.join(repo,'first.txt'),'once');publishGuidance(store,input);return {mode:'native',summary:'first'};},async review(){return {verdict:'rework',reason:'needs correction'};}};
+ const agents:Agents={executionMode:'native',async plan(){return {tasks:[task('first')],humanDecision:null};},async execute(){fs.writeFileSync(path.join(repo,'first.txt'),'once');return {mode:'native',summary:'first'};},async review(){publishGuidance(store,input);return {verdict:'rework',reason:'needs correction'};}};
  const paused=await drive(store,agents);assert.equal(paused.phase,'paused');assert.equal(paused.guidancePending,undefined);assert.equal(guidanceStatus(store,input.id),'pending');assert.equal(paused.guidanceHistory?.length??0,0);
 });
 
@@ -72,7 +72,7 @@ test('damaged pending attachments remain unclaimed and removable',async()=>{
 
 test('replan requesting a human keeps the original Run and input; no replay without explicit resume',async()=>{
  const {store,repo}=await fixture();let guidancePlans=0;
- const agents:Agents={executionMode:'native',async plan(state){if(state.guidancePending){guidancePlans++;return guidancePlans===1?{tasks:[],humanDecision:'which change?'}:{tasks:[],humanDecision:null};}return {tasks:[task('first')],humanDecision:null};},async execute(){fs.writeFileSync(path.join(repo,'first.txt'),'once');publishGuidance(store,message(store));return {mode:'native',summary:'first'};},async review(){return {verdict:'pass',reason:'checked'};}};
+ const agents:Agents={executionMode:'native',async plan(state){if(state.guidancePending){guidancePlans++;return guidancePlans===1?{tasks:[],humanDecision:'which change?'}:{tasks:[],humanDecision:null};}return {tasks:[task('first')],humanDecision:null};},async execute(){fs.writeFileSync(path.join(repo,'first.txt'),'once');return {mode:'native',summary:'first'};},async review(){publishGuidance(store,message(store));return {verdict:'pass',reason:'checked'};}};
  const paused=await drive(store,agents);assert.equal(paused.phase,'paused');assert.equal(guidancePlans,1);assert.ok(paused.guidancePending);
  await drive(store,agents);assert.equal(guidancePlans,1);
  const resumed=await drive(store,agents,'No more work; preserve first');assert.equal(resumed.phase,'completed',resumed.reason);assert.equal(resumed.loops,1);assert.deepEqual(resumed.completedTaskIds,['first']);assert.equal(resumed.guidanceHistory?.length,1);
@@ -80,7 +80,7 @@ test('replan requesting a human keeps the original Run and input; no replay with
 
 test('planner cannot reuse completed IDs; the claimed message is retained for recovery',async()=>{
  const {store,repo}=await fixture();
- const agents:Agents={executionMode:'native',async plan(){return {tasks:[task('first')],humanDecision:null};},async execute(){fs.writeFileSync(path.join(repo,'first.txt'),'once');publishGuidance(store,message(store));return {mode:'native',summary:'first'};},async review(){return {verdict:'pass',reason:'checked'};}};
+ const agents:Agents={executionMode:'native',async plan(){return {tasks:[task('first')],humanDecision:null};},async execute(){fs.writeFileSync(path.join(repo,'first.txt'),'once');return {mode:'native',summary:'first'};},async review(){publishGuidance(store,message(store));return {verdict:'pass',reason:'checked'};}};
  const state=await drive(store,agents);assert.notEqual(state.phase,'completed');assert.match(state.reason,/重复已验收/);assert.deepEqual(state.completedTaskIds,['first']);assert.ok(state.guidancePending);
 });
 
