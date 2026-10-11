@@ -1,12 +1,12 @@
-# MAIN/DEV 现有运行接口与 TEST 建设边界（治理 V2）
+# MAIN/DEV/TEST 运行接口与验收边界
 
 2026-10-11 分工按 [三分支治理规则 V2](PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md) 更新：MAIN 暂留稳定版本，DEV 执行真实任务，TEST 持续集成和试用。当前由外部 Codex 开发会话迭代，不要求 MAIN 启动。新功能和普通修复从 TEST 创建独立 feature/fix Worktree，先整合 TEST；完整候选验收及正式审批后，在安全节点更新 DEV。DEV 紧急修复从 DEV 创建并同步 TEST；MAIN hotfix 从 MAIN 创建并同步必要修复到 DEV、TEST。
 
-以下描述现有 MAIN/DEV 接口：实例身份由进程级 `PERSONALAGENT_INSTANCE=main|dev` 指定，与 Git 分支无关。本文没有新增模型、认证或计费渠道，也没有将 TEST 实例身份加入产品接口。
+以下描述现有 MAIN/DEV 接口：实例身份由进程级 `PERSONALAGENT_INSTANCE=main|dev|test` 指定，与 Git 分支无关。TEST 与 MAIN/DEV 使用相同模型、认证和计费入口；业务数据分别隔离。
 
-## TEST 环境建设要求（尚待实现与验收）
+## TEST 启动与验收边界
 
-TEST Worktree 为 `D:\PersonalAgent-worktrees\test`，已从 DEV 提交 `05f13a829bb76adf50e17455b7e8b785b1b277c6` 创建 `test` 分支；这不代表启动与运行隔离已完成。独立启动入口、TEST 实例身份及独立构建、配置、业务数据、Session、Run、Controller runtime、Electron 单实例锁、日志、缓存和临时目录均须实际实现与验收。不能仅创建 test 分支或擅自传入 `PERSONALAGENT_INSTANCE=test` 就宣称支持 TEST。不得复用 DEV 可写业务目录，不迁移或清空其真实任务历史；三环境共存还须验证跨实例项目写入保护。现有两实例验证不能证明 TEST 隔离完成。
+TEST Worktree 为 `D:\PersonalAgent-worktrees\test`。`Start-TEST.ps1` 设置 TEST 身份和 `D:\PersonalAgent-data\instances\test` 独立业务目录；窗口与侧栏显示 TEST。构建产物位于 TEST Worktree；Electron userData、单实例锁、Session、Run、Controller runtime、日志、缓存和临时目录均从独立数据目录派生。TEST 拒绝 MAIN/DEV 的默认数据目录和已有实例标记，写入 Controller runtime 须留在自己的数据目录。headless 的三进程 Mock 与实例标记测试不代表三个真实 Electron 窗口并存验收；真实 GUI 与完整运行隔离仍待验收。不得迁移或清空 DEV 真实任务历史。
 
 ## 现有 MAIN/DEV 启动
 
@@ -46,3 +46,5 @@ MAIN 原有外部配置、历史 Run、预算和审计保留在原处，不迁�
 ## 验证
 
 `test/dual-instance.test.ts` 检查数据误用、无预授权的真实模式本地注入、同步 MAIN/DEV Mock 子进程、数据隔离和跨进程项目写入冲突。`desktop/validate-dual-instance.mjs` 使用隔离测试数据和真实 Electron 窗口、正式 IPC/Mock Controller，检查同时启动、独立 Session/Run、历史读取和单实例退出。没有调用真实模型。
+
+TEST 启动：`powershell -NoProfile -File D:\PersonalAgent-worktrees\test\Start-TEST.ps1`。桌面 PersonalAgent TEST 快捷方式使用无控制台启动包装器；不会自动启动任务或更新 DEV。

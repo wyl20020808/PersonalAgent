@@ -2,17 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { assertD } from './store.js';
 
-export type InstanceId = 'main' | 'dev';
+export type InstanceId = 'main' | 'dev' | 'test';
 export const sharedRuntime = 'D:/PersonalAgent-data';
 export function instanceId(): InstanceId {
   const id = process.env.PERSONALAGENT_INSTANCE ?? 'main';
-  if (id !== 'main' && id !== 'dev') throw new Error('PERSONALAGENT_INSTANCE must be main or dev');
+  if (id !== 'main' && id !== 'dev' && id !== 'test') throw new Error('PERSONALAGENT_INSTANCE must be main, dev or test');
   return id;
 }
 export function instanceData(root: string): string {
   const id = instanceId();
-  const data = assertD(process.env.PERSONAL_AGENT_DESKTOP_DATA ?? (id === 'main' ? path.join(root, '.desktop-data') : path.join(sharedRuntime, 'instances/dev')));
+  const data = assertD(process.env.PERSONAL_AGENT_DESKTOP_DATA ?? (id === 'main' ? path.join(root, '.desktop-data') : path.join(sharedRuntime, 'instances', id)));
   if (id === 'dev' && path.resolve(data).toLowerCase() === path.resolve('D:/PersonalAgent/.desktop-data').toLowerCase()) throw new Error('DEV cannot use historical MAIN data');
+  if (id === 'test' && ['D:/PersonalAgent/.desktop-data',path.join(sharedRuntime,'instances/dev')].some(other=>path.resolve(other).toLowerCase()===path.resolve(data).toLowerCase())) throw new Error('TEST cannot use MAIN or DEV data');
   return data;
 }
 // Claim before Electron opens databases or caches. Existing MAIN data is preserved.

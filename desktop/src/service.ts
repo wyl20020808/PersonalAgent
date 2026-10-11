@@ -137,7 +137,7 @@ export class DesktopService {
   while(true){const marker=path.join(ownerPath,'instance.json');if(fs.existsSync(marker)){const owner=JSON.parse(fs.readFileSync(marker,'utf8'));if(owner.version!==1||owner.instanceId!==instanceId())throw Error('Controller runtime belongs to another instance; import history as read-only');break;}const parent=path.dirname(ownerPath);if(parent===ownerPath)break;ownerPath=parent;}
   if(instanceId()==='main')return;
   const data=fs.realpathSync(this.data).toLowerCase();
-  if(!runtime.toLowerCase().startsWith(data+path.sep))throw Error('DEV writable Controller runtime must stay inside DEV data directory; import history as read-only');
+  if(!runtime.toLowerCase().startsWith(data+path.sep))throw Error(instanceId().toUpperCase()+' writable Controller runtime must stay inside '+instanceId().toUpperCase()+' data directory; import history as read-only');
  }
  inspectProject(input:string):Project {
   if(!path.isAbsolute(input))throw Error('请选择绝对项目目录');const projectPath=fs.realpathSync(input);if(!fs.statSync(projectPath).isDirectory())throw Error('项目必须是文件夹');
