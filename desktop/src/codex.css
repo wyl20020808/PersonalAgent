@@ -24,6 +24,8 @@
 .sidebar-sessions .session-row>button:first-child:hover{background:#eceef1}
 .sidebar-sessions .session-row>button.selected{background:#e5e7eb;color:#111827}
 .session-state{flex:none;width:7px;height:7px;border-radius:50%;background:#3b82f6}.session-state.warning{background:#d08a1c}
+.session-state.session-spinner{width:14px;height:14px;background:transparent;color:#6b7280;animation:spin 1s linear infinite}
+@media(prefers-reduced-motion:reduce){.session-state.session-spinner{animation:none}}
 .sidebar-sessions .session-row .session-rename{width:24px;height:24px;right:3px;padding:0;font-size:14px;color:#6b7280;opacity:0}
 .session-row:hover .session-rename,.session-row .session-rename:focus-visible{opacity:1}.session-row:hover .session-state{visibility:hidden}
 .sidebar-sessions .session-row form{padding:4px 4px 4px 31px}
