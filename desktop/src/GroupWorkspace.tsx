@@ -35,7 +35,7 @@ function ToolContent({message}:{message:ChatMessage}){
   <div className="tool-heading"><Code2 size={15}/><strong>{tool?.label??'工具记录'}</strong><span className={`tool-status status-${message.status}`}>{({success:'已完成',running:'执行中',fail:'执行失败'} as Record<string,string>)[message.status]??'已记录'}{tool?.exitCode!==undefined?` · 退出码 ${tool.exitCode}`:''}</span></div>
   {tool?.command&&<details className="command-details"><summary>运行命令</summary><pre className="tool-command">{tool.command}</pre></details>}
   {tool?.paths&&<FileCards message={message}/>}
-  {tool?.output!==undefined&&<details className="tool-output" open={message.status==='fail'}><summary>命令 / 工具输出</summary><pre>{tool.output||'无输出'}</pre></details>}
+  {tool?.output?.trim()&&<details className="tool-output" open={message.status==='fail'}><summary>命令 / 工具输出</summary><pre>{tool.output}</pre></details>}
   <details className="tool-raw"><summary>{tool?'原始工具记录':'查看工具记录（保留原格式）'}</summary><pre>{message.text}</pre></details>
  </div>;
 }
@@ -64,8 +64,8 @@ export const Message=React.memo(function Message({message}:{message:ChatMessage}
 export function EventGroup({group,expanded,onToggle}:{group:MessageGroup;expanded:boolean;onToggle:()=>void}){
  const [shown,setShown]=useState(50);
  const first=group.messages[0],role=roles[first.role];
- if(group.messages.length===1)return <Message message={first}/>;
- return <article className={`group-message event-group lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span><time>{clock(group.firstTime)} – {clock(group.lastTime)}</time></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{group.status==='running'?'含未完成记录':group.status==='success'?'成功':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button>{group.category!=='命令'&&<p className="group-preview">{messagePreview(first)}</p>}{expanded&&<div className="group-children">{group.messages.slice(0,shown).map(message=><Message key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div></div></article>;
+ if(group.messages.length===1&&group.category!=='执行操作')return <Message message={first}/>;
+ return <article className={`group-message event-group lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span><time>{clock(group.firstTime)} – {clock(group.lastTime)}</time></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{group.status==='running'?'含未完成记录':group.status==='success'?'成功':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button>{!['命令','执行操作'].includes(group.category)&&<p className="group-preview">{messagePreview(first)}</p>}{expanded&&<div className="group-children">{group.messages.slice(0,shown).map(message=><Message key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div></div></article>;
 }
 function ReviewSections({text}:{text:string}){
  const parts=text.split(/\n(?=(?:\*\*[^\n]+\*\*|#{1,3} [^\n]+)\s*\n)/);
@@ -179,7 +179,7 @@ export default function GroupWorkspace({draft,onDraft,title,run,profile,conversa
  const recentReview=[...messages].reverse().find(m=>m.kind==='review'&&m.taskId===current?.id);
  const picture=pictures.find(p=>p.id===selectedImage),earlier=pictures.filter(p=>(p.taskId!==picture?.taskId||p.runId!==picture?.runId)&&Boolean(picture&&p.time<picture.time)),previous=[...earlier].reverse().find(p=>p.name===picture?.name)??earlier.at(-1);
  const relevant=pictures.filter(p=>p.runId===run?.id&&p.taskId===current?.id),checked=viewed.filter(id=>relevant.some(p=>p.id===id));
- const grouped=useMemo(()=>groupMessages(messages),[messages]);
+ const grouped=useMemo(()=>groupMessages(messages,viewMode==='concise'),[messages,viewMode]);
  const filteredGroups=grouped.filter(group=>filter==='all'||group.messages[0].role===filter);
  const toggleGroup=(id:string)=>setExpanded(previous=>{const key=viewMode==='detailed'?'detail:'+id:id;const next={...previous,[key]:!(previous[key]??(viewMode==='detailed'))};try{localStorage.setItem('personalagent:groups:'+identity,JSON.stringify(next));}catch{}return next;});
  const pending=conversation?.messages.filter(m=>['pending','failed','steering','adjusting'].includes(m.status))??[];

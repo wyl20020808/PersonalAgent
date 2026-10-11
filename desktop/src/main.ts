@@ -1,5 +1,6 @@
 import {chatRoute} from './chatRouting.js';
-import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu} from 'electron';
+import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen} from 'electron';
+import {restoreWindowBounds,ensureWindowOnDisplay,watchWindowDisplays} from './windowPlacement.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -25,9 +26,11 @@ if(locked)app.whenReady().then(async()=>{
  protocol.handle('personalagent',request=>{try{const url=new URL(request.url);if(url.host!=='app'||request.method!=='GET')return new Response('Forbidden',{status:403});const evidence=url.pathname.match(/^\/evidence\/([a-f0-9-]{36})\/([a-f0-9-]{36})\/([a-f0-9]{64})\.png$/);if(evidence)return new Response(new Uint8Array(service.image(evidence[1]!,evidence[2]!,evidence[3]!)),{headers:{'content-type':'image/png','x-content-type-options':'nosniff','cache-control':'no-store'}});const relative=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname).slice(1),file=path.resolve(renderer,relative);if(file!==renderer&&!file.startsWith(renderer+path.sep))return new Response('Forbidden',{status:403});const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};return new Response(new Uint8Array(fs.readFileSync(file)),{headers:{'content-type':mime[path.extname(file)]??'application/octet-stream','x-content-type-options':'nosniff'}});}catch{return new Response('Not found',{status:404});}});
  session.defaultSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));session.defaultSession.setPermissionCheckHandler(()=>false);
  session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('personalagent://app/')&&!details.url.startsWith('devtools://')}));
- const windowFile=path.join(data,'window.json');let bounds:{width:number;height:number;x?:number;y?:number}={width:1440,height:900};
- if(fs.existsSync(windowFile))try{const saved=JSON.parse(fs.readFileSync(windowFile,'utf8'));if(Number.isInteger(saved.width)&&saved.width>=1024&&saved.width<=7680&&Number.isInteger(saved.height)&&saved.height>=680&&saved.height<=4320)bounds={width:saved.width,height:saved.height,...(Number.isInteger(saved.x)&&Number.isInteger(saved.y)?{x:saved.x,y:saved.y}:{})};}catch{}
- window=new BrowserWindow({...bounds,minWidth:1024,minHeight:680,title,backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
+ const windowFile=path.join(data,'window.json');let saved:unknown;
+ if(fs.existsSync(windowFile))try{saved=JSON.parse(fs.readFileSync(windowFile,'utf8'));}catch{}
+ const bounds=restoreWindowBounds(saved,screen.getAllDisplays().map(display=>display.workArea),screen.getPrimaryDisplay().workArea);
+ window=new BrowserWindow({...bounds,minWidth:Math.min(1024,bounds.width),minHeight:Math.min(680,bounds.height),title,backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
+ watchWindowDisplays(window,screen);
  window.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)closeThreadWatchers();});
  window.webContents.on('destroyed',closeThreadWatchers);
  window.webContents.on('render-process-gone',closeThreadWatchers);
@@ -97,6 +100,6 @@ ${request.replacement?'替代方案：'+request.replacement.relative+'\n'+reques
   setTimeout(()=>{if(!window.isDestroyed())void window.loadURL('personalagent://app/index.html').catch(error=>fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),error:redact(String(error))})+'\n'));},1000);
  });
  window.on('close',event=>{if(service.children.size&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和用量会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
- app.on('second-instance',()=>{if(window.isMinimized())window.restore();window.focus();});
+ app.on('second-instance',()=>{if(window.isDestroyed())return;if(window.isMinimized())window.restore();ensureWindowOnDisplay(window,screen);window.show();window.focus();});
 });
 app.on('window-all-closed',()=>app.quit());
