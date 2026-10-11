@@ -56,17 +56,17 @@ Object.assign(stateSchema.properties, {
   ] },
   executionAttempt: { type: 'object', additionalProperties: false, required: ['loop','taskId','status'], properties: { loop: integer, taskId: str, status: { enum: ['running','success','failed','interrupted'] } } },
   decisionAgent: { oneOf: [
-    { type: 'object', properties: { backend: { const: 'claude-code' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },
-    { type: 'object', properties: { backend: { const: 'codex' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },
-    { type: 'object', properties: { backend: { const: 'opencode' }, providerID: str, modelID: str }, required: ['backend','providerID','modelID'], additionalProperties: false }
+    { type: 'object', properties: { backend: { const: 'claude-code' }, model: { type: 'string' }, reasoningEffort: str }, required: ['backend'], additionalProperties: false },
+    { type: 'object', properties: { backend: { const: 'codex' }, model: { type: 'string' }, reasoningEffort: str }, required: ['backend'], additionalProperties: false },
+    { type: 'object', properties: { backend: { const: 'opencode' }, providerID: str, modelID: str, variant: str }, required: ['backend','providerID','modelID'], additionalProperties: false }
   ] },
   decisionSession: { type: 'object', properties: { backend: { enum: ['claude-code','opencode','codex'] }, sessionId: str, runId: str, workspace: str, directory: str }, required: ['backend','sessionId','runId','workspace','directory'], additionalProperties: false }
 });
 const sessionSchema = { type: 'object', additionalProperties: false, required: ['backend','sessionId','runId','workspace','directory'], properties: { backend: { enum: ['claude-code','opencode','codex'] }, sessionId: str, runId: str, workspace: str, directory: str } };
 Object.assign(stateSchema.properties, { discussion: { type: 'object', additionalProperties: false, required: ['config','participants','steps','closed'], properties: {
   config: decisionDiscussionSchema, closed: { type: 'boolean' },
-  participants: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'object', additionalProperties: false, required: ['id','agent','claudeSessionId','calls'], properties: { id: { enum: ['a','b'] }, agent: decisionAgentSchema, claudeSessionId: nullable, calls: integer, session: sessionSchema } } },
-  steps: { type: 'array', maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['key','participantId','stage','status'], properties: { key: str, participantId: { enum: ['a','b'] }, stage: { enum: ['draft','discussion','synthesis'] }, status: { enum: ['running','success','failed','interrupted'] }, error: str, output: { anyOf: [planSchema, { type: 'object', additionalProperties: false, required: ['summary','disagreements','amendments'], properties: { summary: str, disagreements: { type: 'array', items: str }, amendments: { type: 'array', items: str } } }] } } } }
+  participants: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['id','agent','claudeSessionId','calls'], properties: { id: { enum: ['a','b','c'] }, agent: decisionAgentSchema, claudeSessionId: nullable, calls: integer, session: sessionSchema } } },
+  steps: { type: 'array', maxItems: 7, items: { type: 'object', additionalProperties: false, required: ['key','participantId','stage','status'], properties: { key: str, participantId: { enum: ['a','b','c'] }, stage: { enum: ['draft','discussion','synthesis'] }, status: { enum: ['running','success','failed','interrupted'] }, error: str, output: { anyOf: [planSchema, { type: 'object', additionalProperties: false, required: ['summary','disagreements','amendments'], properties: { summary: str, disagreements: { type: 'array', items: str }, amendments: { type: 'array', items: str } } }] } } } }
 } } });
 export function assertD(value: string): string {
   const resolved = path.resolve(value);
@@ -123,7 +123,7 @@ function auditTail(file: string): string | undefined {
   } finally { closeSync(fd); }
 }
 export class Store {
-  readonly decisionParticipant?: { participantId: 'a' | 'b'; discussionStage: string };
+  readonly decisionParticipant?: { participantId: 'a' | 'b' | 'c'; discussionStage: string };
   readonly dir: string;
   constructor(runtime: string, readonly id: string) {
     if (!/^[0-9a-f-]{36}$/.test(id)) throw new Error('Invalid run ID');

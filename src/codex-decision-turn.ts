@@ -7,8 +7,8 @@ import { validate } from './schema.js';
 
 export interface CodexDecisionTurn {
   attachments?:NativeAttachment[];
-  workspace: string; threadId: string | null; model?: string; prompt: string; schema: object;
-  runId: string; role: 'plan' | 'review'; participantId?: 'a' | 'b'; discussionStage?: string;
+  workspace: string; threadId: string | null; model?: string; reasoningEffort?: ThreadOptions['modelReasoningEffort']; prompt: string; schema: object;
+  runId: string; role: 'plan' | 'review'; participantId?: 'a' | 'b' | 'c'; discussionStage?: string;
 }
 // The service accepts a stricter subset than Ajv. Keep the original schema for
 // local validation; only adapt transport constraints and optional fields.
@@ -43,7 +43,7 @@ export function restoreOptionalFields(schema: any, value: any): any {
 export async function runCodexDecisionTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: CodexDecisionTurn, emit: (event: object) => void, signal?: AbortSignal): Promise<unknown> {
   const options: ThreadOptions = { workingDirectory: request.workspace, skipGitRepoCheck: true,
     sandboxMode: 'read-only', approvalPolicy: 'never', networkAccessEnabled: false,
-    webSearchMode: 'disabled', ...(request.model ? { model: request.model } : {}) };
+    webSearchMode: 'disabled', ...(request.model ? { model: request.model } : {}), ...(request.reasoningEffort ? { modelReasoningEffort: request.reasoningEffort } : {}) };
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
   const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), { outputSchema: codexOutputSchema(request.schema), ...(signal ? { signal } : {}) });
   let final = '', completed = false, started = false, lastError = '';

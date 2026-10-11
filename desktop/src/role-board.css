@@ -64,6 +64,9 @@
 .second-decision .decision-agent-settings{display:grid;gap:8px}
 .second-decision .field-help{font-size:11px;line-height:1.6}
 .discussion-options{display:flex;gap:12px;flex-wrap:wrap}
+.decision-count{font-size:11px;color:#37745e;background:#edf6f0;border-radius:20px;padding:4px 9px}
+.decision-pool-hint{font-size:11px;color:#758395;margin:0 0 12px}
+.decision .discussion-options{border-top:1px solid #e4e9ef;margin-top:14px;padding-top:12px;font-size:12px}
 .discussion-options label{flex:1;min-width:120px}
 .model-dialog-backdrop{position:fixed;inset:0;z-index:1200;background:rgba(20,32,49,.28);backdrop-filter:blur(4px);display:grid;place-items:center;padding:24px;text-align:left}
 .model-dialog{width:min(460px,100%);max-height:calc(100dvh - 48px);overflow:auto;background:#fff;border:1px solid #e4e9f0;border-radius:20px;box-shadow:0 24px 80px rgba(18,34,56,.2);color:#26374c}

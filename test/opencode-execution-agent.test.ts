@@ -31,7 +31,7 @@ function fake(options:Options={}){
    let text='';for await(const chunk of req)text+=chunk;const body=text?JSON.parse(text):{};
    const url=new URL(req.url!,'http://127.0.0.1');requests.push({route:url.pathname,body,directory:url.searchParams.get('directory'),runtime});
    const send=(value:any)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
-   if(url.pathname==='/provider')return send({connected:['fixture'],all:[{id:'fixture',name:'LOCAL MOCK',models:{local:{id:'local',name:'LOCAL MOCK',capabilities:{toolcall:true,...(options.imageSupport!==undefined?{input:{image:options.imageSupport}}:{})}}}}]});
+   if(url.pathname==='/provider')return send({connected:['fixture'],all:[{id:'fixture',name:'LOCAL MOCK',models:{local:{id:'local',name:'LOCAL MOCK',variants:{high:{reasoningEffort:'high'},max:{reasoningEffort:'max'}},capabilities:{toolcall:true,...(options.imageSupport!==undefined?{input:{image:options.imageSupport}}:{})}}}}]});
    if(url.pathname==='/experimental/tool/ids')return send(options.missingCreation?['read','edit','bash']:options.missingTools?['read']:['read','edit','write','bash']);
    if(url.pathname==='/agent')return send([{name:'build',mode:'primary'}]);
    if(url.pathname==='/global/event'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.write(': ready\n\n');streams.push(res);return;}
@@ -74,6 +74,14 @@ function real(f:Awaited<ReturnType<typeof fixture>>,server:ReturnType<typeof fak
 },new OpenCodeDecisionAgent(f.config,server.launcher),config=>new OpenCodeDecisionAgent(config,server.launcher),new OpenCodeExecutionAgent(f.config,server.launcher));}
 const records=(store:Awaited<ReturnType<typeof fixture>>['store'])=>fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(s=>JSON.parse(s));
 function pending(f:Awaited<ReturnType<typeof fixture>>){const state=f.store.load();state.tasks=[task];state.phase='executing';state.nativeExecution=true;state.loops=1;f.store.save(state);return state;}
+
+test('reasoning variants reach actual SDK HTTP bodies for Plan Execute Review and invalid variants fail before prompt',async()=>{
+ const selected={...choice,opencode:{...choice.opencode,variant:'max'}};
+ const f=await fixture({decisionAgent:selected,executionAgent:selected}),server=fake(),done=await drive(f.store,real(f,server));
+ assert.equal(done.phase,'completed',done.reason);const prompts=server.requests.filter(r=>r.route.endsWith('/message'));assert.equal(prompts.length,3);assert.ok(prompts.every(r=>r.body.variant==='max'));
+ const bad={...choice,opencode:{...choice.opencode,variant:'removed'}},blocked=await fixture({decisionAgent:bad}),service=fake();
+ const paused=await drive(blocked.store,real(blocked,service));assert.notEqual(paused.phase,'completed');assert.equal(service.prompts,0);assert.match(paused.reason,/variant unavailable/);
+});
 
 test('native image reaches OpenCode HTTP bodies for Plan Execute Review; unsupported model never receives prompt',async()=>{
  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');

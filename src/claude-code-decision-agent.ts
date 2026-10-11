@@ -46,6 +46,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     args.push('--settings', JSON.stringify({ disableAllHooks: false, hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
     const choice = execution ? this.config.executionAgent : this.config.decisionAgent;
     if (choice?.backend === 'claude-code' && choice.model) args.push('--model', choice.model);
+    if (choice?.backend === 'claude-code' && choice.reasoningEffort) args.push('--effort', choice.reasoningEffort);
     const resumed = !!state[sessionKey];
     let confirmed = execution ? !!state.executionSession : !!state.decisionSession;
     if (state[sessionKey]) args.push('--resume', state[sessionKey]!);

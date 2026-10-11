@@ -18,7 +18,7 @@ const tasks=[1,2].map(i=>({id:'step'+i,instruction:'Local injected CLI fixture o
 async function fixture(){
  const dir=path.join(root,randomUUID()),source=path.join(dir,'source');fs.mkdirSync(source,{recursive:true});fs.writeFileSync(path.join(source,'seed.txt'),'seed\n');
  const verify=path.join(dir,'verify.cjs');fs.writeFileSync(verify,"require('node:assert/strict').equal(require('node:fs').readFileSync(process.env.PERSONAL_AGENT_TASK_ID+'.txt','utf8'),'fixed\\n')");
- const config:Config={mode:'real',allowedRepositories:[source],runtimeDir:path.join(dir,'runtime'),projectMode:'direct',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},executionMode:'native',claudeExecutable:'NEVER-LAUNCH-PAID-AGENT',timeoutMs:5000,maxLoops:3,maxReworks:0,tests:[{executable:process.execPath,args:[verify]}],mockScenario:'pass',decisionAgent:{backend:'claude-code',model:'decision-model'},executionAgent:{backend:'claude-code',model:'execute-model'}};
+ const config:Config={mode:'real',allowedRepositories:[source],runtimeDir:path.join(dir,'runtime'),projectMode:'direct',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},executionMode:'native',claudeExecutable:'NEVER-LAUNCH-PAID-AGENT',timeoutMs:5000,maxLoops:3,maxReworks:0,tests:[{executable:process.execPath,args:[verify]}],mockScenario:'pass',decisionAgent:{backend:'claude-code',model:'decision-model',reasoningEffort:'high'},executionAgent:{backend:'claude-code',model:'execute-model',reasoningEffort:'max'}};
  const store=await createRun(config,source,'Local protocol fixture; no remote models');return{source,store,config};
 }
 function pending(f:Awaited<ReturnType<typeof fixture>>){const state=f.store.load();state.tasks=[tasks[0]!];state.phase='executing';state.loops=1;state.nativeExecution=true;f.store.save(state);return state;}
@@ -27,7 +27,7 @@ test('Claude CLI executes two native tasks, resumes independent execution Sessio
  const run:typeof runProcess=async(program,args,options)=>{
   assert.equal(program,f.config.claudeExecutable);assert.equal(options.cwd,f.source);assert.ok(args.includes('--settings'));
   const execute=JSON.parse(args[args.indexOf('--json-schema')+1]!).properties.mode!==undefined,model=args[args.indexOf('--model')+1]!,resume=args.includes('--resume'),session=args[args.indexOf(resume?'--resume':'--session-id')+1]!;
-  calls.push({model,session,resume,execute});assert.equal(model,execute?'execute-model':'decision-model');
+  calls.push({model,session,resume,execute});assert.equal(model,execute?'execute-model':'decision-model');assert.equal(args[args.indexOf('--effort')+1],execute?'max':'high');
   const output=execute?{mode:'native',summary:'Local injected CLI; no remote call'}:calls.length===1?{humanDecision:null,tasks}:{verdict:'pass',reason:'Local injected review'};
   if(execute)fs.writeFileSync(path.join(options.cwd,f.store.load().tasks[f.store.load().taskIndex]!.id+'.txt'),'fixed\n');
   options.onLine?.(JSON.stringify({type:'system',subtype:'init',session_id:session,model}));
@@ -53,8 +53,8 @@ test('Claude CLI invalid output and interrupted tools fail closed, preserve Sess
 test('Codex execution model is bound to both new and resumed SDK Threads; default remains inherited',async()=>{
  const optionsSeen:object[]=[];const thread={async runStreamed(){return{events:(async function*(){yield{type:'item.completed',item:{type:'agent_message',text:'fixture'}};yield{type:'turn.completed',usage:{input_tokens:1,output_tokens:1}};})()};}};
  const sdk={startThread(options:object){optionsSeen.push(options);return thread;},resumeThread(id:string,options:object){assert.equal(id,'existing');optionsSeen.push(options);return thread;}} as unknown as Pick<Codex,'startThread'|'resumeThread'>;
- for(const threadId of [null,'existing'])await runCodexTurn(sdk,{workspace:'D:/fixture',threadId,prompt:'fixture',model:'selected-model'},()=>{});
- assert.deepEqual(optionsSeen,[{...nativeThreadOptions('D:/fixture'),model:'selected-model'},{...nativeThreadOptions('D:/fixture'),model:'selected-model'}]);
+ for(const threadId of [null,'existing'])await runCodexTurn(sdk,{workspace:'D:/fixture',threadId,prompt:'fixture',model:'selected-model',reasoningEffort:'max'},()=>{});
+ assert.deepEqual(optionsSeen,[{...nativeThreadOptions('D:/fixture'),model:'selected-model',modelReasoningEffort:'max'},{...nativeThreadOptions('D:/fixture'),model:'selected-model',modelReasoningEffort:'max'}]);
  assert.throws(()=>validate(configSchema,{...(legacyConfig()),executionAgent:{backend:'codex',model:'bad model'}}));
 });
 function legacyConfig(){return{allowedRepositories:['D:/fixture'],runtimeDir:'D:/fixture-runtime',mode:'mock',claudeExecutable:'never',timeoutMs:1000,tests:[],mockScenario:'pass'};}

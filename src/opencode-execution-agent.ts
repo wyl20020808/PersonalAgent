@@ -108,6 +108,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       const discovery = await executionModels(service, workspace, signal);
       const model = discovery.providers.find(p => p.id === choice.opencode.providerID)?.models.find(m => m.id === choice.opencode.modelID);
       if (!discovery.available || model?.capabilities.tools !== true || model.capabilities.structuredOutput !== true) throw new FlowError('supervisor', discovery.reason || 'OpenCode execution model unavailable or lacks tools/structured output');
+      if (choice.opencode.variant && !model.reasoningEfforts?.includes(choice.opencode.variant)) throw new FlowError('supervisor','OpenCode reasoning variant unavailable; refresh model selection');
       const parts=opencodeParts(prompt,runAttachments(state,store),model.capabilities.images);
       const client = service.client, options = { signal, throwOnError: true as const };
       const owner = `PersonalAgent:${state.id}:execution:${workspace}`;
@@ -149,7 +150,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       state.executionAttempt = { loop: state.loops, taskId: task.id, status: 'running' }; store.save(state); dispatched = true;
       store.audit('opencode-execute-dispatch', { callId: observation.usage.callId, runId: state.id, taskId: task.id, loop: state.loops, workspace, sessionId: sessionID, providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, role: 'execution', mode: state.config.mode });
       const response = await Promise.race([
-        client.session.prompt({ sessionID, directory: workspace, agent: 'build', model: { providerID: choice.opencode.providerID, modelID: choice.opencode.modelID }, system: agentRules + interactionAgentRules + ' 你是执行者，仅实施 Controller 派发的当前任务；不能更改 Plan、角色配置或执行历史已完成任务。工作目录绑定当前 workspace；禁止后台写入进程。', format: { type: 'json_schema', schema: nativeResultSchema, retryCount: 0 }, parts }, options),
+        client.session.prompt({ sessionID, directory: workspace, agent: 'build', model: { providerID: choice.opencode.providerID, modelID: choice.opencode.modelID }, ...(choice.opencode.variant ? {variant:choice.opencode.variant}:{}), system: agentRules + interactionAgentRules + ' 你是执行者，仅实施 Controller 派发的当前任务；不能更改 Plan、角色配置或执行历史已完成任务。工作目录绑定当前 workspace；禁止后台写入进程。', format: { type: 'json_schema', schema: nativeResultSchema, retryCount: 0 }, parts }, options),
         eventTask.then(() => { throw new FlowError('interrupted', 'OpenCode Execute event stream ended before confirmed result'); })
       ]);
       const data = response.data;

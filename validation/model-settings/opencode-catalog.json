@@ -1,0 +1,5 @@
+{
+  "available": false,
+  "reason": "OpenCode service lacks official JSON Schema structured output (format); prompt refused",
+  "providers": []
+}

@@ -5,18 +5,18 @@ import { assertOperationPolicy } from './interaction-policy.js';
 import { terminateTree } from './process.js';
 import { redact } from './telemetry.js';
 
-export interface NativeModels { models: { id: string; name: string; description: string }[]; reason?: string }
+export interface NativeModels { models: { id: string; name: string; description: string; reasoningEfforts?: string[]; defaultReasoningEffort?: string }[]; reason?: string }
 /** Read-only catalog from the installed CLI; no model turn or project Session is created. */
-export async function discoverNativeModels(backend: 'claude-code' | 'codex'): Promise<NativeModels> {
+export async function discoverNativeModels(backend: 'claude-code' | 'codex', nodeExecutable = process.execPath): Promise<NativeModels> {
   if (backend === 'claude-code') return { models: [
-    { id: 'sonnet', name: 'Sonnet', description: 'Claude Code Sonnet 别名' },
-    { id: 'opus', name: 'Opus', description: 'Claude Code Opus 别名' },
-    { id: 'haiku', name: 'Haiku', description: 'Claude Code Haiku 别名' }
+    { id: 'sonnet', name: 'Sonnet', description: 'Claude Code Sonnet 别名', reasoningEfforts: ['low','medium','high','xhigh','max'] },
+    { id: 'opus', name: 'Opus', description: 'Claude Code Opus 别名', reasoningEfforts: ['low','medium','high','xhigh','max'] },
+    { id: 'haiku', name: 'Haiku', description: 'Claude Code Haiku 别名', reasoningEfforts: ['low','medium','high','xhigh','max'] }
   ] };
   assertOperationPolicy({ kind: 'model' });
   try {
     const entry = path.join(path.dirname(createRequire(import.meta.url).resolve('@openai/codex/package.json')), 'bin/codex.js');
-    const child = spawn(process.execPath, [entry, 'app-server'], { windowsHide: true, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] });
+    const child = spawn(nodeExecutable, [entry, 'app-server'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] });
     let pending = '', nextId = 0, failure: Error | undefined;
     const requests = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
     const fail = (error: Error) => { failure = error; for (const request of requests.values()) request.reject(error); requests.clear(); };
@@ -44,7 +44,7 @@ export async function discoverNativeModels(backend: 'claude-code' | 'codex'): Pr
       do {
         const result = await send('model/list', { limit: 100, cursor });
         if (!Array.isArray(result?.data)) throw new Error('Codex 模型列表格式无效');
-        for (const item of result.data) if (typeof item.model === 'string' && /^[a-zA-Z0-9._:/-]{1,200}$/.test(item.model)) models.push({ id: item.model, name: String(item.displayName || item.model).slice(0,200), description: String(item.description || '').slice(0,500) });
+        for (const item of result.data) if (typeof item.model === 'string' && /^[a-zA-Z0-9._:/-]{1,200}$/.test(item.model)) models.push({ id: item.model, name: String(item.displayName || item.model).slice(0,200), description: String(item.description || '').slice(0,500), reasoningEfforts: (item.supportedReasoningEfforts ?? []).map((option:any) => option.reasoningEffort).filter((effort:unknown) => typeof effort === 'string'), defaultReasoningEffort: item.defaultReasoningEffort });
         cursor = result.nextCursor ?? null;
       } while (cursor && models.length < 1000);
       return { models: [...new Map(models.map(model => [model.id, model])).values()] };
