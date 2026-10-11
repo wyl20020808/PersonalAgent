@@ -12,6 +12,7 @@ import { FlowError, classifyFailure } from './failure.js';
 import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { CallObservation } from './call-observation.js';
 import {runAttachments,claudeInput} from './multimodal.js';
+import {guidanceTool} from './guidance-handoff.js';
 
 import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type DecisionRequest, type DecisionResult } from './decision-agent.js';
 export class ClaudeCodeDecisionAgent implements DecisionAgent {
@@ -65,8 +66,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
         bind(event.session_id); confirmed = true;
       }
       for (const block of event.message?.content ?? []) {
-        if (block.type === 'tool_use') pendingTools.add(block.id);
-        if (block.type === 'tool_result') pendingTools.delete(block.tool_use_id);
+        if (block.type === 'tool_use') {pendingTools.add(block.id);guidanceTool('claude:'+block.id,true);}
+        if (block.type === 'tool_result') {pendingTools.delete(block.tool_use_id);guidanceTool('claude:'+block.tool_use_id,false);}
       }
       observation.observe(event);
       if (event.type === 'result') { if (streamedResult) throw Error('Duplicate Claude final result'); streamedResult = event; }
@@ -107,7 +108,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
       observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');
       // A reserved UUID is not a confirmed CLI Session. Keep its invocation in
       // audit history, but do not leave a bogus --resume target after pre-init failure.
-      if (!resumed && !confirmed && !completed && (transportFailed || execution)) { state[sessionKey] = null; store.save(state); }
+      if (!resumed && !confirmed && !completed && (transportFailed || execution || signal.aborted)) { state[sessionKey] = null; store.save(state); }
     }
   }
 }
@@ -127,7 +128,9 @@ export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements
         const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
         let last = -1;
         events.forEach((e, index) => { if (e.event === 'claude-execute-dispatch' || e.event === 'opencode-execute-dispatch') last = index; });
-        if (last < 0 || !events.slice(last + 1).some(e => e.event === 'human-decision')) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+        const following=events.slice(last+1);
+        const guided=following.some(e=>e.event==='guidance-interrupted'&&e.data.loop===state.executionAttempt!.loop)&&following.some(e=>e.event==='guidance-applied');
+        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
       }
     }
     if (state.claudeExecutionSessionId && [state.claudeSessionId, state.decisionSession?.sessionId, ...state.discussion?.participants.map(p => p.session?.sessionId) ?? []].includes(state.claudeExecutionSessionId)) throw new FlowError('safety', 'Claude execution cannot share a Decision Session');

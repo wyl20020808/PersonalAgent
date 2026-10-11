@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { assertOperationPolicy, watchInteractionPolicy, decideOperation, InteractionPolicyError, type OperationMetadata } from './interaction-policy.js';
+import { guidanceTool } from './guidance-handoff.js';
 
 export interface ProcessResult { exitCode: number; stdout: string; stderr: string; status?: 'deferred_by_work_mode' | 'requires_system_authorization'; classification?: string; testIndex?: number }
 export async function terminateTree(pid: number): Promise<void> {
@@ -25,6 +26,8 @@ export function runProcess(executable: string, args: string[], options: {
     assertOperationPolicy(request);
     if(process.platform==='win32' && path.resolve(options.cwd).length>=260)return reject(new Error('Windows process working directory exceeds supported 259-character limit; choose a shorter project or runtime path'));
     const child = spawnChild(executable, args, { cwd: options.cwd, env: options.env, windowsHide: true, shell: false, detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+    const boundary = options.interaction?.kind !== 'model' && child.pid ? `process:${child.pid}` : undefined;
+    if(boundary)guidanceTool(boundary,true);
     let stdout = '', stderr = '', pending = '', failure: Error | undefined, terminating = false, termination: Promise<void> | undefined;
     const kill = (error: Error) => {
       failure ??= error;
@@ -61,8 +64,8 @@ export function runProcess(executable: string, args: string[], options: {
       if (stdout.length + stderr.length > 8 * 1024 * 1024) kill(new Error('Process output limit exceeded'));
     });
     const cleanup = () => { clearTimeout(timer); unwatch(); options.signal?.removeEventListener('abort', abort); };
-    child.on('error', error => { cleanup(); reject(error); });
-    child.on('close', async code => { cleanup(); await termination; if (failure) reject(failure); else resolve({ exitCode: code ?? -1, stdout, stderr }); });
+    child.on('error', error => { cleanup(); if(boundary)guidanceTool(boundary,false); reject(error); });
+    child.on('close', async code => { cleanup(); await termination; if(boundary)guidanceTool(boundary,false); if (failure) reject(failure); else resolve({ exitCode: code ?? -1, stdout, stderr }); });
     child.stdin.on('error', () => { /* A process may exit before reading input. */ });
     child.stdin.end(options.input ?? '');
   });

@@ -20,6 +20,7 @@
 - 隔离隐藏 Electron 界面 10 项通过，见 `ui/result.json`。界面数据使用夹具；另在真实 Electron 进程只读查询本机 Codex CLI，发现 7 个模型及推理元数据，见 `ui/native-electron-catalog.json`。未发起真实模型推理。
 - 本机默认 OpenCode 实际只读探测未通过：服务缺少官方 JSON Schema `format` 协议，现有兼容检查拒绝继续，见 `opencode-catalog.json`。缓存及 variant 请求传递使用本地 SDK HTTP 测试验证；不将其称为真实远端 OpenCode 验收，不绕过协议检查。
 - 截图：`ui/decision-multiselect.png`、`ui/model-settings.png`、`ui/model-settings-narrow.png`。
+- 与最新 TEST `b90e81b` 的组合复验：保留引导消息修复及全部模型设置；根目录构建、桌面类型检查和构建通过，Controller/适配器/引导消息回归 83/83、桌面回归 118/118、隐藏 Electron 10 项全部通过。见 `combined-controller-tests.log`、`combined-desktop-tests.log`。冲突仅涉及汇总提示语，解决时保留所有参与者初稿及最新引导消息字段和指令。
 
 参考：[Codex App Server](https://learn.chatgpt.com/docs/app-server)、[OpenCode 模型与 variants](https://opencode.ai/docs/models/)。本机已安装 SDK 类型和 CLI 帮助优先用于参数兼容核对。
 

@@ -83,7 +83,7 @@ export class SessionStore {
    if(m.guidanceRunId)try{
     const store=this.guidanceStore(session,m.guidanceRunId),state=store.load(),status=guidanceStatus(store,m.id);
     m.status=state.guidanceHistory?.some(item=>item.id===m.id)||status==='applied'?'executed':status==='processing'?'adjusting':status==='cancelled'?'cancelled':status==='pending'?'steering':'failed';
-    m.error=m.status==='failed'?'引导投递记录不可用，请核查运行记录。':m.status==='steering'?['paused','failed','stopped'].includes(state.phase)?'任务已暂停，引导保留；请在聊天中明确恢复。':'将在当前小任务验收后交给决策者，当前调用继续执行。':m.status==='adjusting'?['paused','failed','stopped'].includes(state.phase)?'调整已暂停，请在聊天中明确恢复；已有成果保留。':'决策者正在调整后续计划。':undefined;
+    m.error=m.status==='failed'?'引导投递记录不可用，请核查运行记录。':m.status==='steering'?['paused','failed','stopped'].includes(state.phase)?'任务已暂停，引导保留；请在聊天中明确恢复。':'已提交引导，正在寻找命令边界；一分钟内介入并交给决策者。':m.status==='adjusting'?['paused','failed','stopped'].includes(state.phase)?'调整已暂停，请在聊天中明确恢复；已有成果保留。':'决策者已接收，正在调整当前方向；完成后派发执行者。':undefined;
    }catch(error){m.status='failed';m.error=redact((error as Error).message);}
    return {...m,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
   }),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
