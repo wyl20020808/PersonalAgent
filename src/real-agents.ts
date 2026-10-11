@@ -105,7 +105,7 @@ export class RealAgents implements Agents {
     assertOperationPolicy({ kind: 'model' });
     assertDecisionState(state, this.config);
     const context = await callContext(state, store, 'review', signal);
-    const evidence = reviewEvidence(state.evidence);
+    const evidence = reviewEvidence(state.evidence, store);
     const contractReferences = state.evidence?.contextReport ? reviewContractCatalog(state) : undefined;
     const contextInstruction = state.evidence?.contextReport ? ' Project Context 检查是正式证据。逐项处理 contextReport.findings、affectedModules 和 unmappedPaths。pass 须填写 contextReview：expansionReason、unmappedReason、checkedContracts，以及每个受影响模块的 moduleId/documentUpdated/noUpdateReason/checkedFiles/constraintsChanged/disposition。接口或职责改变必须更新说明；哈希须先核对再用 context-stamp。核对完整 baseline/current 契约；基线 accepted 不得被本轮改写覆盖。proposed 仅建议，unverifiable 不得当作 accepted。任务前已有无法验证的记录须在 contextReview.confirmationNotes 中逐路径说明审计边界和处理理由；不得将其当作已确认约束，也不能归责为本轮新问题。需要正式确认时返回 human 和 contextConfirmations:[{relative,action:accepted|rejected|superseded}]。契约正文未读或未核对不得 pass。' : '';
     const contractReferenceInstruction = contractReferences ? ' contextReview.checkedContracts 必须填写实际已核对契约的精确 ID，不得填写标题、文件名或文档路径。正确示例：["hud","geometry"]（仅当实际核对了这两个 ID）。contractReferences 提供本轮安全加载的 ID、标题、相对路径、有效状态和 required 标记；required=true 的 baseline/current 正文必须逐项核对。不要为了满足 Schema 编造核对结果；未核对必需契约不得 pass。' : '';

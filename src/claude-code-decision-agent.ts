@@ -38,10 +38,17 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
       } else bindDecisionSession(state, store, id);
     };
     const env = nativeAgentEnv();
+    // Native compaction keeps the same Session and tool history. This changes only
+    // the child invocation, never the user's CLI settings or stored transcripts.
+    if (!execution) {
+      const configuredWindow = Number(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
+      env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(Number.isFinite(configuredWindow) && configuredWindow >= 100000 ? Math.min(configuredWindow, 100000) : 100000);
+    }
     const attachments=runAttachments(state,store);
     const input=attachments.length?claudeInput(prompt,attachments):prompt;
     const streaming = this.config.claudeStreaming !== false || attachments.length>0 || Boolean(request.onPublicProgress);
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules + (execution ? ' 当前角色为执行者：仅实施 Controller 已校验的当前任务，使用原生工具修改并验证；不得更改 Plan、角色配置或重放已完成任务。' : '')];
+    if (!execution) args.push('--autocompact', '100k');
     if (request.readOnly) args.push('--tools', 'Read,Glob,Grep', '--strict-mcp-config', '--mcp-config', JSON.stringify({mcpServers:{}}));
     // Invocation-local settings preserve the user's files and existing hooks.
     const hookScript = fileURLToPath(new URL('../scripts/codex-interaction-hook.js', import.meta.url));
