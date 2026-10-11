@@ -36,3 +36,8 @@
 .chat-feed .group-toggle{flex-wrap:wrap}.chat-feed .group-toggle>span{white-space:normal}
 .chat-feed summary:focus-visible,.chat-feed button:focus-visible{outline:2px solid #6488bc;outline-offset:3px}
 @media(max-width:700px){.chat-feed{padding:16px 12px}.chat-feed .group-message{width:94%;max-width:94%;gap:8px}.chat-feed .group-message .message-content{padding:12px}.chat-feed .group-message.lane-user{max-width:90%}.chat-feed .message-meta>span{font-size:11px}}
+
+/* Compact cards remain consistent with the attachment workbench. */
+.group-workspace .chat-feed>.group-message{width:fit-content;max-width:50%;min-width:0}
+.group-workspace .chat-feed .group-message .message-main{flex:0 1 auto;min-width:0}
+.group-workspace .chat-feed .group-message .message-content{border:0;box-shadow:none}

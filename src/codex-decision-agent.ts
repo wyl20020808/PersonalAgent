@@ -1,3 +1,4 @@
+import {runAttachments} from './multimodal.js';
 import { fileURLToPath } from 'node:url';
 import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type DecisionRequest, type DecisionResult } from './decision-agent.js';
 import { CallObservation } from './call-observation.js';
@@ -27,7 +28,7 @@ export class CodexDecisionAgent implements DecisionAgent {
       const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
         cwd: store.dir, env: nativeAgentEnv(), signal, timeoutMs: request.timeoutMs, streamOutput: true,
         input: JSON.stringify({ ...scope, participantId: scope.participantId ?? undefined, discussionStage: scope.discussionStage ?? undefined,
-          threadId, model: state.decisionAgent.model, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules,
+          threadId, attachments:runAttachments(state,store), model: state.decisionAgent.model, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules,
             decisionPermissions: 'Decision role only. Inspect project using read-only native tools; return the requested structured result. Do not implement, modify files, submit, merge, deliver or change shared settings.' }) }),
         onLine(line) {
           if (!line.trim()) return;

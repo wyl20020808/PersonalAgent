@@ -1,4 +1,5 @@
-import {app,BrowserWindow,ipcMain,dialog,protocol,session} from 'electron';
+import {chatRoute} from './chatRouting.js';
+import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu} from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -15,6 +16,8 @@ app.setPath('userData',path.join(data,'electron'));app.setPath('sessionData',pat
 protocol.registerSchemesAsPrivileged([{scheme:'personalagent',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const locked=app.requestSingleInstanceLock();if(!locked)app.quit();
 let window:BrowserWindow;let service:DesktopService;let quitting=false;
+const threadWatchers=new Map<string,fs.FSWatcher>();
+const closeThreadWatchers=()=>{for(const watcher of threadWatchers.values())watcher.close();threadWatchers.clear();};
 if(locked)app.whenReady().then(async()=>{
  service=new DesktopService(root,data,'C:/Program Files/nodejs/node.exe');
  {for(const file of ['cafe-validation/real.config.json','fish-validation/real.config.json']){const full=path.join(root,file);if(fs.existsSync(full)&&!service.registry().profiles.some(p=>p.file===full))try{service.register(full,true);}catch{}}}
@@ -25,9 +28,14 @@ if(locked)app.whenReady().then(async()=>{
  const windowFile=path.join(data,'window.json');let bounds:{width:number;height:number;x?:number;y?:number}={width:1440,height:900};
  if(fs.existsSync(windowFile))try{const saved=JSON.parse(fs.readFileSync(windowFile,'utf8'));if(Number.isInteger(saved.width)&&saved.width>=1024&&saved.width<=7680&&Number.isInteger(saved.height)&&saved.height>=680&&saved.height<=4320)bounds={width:saved.width,height:saved.height,...(Number.isInteger(saved.x)&&Number.isInteger(saved.y)?{x:saved.x,y:saved.y}:{})};}catch{}
  window=new BrowserWindow({...bounds,minWidth:1024,minHeight:680,title,backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
+ window.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)closeThreadWatchers();});
+ window.webContents.on('destroyed',closeThreadWatchers);
+ window.webContents.on('render-process-gone',closeThreadWatchers);
+ app.on('before-quit',closeThreadWatchers);
  window.on('page-title-updated',event=>event.preventDefault());
  window.on('close',()=>{fs.writeFileSync(windowFile,JSON.stringify(window.getNormalBounds()),{flush:true});});
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.on('will-navigate',e=>e.preventDefault());window.webContents.on('will-attach-webview',e=>e.preventDefault());
+ window.webContents.on('context-menu',(_event,params)=>{const items:Electron.MenuItemConstructorOptions[]=[];if(params.selectionText)items.push({label:'复制',role:'copy'});if(params.isEditable)items.push({label:'剪切',role:'cut'},{label:'粘贴',role:'paste'});if(params.isEditable||params.selectionText)items.push({label:'全选',role:'selectAll'});if(items.length)Menu.buildFromTemplate(items).popup({window});});
  ipcMain.handle('personalagent:request',async(event,raw)=>{
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
   const r=validateRequest(raw);
@@ -36,7 +44,7 @@ if(locked)app.whenReady().then(async()=>{
     const {session,runs}=service.sessions.detail(r.sessionId!),last=runs.at(-1);
     const projectActive=service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)));
     const text=r.text??session.messages.find(m=>m.id===r.messageId)?.text??'';
-    const starts=!projectActive&&(!last||last.phase==='completed')&&!/^(好[的]?|继续|可以|ok|yes|批准|同意)[。！!\s]*$/i.test(text);
+    const starts=!projectActive&&chatRoute(text,last,Boolean(r.attachments?.length))==='start';
     if(starts){
      if(session.settings.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改会话项目目录',detail:session.projectPath+'\n会话始终绑定此项目；快照、用量及每轮审计独立保留。'});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
     }
@@ -64,6 +72,21 @@ ${request.replacement?'替代方案：'+request.replacement.relative+'\n'+reques
    if(r.operation==='apply'){const direct=service.store(r.profileId!,r.runId!).load().config.projectMode==='direct';const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','应用已批准内容'],defaultId:0,cancelId:0,message:direct?'重新验收并确认已有成果（不重复写入）':'应用将写入目标仓库',detail:direct?'文件已直接修改。核验准确批准、Diff 与独立验收；不重复写入项目。':'重新核验批准、内容和目标状态，仅应用摘要中列出的新增、修改及 Context 文档删除；不会 commit、merge 或 push。'});if(approval.response!==1)throw Error('用户取消应用');}
    return await service.dispatch(r);
   }catch(error){throw Error(redact((error as Error).message));}
+ });
+ ipcMain.handle('personalagent:subscribe',async(event,raw)=>{
+  if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
+  const profileId=String(raw?.profileId??''),runId=String(raw?.runId??''),key=`${profileId}:${runId}`;
+  if(!/^[0-9a-f-]{36}$/.test(profileId)||!/^[0-9a-f-]{36}$/.test(runId))throw Error('Invalid thread subscription');
+  if(threadWatchers.has(key))return {subscribed:true};
+  if(threadWatchers.size>=16)throw Error('Too many thread subscriptions');
+  const file=path.dirname(service.store(profileId,runId).file('audit.jsonl'));
+  const notify=()=>{if(!window.isDestroyed()&&!window.webContents.isDestroyed())window.webContents.send(`personalagent:thread:${profileId}:${runId}`,{time:Date.now()});};
+  try{const watcher=fs.watch(file,{persistent:false},notify);watcher.on('error',()=>{watcher.close();threadWatchers.delete(key);});threadWatchers.set(key,watcher);notify();}catch(error){throw Error('Thread event stream unavailable: '+(error as Error).message);}
+  return {subscribed:true};
+ });
+ ipcMain.handle('personalagent:unsubscribe',async(event,raw)=>{
+  if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
+  const key=`${String(raw?.profileId??'')}:${String(raw?.runId??'')}`,watcher=threadWatchers.get(key);if(watcher){watcher.close();threadWatchers.delete(key);}return {unsubscribed:true};
  });
  await window.loadURL('personalagent://app/index.html');
  let rendererRecoveries=0;

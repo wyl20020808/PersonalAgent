@@ -7,6 +7,7 @@ import { recordClaudeCall } from './agent-usage.js';
 import { FlowError, classifyFailure } from './failure.js';
 import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { CallObservation } from './call-observation.js';
+import {runAttachments,claudeInput} from './multimodal.js';
 
 import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type DecisionRequest, type DecisionResult } from './decision-agent.js';
 export class ClaudeCodeDecisionAgent implements DecisionAgent {
@@ -15,7 +16,9 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     assertDecisionRequest(request);
     const {state, store, signal, schema, prompt, role, context} = request;
     const env = nativeAgentEnv();
-    const streaming = this.config.claudeStreaming !== false;
+    const attachments=runAttachments(state,store);
+    const input=attachments.length?claudeInput(prompt,attachments):prompt;
+    const streaming = this.config.claudeStreaming !== false || attachments.length>0;
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules];
     if (this.config.decisionAgent?.backend === 'claude-code' && this.config.decisionAgent.model) args.push('--model', this.config.decisionAgent.model);
     const resumed = !!state.claudeSessionId;
@@ -28,6 +31,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const record = activityRecorder(state, store, 'claude', `claude:${call}`);
     let streamedResult: any; let characters = 0, lastProgress = 0;
     if (streaming) { args[args.indexOf('--output-format') + 1] = 'stream-json'; args.push('--verbose', '--include-partial-messages'); }
+    if(attachments.length)args.push('--input-format','stream-json');
     const onLine = streaming ? (line: string) => {
       if (!line.trim()) return; const event = JSON.parse(line);
       observation.observe(event);
@@ -39,7 +43,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
         if (Date.now() - lastProgress > 1000) { lastProgress = Date.now(); record({key: `delta:${characters}`, kind: 'receiving', title: 'Claude 输出接收中', text: `已接收 ${characters} 个公开文本或结构化字符；尚未通过 Schema 校验`}); }
       }
     } : undefined;
-    const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, timeoutMs: state.config.timeoutMs, input: prompt, onLine, streamOutput: streaming });
+    const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, timeoutMs: state.config.timeoutMs, input, onLine, streamOutput: streaming });
     let envelope: { is_error?: boolean; session_id?: string; structured_output?: unknown; result?: string; errors?: string[] };
     try { const parsed=streamedResult ?? JSON.parse(streaming ? result.stdout.trim().split(/\r?\n/).at(-1)! : result.stdout);if(streaming&&parsed.type!=='result')throw Error('Missing Claude final result');envelope=parsed; }
     catch { throw new Error(`Claude exited ${result.exitCode} with invalid JSON: ${result.stderr.slice(0, 1000)}`); }

@@ -1,3 +1,4 @@
+import {runAttachments} from './multimodal.js';
 import { realpathSync } from 'node:fs';
 import { assertDecisionState, type DecisionAgent } from './decision-agent.js';
 import { CodexDecisionAgent } from './codex-decision-agent.js';
@@ -60,7 +61,7 @@ export class RealAgents implements Agents {
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
-      cwd: store.dir, env, signal, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, executionMode: this.executionMode }),
+      cwd: store.dir, env, signal, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode }),
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };

@@ -20,6 +20,7 @@ import { Store } from '../src/store.js';
 import { runUsage } from '../src/call-observation.js';
 import { mockContextDocuments } from '../src/project-context.js';
 import { runProcess } from '../src/process.js';
+import {bindRunAttachments} from '../src/multimodal.js';
 
 const root = path.resolve('.validation', 'p3a-' + randomUUID()); fs.mkdirSync(root, { recursive: true });
 const plan = { humanDecision: null, tasks: [{ id: 'core', instruction: 'Set core.js to fixed', acceptance: ['core.js contains fixed'], moduleIds: ['fixture'] }] };
@@ -168,6 +169,7 @@ function installedSdkWorker(f: Awaited<ReturnType<typeof fixture>>, hang = false
   // Node loads the local "exec" script as argv[0]. The installed SDK still builds
   // actual CLI arguments/schema files and parses JSONL; no model binary is launched.
   fs.writeFileSync(f.store.file('exec'), `import fs from 'node:fs';const a=process.argv.slice(2);
+    ${f.store.load().userAttachments?.length?`if(!a.includes('--image')||!fs.existsSync(a[a.indexOf('--image')+1]))throw Error('SDK native image missing');`:''}
     for(const [key,value] of [['--sandbox','read-only'],['--cd',${JSON.stringify(f.source)}],['--model','fixture-model']])if(a[a.indexOf(key)+1]!==value)throw Error('SDK option mismatch '+key);
     const schema=JSON.parse(fs.readFileSync(a[a.indexOf('--output-schema')+1],'utf8'));
     const id=a.includes('resume')?a[a.indexOf('resume')+1]:'local-installed-sdk-thread';
@@ -189,6 +191,10 @@ test('installed Codex SDK serializes outputSchema/model/read-only/directory and 
   const first = await adapter.structured(request(f)), second = await adapter.structured(request(f, 'review'));
   assert.deepEqual(first.output, plan); assert.deepEqual(second.output, review); assert.equal(second.sessionId, first.sessionId);
   assert.equal(second.usage.inputTokens, 8); assert.equal(second.usage.resumed, true);
+});
+test('installed Codex SDK carries native image CLI argument for decision and resumed review',async()=>{
+ const f=await fixture();bindRunAttachments(f.store,[{name:'reference.png',mimeType:'image/png',bytes:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')}]);
+ const adapter=new CodexDecisionAgent(f.config,installedSdkWorker(f));await adapter.structured(request(f));await adapter.structured(request(f,'review'));assert.ok(f.store.load().userAttachments?.length);
 });
 for (const cancel of [false, true]) test(`installed SDK local hanging child: ${cancel ? 'interrupt' : 'timeout'} closes owned worker and retains Thread for recovery`, async () => {
   const f = await fixture({ timeoutMs: 1000 }), local = installedSdkWorker(f, true);

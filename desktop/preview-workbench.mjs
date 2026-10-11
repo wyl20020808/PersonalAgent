@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawn} from 'node:child_process';
+import {createRequire} from 'node:module';
+import {build} from 'esbuild';
+const directory=path.dirname(fileURLToPath(import.meta.url)),output=path.resolve(directory,'../.v3c3/workbench-preview');
+fs.mkdirSync(output,{recursive:true});
+await build({entryPoints:[path.join(directory,'workbench-preview.tsx')],bundle:true,format:'esm',outfile:path.join(output,'preview.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
+await build({entryPoints:[path.join(directory,'app-preview.tsx')],bundle:true,format:'esm',outfile:path.join(output,'app.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
+fs.mkdirSync(path.join(output,'assets/agents'),{recursive:true});
+for(const file of ['claude.svg','opencode.svg','openai.svg'])fs.copyFileSync(path.join(directory,'src/assets/agents',file),path.join(output,'assets/agents',file));
+fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src \'self\' data:; script-src \'self\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' data:"><link rel="stylesheet" href="preview.css"><div id="root"></div><script type="module" src="preview.js"></script></html>');
+const require=createRequire(import.meta.url),env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+fs.writeFileSync(path.join(output,'app.html'),fs.readFileSync(path.join(output,'index.html'),'utf8').replace('preview.css','app.css').replace('preview.js','app.js'));
+const child=spawn(require('electron'),[path.join(directory,'workbench-preview.cjs')],{cwd:directory,windowsHide:true,env,stdio:'inherit'});
+child.on('error',error=>{console.error(error);process.exitCode=1;});child.on('exit',code=>{process.exitCode=code??1;});
