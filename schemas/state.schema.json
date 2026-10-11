@@ -884,6 +884,9 @@
               ],
               "additionalProperties": false
             },
+            "decisionAccepted": {
+              "type": "boolean"
+            },
             "userAccepted": {
               "type": "boolean"
             },

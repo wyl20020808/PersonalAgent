@@ -28,7 +28,7 @@ test('complete mock loop: multiple tasks, independent tests, isolated source, au
   const state = await drive(store, new MockAgents(config));
   assert.equal(state.phase, 'completed'); assert.equal(state.loops, 2);
   assert.ok(state.claudeSessionId); assert.ok(state.codexThreadId);
-  assert.equal(state.evidence?.userAccepted, true);
+  assert.equal(state.evidence?.decisionAccepted, true);
   assert.equal(await git(repo, ['status', '--porcelain']), ''); assert.equal(existsSync(path.join(repo, 'hello.txt')), false);
   let previous = '';
   for (const line of readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n')) {
@@ -46,9 +46,9 @@ test('human pause and explicit resume persist sessions', async () => {
   const resumedStore = new Store(config.runtimeDir, store.id);
   assert.equal((await drive(resumedStore, new MockAgents(config))).phase, 'paused');
   const state = await drive(resumedStore, new MockAgents(config), 'Proceed with specified acceptance');
-  assert.equal(state.phase, 'completed'); // Fixture user explicitly accepts both reviewed tasks.
-  assert.equal(state.taskIndex, 2); assert.equal(state.codexThreadId, paused.codexThreadId);
-  assert.equal((await drive(resumedStore, new MockAgents(config), 'Proceed again')).phase, 'completed');
+  assert.equal(state.phase, 'paused'); // A distinct human question in task two is not approved by task one's answer.
+  assert.equal(state.taskIndex, 1); assert.equal(state.codexThreadId, paused.codexThreadId);
+  assert.equal((await drive(resumedStore, new MockAgents(config), 'Proceed with second decision')).phase, 'completed');
 });
 test('loop and rework bounds pause rather than claim success', async () => {
   const one = await fixture('pass', { maxLoops: 1 }); assert.equal((await drive(one.store, new MockAgents(one.config))).reason, 'Loop limit reached');

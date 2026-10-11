@@ -25,15 +25,13 @@ async function fixture(verdict: Review['verdict'] = 'pass', noTests = false) {
 }
 const events=(f:Awaited<ReturnType<typeof fixture>>)=>fs.readFileSync(f.store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
 
-for(const noTests of [false,true])test(`decision pass waits for user; configured checks ${noTests?'absent':'failing'} never run`,async()=>{
+for(const noTests of [false,true])test(`decision pass completes automatically; configured checks ${noTests?'absent':'failing'} never run`,async()=>{
   const f=await fixture('pass',noTests),state=await drive(f.store,f.agents);
-  assert.equal(state.phase,'paused',state.reason);assert.match(state.reason,/等待用户确认/);assert.deepEqual(state.completedTaskIds,[]);
+  assert.equal(state.phase,'completed',state.reason);assert.deepEqual(state.completedTaskIds,['edit']);
   assert.equal(state.evidence?.decisionReview?.verdict,'pass');assert.equal(state.evidence?.passed,false);
   assert.equal(events(f).some(e=>e.event==='independent-check'||e.event==='review-vetoed'),false);
-  const digest=manualAcceptanceDigest(state);assert.ok(digest);
-  await assert.rejects(acceptManual(f.store,digest!,''),/observations/);
-  const done=await acceptManual(f.store,digest!,'Local human fixture inspected result; approve this task');
-  assert.equal(done.phase,'completed');assert.equal(done.evidence?.userAccepted,true);assert.equal(done.evidence?.passed,false);
+  assert.equal(manualAcceptanceDigest(state),null);assert.equal(state.evidence?.decisionAccepted,true);assert.notEqual(state.evidence?.userAccepted,true);
+  assert.equal(events(f).filter(e=>e.event==='decision-acceptance').length,1);
   assert.equal(fs.existsSync(f.marker),false);assert.deepEqual(f.count(),{executions:1,reviews:1});
 });
 
@@ -41,9 +39,8 @@ test('Controller conveys warnings to decision maker and user without overriding 
   const f=await fixture();fs.writeFileSync(path.join(f.source,'result.txt'),'preexisting trailing space \n');
   const execute=f.agents.execute;
   f.agents.execute=async(...args)=>{const result=await execute(...args);fs.writeFileSync(path.join(f.source,'warning.txt'),'trailing whitespace \n');await git(f.source,['add','warning.txt']);return result;};
-  const paused=await drive(f.store,f.agents);assert.equal(paused.phase,'paused');assert.match(paused.reason,/决策者验收通过/);
-  assert.ok(paused.evidence?.issues.some(issue=>issue.includes('whitespace')));
-  const done=await acceptManual(f.store,manualAcceptanceDigest(paused)!,'Local human fixture accepts disclosed whitespace warning');
+  const done=await drive(f.store,f.agents);
+  assert.ok(done.evidence?.issues.some(issue=>issue.includes('whitespace')));
   assert.equal(done.phase,'completed');assert.equal(events(f).some(e=>e.event==='review-vetoed'),false);
 });
 
@@ -56,26 +53,26 @@ for(const verdict of ['human','fail','rework'] as const)test(`Controller transpo
 });
 
 test('historical missing-tests checkpoint goes to decision maker without replaying executor',async()=>{
-  const f=await fixture();const paused=await drive(f.store,f.agents);
+  const f=await fixture('human');const paused=await drive(f.store,f.agents);
   delete paused.evidence!.acceptanceMode;delete paused.evidence!.decisionReview;
   paused.reason='No independent acceptance tests configured; human verification required';f.store.save(paused);
   assert.equal(manualAcceptanceDigest(paused),null);
   f.agents.execute=async()=>{throw Error('Executor must not replay');};
+  const review=f.agents.review;f.agents.review=async(...args)=>({...await review(...args),verdict:'pass'});
   const resumed=await drive(f.store,f.agents,'先交决策者验收');
-  assert.match(resumed.reason,/等待用户确认/);assert.deepEqual(f.count(),{executions:1,reviews:2});assert.equal(resumed.loops,1);
+  assert.equal(resumed.phase,'completed');assert.deepEqual(f.count(),{executions:1,reviews:2});assert.equal(resumed.loops,1);
 });
 
 test('user acceptance binds exact reviewed files and review reason; changed files require fresh review',async()=>{
-  const f=await fixture(),paused=await drive(f.store,f.agents),digest=manualAcceptanceDigest(paused)!;
+  const f=await fixture('human'),paused=await drive(f.store,f.agents),digest=manualAcceptanceDigest(paused)!;
   fs.writeFileSync(path.join(f.source,'result.txt'),'external change\n');
   await assert.rejects(acceptManual(f.store,digest,'Approve old result'),/changed/);
   assert.equal(f.store.load().phase,'paused');assert.deepEqual(f.store.load().completedTaskIds,[]);
   assert.equal(fs.readFileSync(path.join(f.source,'result.txt'),'utf8'),'external change\n');
 });
 
-test('user-confirmed result supports explicit delivery without Controller retesting',async()=>{
-  const f=await fixture(),paused=await drive(f.store,f.agents);
-  await acceptManual(f.store,manualAcceptanceDigest(paused)!,'Local human fixture accepts exact task');
+test('decision-accepted result supports preview while delivery still requires explicit approval',async()=>{
+  const f=await fixture();await drive(f.store,f.agents);
   const preview=await previewDelivery(f.store,f.source,'direct');
   await assert.rejects(applyDelivery(f.store,preview.id),/explicit approval/);
   await approveDelivery(f.store,preview.id,preview.digest,'Local user fixture approves exact delivery');
@@ -83,8 +80,55 @@ test('user-confirmed result supports explicit delivery without Controller retest
   assert.deepEqual(delivered.written,[]);assert.equal(fs.existsSync(f.marker),false);
 });
 
-test('forged userAccepted flag does not replace decision and user audit receipts',async()=>{
-  const f=await fixture(),state=await drive(f.store,f.agents);
+test('forged acceptance flags do not replace decision audit receipts',async()=>{
+  const f=await fixture('human'),state=await drive(f.store,f.agents);
   state.phase='completed';state.taskIndex=state.tasks.length;state.evidence!.userAccepted=true;f.store.save(state);
   await assert.rejects(previewDelivery(f.store,f.source,'direct'),/approvals/);
+  state.evidence!.userAccepted=false;state.evidence!.decisionAccepted=true;f.store.save(state);
+  await assert.rejects(previewDelivery(f.store,f.source,'direct'),/approvals/);
+});
+
+test('multiple dependent tasks advance with one execute and one review each',async()=>{
+  const f=await fixture();
+  f.agents.plan=async()=>({humanDecision:null,tasks:[{id:'edit',instruction:'Edit result',acceptance:['after']},{id:'second',dependsOn:['edit'],instruction:'Check prerequisite',acceptance:['checked']}]});
+  const execute=f.agents.execute;f.agents.execute=async(...args)=>{if(args[0].taskIndex===1)assert.deepEqual(args[0].completedTaskIds,['edit']);return execute(...args);};
+  const done=await drive(f.store,f.agents);
+  assert.equal(done.phase,'completed');assert.deepEqual(done.completedTaskIds,['edit','second']);assert.deepEqual(f.count(),{executions:2,reviews:2});
+  assert.equal(events(f).some(e=>e.event==='transition'&&e.data.phase==='paused'),false);
+  await previewDelivery(f.store,f.source,'direct');
+});
+
+async function legacyPass(){
+  const f=await fixture();const state=await drive(f.store,f.agents);
+  state.phase='paused';state.nextPhase='verify';state.taskIndex=0;state.completedTaskIds=[];delete state.evidence!.decisionAccepted;
+  state.reason='决策者验收通过，等待用户确认；Controller 不判定成果成败';f.store.save(state);
+  f.store.audit('transition',{phase:state.phase,taskIndex:0,loops:state.loops});
+  return f;
+}
+
+test('continue old unchanged pass reuses recorded verdict without another model call',async()=>{
+  const f=await legacyPass();f.agents.execute=async()=>{throw Error('Executor must not replay');};f.agents.review=async()=>{throw Error('Reviewer must not replay');};
+  const done=await drive(f.store,f.agents,'继续');assert.equal(done.phase,'completed');assert.deepEqual(done.completedTaskIds,['edit']);assert.ok(events(f).some(e=>e.event==='review-reused'));
+  assert.deepEqual(f.count(),{executions:1,reviews:1});
+});
+
+test('legacy second-task pass without completedTaskIds never replays previous task',async()=>{
+  const f=await fixture();
+  f.agents.plan=async()=>({humanDecision:null,tasks:[{id:'edit',instruction:'Edit result',acceptance:['after']},{id:'second',instruction:'Check result',acceptance:['checked']}]});
+  const state=await drive(f.store,f.agents);
+  state.phase='paused';state.nextPhase='verify';state.taskIndex=1;delete state.completedTaskIds;delete state.evidence!.decisionAccepted;
+  f.store.save(state);f.store.audit('transition',{phase:state.phase,taskIndex:1,loops:state.loops});
+  f.agents.execute=async()=>{throw Error('Previously executed task must not replay');};f.agents.review=async()=>{throw Error('Recorded pass must not replay');};
+  const done=await drive(f.store,f.agents,'继续');assert.equal(done.phase,'completed');assert.deepEqual(done.completedTaskIds,['edit','second']);assert.deepEqual(f.count(),{executions:2,reviews:2});
+});
+
+test('continue old pass with changed result reviews again without replaying executor',async()=>{
+  const f=await legacyPass();fs.writeFileSync(path.join(f.source,'result.txt'),'changed\n');let reviews=0;
+  f.agents.execute=async()=>{throw Error('Executor must not replay');};f.agents.review=async state=>{reviews++;assert.equal(fs.readFileSync(path.join(state.workspace,'result.txt'),'utf8'),'changed\n');return{verdict:'human',reason:'Major unresolved change'};};
+  const state=await drive(f.store,f.agents,'继续');assert.equal(state.phase,'paused');assert.equal(reviews,1);assert.deepEqual(state.completedTaskIds,[]);assert.equal(events(f).some(e=>e.event==='review-reused'),false);
+});
+
+test('explicit rework on old pass executes and reviews again',async()=>{
+  const f=await legacyPass();const state=await drive(f.store,f.agents,'修改成果',undefined,undefined,'rework');
+  assert.equal(state.phase,'completed');assert.deepEqual(f.count(),{executions:2,reviews:2});
 });

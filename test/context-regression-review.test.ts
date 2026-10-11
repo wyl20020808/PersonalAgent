@@ -54,7 +54,7 @@ test('T2 restored world permits empty expansion after CC repair; independent rec
   const f = await replay('restored'); assert.equal(f.result.phase, 'completed', f.result.reason);
   assert.equal(f.reviews, 2); assert.equal(f.stages[0]!.stage, 'test-injected-candidate');
   assert.equal(f.stages[1]!.worldRestored, true); assert.deepEqual(f.stages[1]!.expandedModules, []);
-  assert.equal(f.result.evidence!.userAccepted, true); assert.equal(f.events.filter(e => e.event === 'fixture-decision-check').length, 2);
+  assert.equal(f.result.evidence!.decisionAccepted, true); assert.equal(f.events.filter(e => e.event === 'fixture-decision-check').length, 2);
   assert.equal(f.events.filter(e => e.event === 'review').length, 2);
 });
 

@@ -61,19 +61,14 @@ test('/discuss never queues into or resumes an unfinished Run',async()=>{
  assert.equal(discussed.chatMode,'develop');assert.equal(discussed.messages.at(-1)?.status,'failed');assert.equal(discussed.messages.at(-1)?.autoQueued,false);assert.equal(store.load().phase,'paused');assert.equal(discussed.runs.length,1);
 });
 
-test('chat final acceptance records the user verdict without rerunning decision maker or executor',async()=>{
+test('chat authorized task advances through decision passes without user confirmation messages',async()=>{
  const {data,project}=fixture(),service=new DesktopService(root,data,process.execPath);
  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock'}) as Conversation;
  async function paused(){for(let i=0;i<300;i++){const run=service.sessions.detail(session.id).runs.at(-1);if(run&&!run.active&&['paused','failed','completed'].includes(run.phase))return run;await new Promise(resolve=>setTimeout(resolve,100));}throw Error('Fixture task did not reach user decision');}
  try{
   await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Local acceptance transport fixture',directAcknowledged:true});
-  const first=await paused();assert.equal(first.phase,'paused',first.reason);assert.ok(first.manualAcceptanceDigest);assert.equal(first.evidence?.decisionReview?.verdict,'pass');
-  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'验收通过'});
-  const accepted=service.sessions.detail(session.id);assert.equal(accepted.runs.length,1);assert.equal(accepted.session.messages.at(-1)?.action,'accept');assert.deepEqual(accepted.runs[0].completedTaskIds,['hello']);assert.equal(accepted.runs[0].loops,1);
-  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续'});
-  const second=await paused();assert.equal(second.phase,'paused',second.reason);assert.ok(second.manualAcceptanceDigest);
-  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'验收通过'});
-  const done=service.sessions.detail(session.id).runs[0];assert.equal(done.phase,'completed');assert.equal(done.manualAccepted,true);assert.equal(done.evidence?.passed,false);assert.equal(done.loops,2);
+  const done=await paused();assert.equal(done.phase,'completed',done.reason);assert.equal(done.manualAcceptanceDigest,null);assert.equal(done.manualAccepted,false);assert.equal(done.evidence?.decisionAccepted,true);assert.equal(done.evidence?.passed,false);assert.equal(done.loops,2);
+  assert.deepEqual(done.completedTaskIds,['hello','done']);assert.equal(service.sessions.detail(session.id).session.messages.length,1);
  }finally{await service.stopOwned();}
 });
 test('Claude and Codex executor models persist through IPC, Session restart, project reopen and halted recovery',async()=>{

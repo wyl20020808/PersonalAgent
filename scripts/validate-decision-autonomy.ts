@@ -1,0 +1,25 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { createRun, drive } from '../src/controller.js';
+import { RealAgents } from '../src/real-agents.js';
+import { git } from '../src/workspace.js';
+import type { Config } from '../src/schema.js';
+
+const root = path.resolve('D:/PersonalAgent-data/decision-autonomy-20261012', randomUUID());
+const source = path.join(root, 'source'); fs.mkdirSync(source, { recursive: true });
+fs.writeFileSync(path.join(source, 'AGENTS.md'), '这是用户授权的独立真实流程验收小项目，只允许写本目录。不得提交、合并、推送或访问其他项目。实现按当前任务进行，不提前做后续任务。由决策者逐项验收，通过后自动继续，不要求用户逐项批准。\n');
+await git(source, ['init']); await git(source, ['add', 'AGENTS.md']);
+await git(source, ['-c', 'user.name=Validation', '-c', 'user.email=validation@example.invalid', 'commit', '-m', 'Initialize isolated real lifecycle validation']);
+const config: Config = { mode: 'real', mockScenario: 'pass', executionMode: 'native', projectMode: 'direct', directAuthorization: { projectPath: source, acknowledgedAt: new Date().toISOString() }, allowedRepositories: [source], runtimeDir: path.join(root, 'runtime'), claudeExecutable: 'C:/Users/WYL20/.local/bin/claude.exe', claudeStreaming: true, timeoutMs: 0, tests: [], decisionAgent: { backend: 'claude-code', model: 'opus', reasoningEffort: 'medium' }, executionAgent: { backend: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'medium' } };
+const store = await createRun(config, source, '用户已经确认方案；这是一个授权完成全部步骤的真实链路验收。恰好两个串行任务：任务 first 用原生工具创建 first.txt，内容为 first 和一个换行；任务 second 依赖 first，用原生工具读取 first.txt 再创建 second.txt，内容为 second 和一个换行。每项验收由决策者读取文件核查，不要要求用户阶段确认，不修改 AGENTS.md，不需要其他成果。请简短输出，完成两项即结束。');
+console.log(JSON.stringify({ runId: store.id, root, source }));
+const state = await drive(store, new RealAgents(config));
+const events = fs.readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+const result = { runId: store.id, root, source, workspace: state.workspace, phase: state.phase, reason: state.reason, completedTaskIds: state.completedTaskIds, loops: state.loops, claudeCalls: state.claudeCalls, decisionSession: state.decisionSession, codexThreadId: state.codexThreadId, acceptanceCount: events.filter(e => e.event === 'decision-acceptance').length, reviewCount: events.filter(e => e.event === 'review').length, manualAcceptanceCount: events.filter(e => e.event === 'manual-acceptance').length, pauses: events.filter(e => e.event === 'transition' && e.data.phase === 'paused'), evidence: state.evidence, usage: events.filter(e => e.event === 'usage').map(e => e.data) };
+fs.writeFileSync(path.join(root, 'result.json'), JSON.stringify(result, null, 2));
+console.log(JSON.stringify({ runId: state.id, phase: state.phase, completedTaskIds: state.completedTaskIds, loops: state.loops, claudeCalls: state.claudeCalls, reviews: result.reviewCount, acceptances: result.acceptanceCount, pauses: result.pauses.length, report: path.join(root, 'result.json') }));
+assert.equal(state.phase, 'completed', state.reason); assert.equal(state.loops, 2); assert.equal(result.acceptanceCount, 2); assert.equal(result.reviewCount, 2); assert.equal(result.manualAcceptanceCount, 0); assert.equal(result.pauses.length, 0);
+assert.equal(fs.readFileSync(path.join(source, 'first.txt'), 'utf8'), 'first\n'); assert.equal(fs.readFileSync(path.join(source, 'second.txt'), 'utf8'), 'second\n');
+assert.notEqual(state.evidence?.userAccepted, true); assert.equal(state.evidence?.decisionAccepted, true); assert.equal(state.evidence?.passed, false);

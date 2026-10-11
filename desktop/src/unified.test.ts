@@ -60,18 +60,19 @@ test('ordinary folder direct GUI service confirms exact approved result without 
  assert.equal(delivery.kind,'direct');assert.deepEqual(delivery.written,[]);assert.equal(delivery.phase,'applied');assert.equal(fs.statSync(path.join(folder,'hello.txt')).mtimeMs,mtime);assert.equal(fs.readFileSync(path.join(folder,'user.txt'),'utf8'),'保留用户成果\n');
  const {config}=service.config(run.profileId),store=await createRun(config,folder,'lookup fixture');const state=store.load();state.workspace=data;store.save(state);assert.throws(()=>service.store(run.profileId,state.id),/workspace mismatch/);
 });
-test('manual service acceptance is durable per task, does not approve delivery, and never fabricates test passes',async()=>{
+test('manual service acceptance records critical approval, then decision passes advance without approving delivery',async()=>{
  const folder=path.join(data,'manual');fs.mkdirSync(folder,{recursive:true});const configFile=path.join(data,'manual-config.json');
- const config={allowedRepositories:[folder],runtimeDir:path.join(data,'manual-runtime'),projectMode:'direct',directAuthorization:{projectPath:folder,acknowledgedAt:new Date().toISOString()},executionMode:'native',mode:'mock',claudeExecutable:'NEVER-PAID',timeoutMs:10000,maxClaudeCalls:5,maxLoops:4,maxReworks:1,tests:[],mockScenario:'pass'};
+ const config={allowedRepositories:[folder],runtimeDir:path.join(data,'manual-runtime'),projectMode:'direct',directAuthorization:{projectPath:folder,acknowledgedAt:new Date().toISOString()},executionMode:'native',mode:'mock',claudeExecutable:'NEVER-PAID',timeoutMs:10000,maxClaudeCalls:5,maxLoops:4,maxReworks:1,tests:[],mockScenario:'human'};
  fs.writeFileSync(configFile,JSON.stringify(config));service.register(configFile);const profile=service.overview().profiles.find(p=>p.runtimeDir===config.runtimeDir)!;
- const run=await service.dispatch({operation:'start',profileId:profile.id,repository:folder,goal:'manual local fixture',maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;const base={profileId:profile.id,runId:run.id};
- for(let index=0;index<2;index++){
+ const run=await service.dispatch({operation:'start',profileId:profile.id,repository:folder,goal:'manual local fixture',scenario:'human',maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;const base={profileId:profile.id,runId:run.id};
+ for(let index=0;index<1;index++){
   const paused=await terminal(profile.id,run.id);assert.equal(paused.phase,'paused');assert.ok(paused.manualAcceptanceDigest);assert.equal(paused.evidence?.passed,false);
   await assert.rejects(service.dispatch({...base,operation:'manualAccept',digest:'0'.repeat(64),decision:'检查'}),/exact/);
   await service.dispatch({...base,operation:'manualAccept',digest:paused.manualAcceptanceDigest!,decision:'已检查任务 '+index+' 的实际文件与 Diff，符合本地夹具标准'});
   if(index===0)await service.dispatch({...base,operation:'resume',decision:'继续下一本地夹具任务，不调用真实 Agent'});
  }
- const done=service.detail(profile.id,run.id).run;assert.equal(done.manualAccepted,true);assert.equal(done.evidence?.passed,false);assert.deepEqual(done.evidence?.tests,[]);assert.equal(done.claudeCalls,0);
+ const done=await terminal(profile.id,run.id);assert.equal(done.phase,'completed');assert.equal(done.manualAccepted,false);assert.equal(done.evidence?.decisionAccepted,true);assert.equal(done.evidence?.passed,false);assert.deepEqual(done.evidence?.tests,[]);assert.equal(done.claudeCalls,0);
+ const audit=service.audit(service.store(profile.id,run.id));assert.equal(audit.filter(e=>e.event==='manual-acceptance').length,1);assert.equal(audit.filter(e=>e.event==='decision-acceptance').length,1);
  assert.equal((await service.deliveries(profile.id,run.id)).length,0);const preview=await service.dispatch({...base,operation:'preview',target:folder,branch:'direct'}) as any;await assert.rejects(service.dispatch({...base,operation:'apply',deliveryId:preview.id}),/approval/);
  service.register(configFile,true);await assert.rejects(service.dispatch({...base,operation:'manualAccept',digest:'0'.repeat(64),decision:'replay'}),/只读/);
 });

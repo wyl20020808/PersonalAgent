@@ -3,6 +3,7 @@ import { Store, type State } from './store.js';
 import { collectEvidence } from './workspace.js';
 import { lockProject } from './project-files.js';
 import { pendingGuidance, processingGuidance } from './steering.js';
+import { advanceReviewedTask } from './decision-acceptance.js';
 
 export function manualAcceptanceDigest(state: State): string | null {
   if (state.phase !== 'paused' || state.nextPhase !== 'verify' || state.evidence?.acceptanceMode !== 'decision-user' || !['pass', 'human'].includes(state.evidence.decisionReview?.verdict ?? '') || state.evidence.userAccepted) return null;
@@ -23,12 +24,7 @@ export async function acceptManual(store: Store, digest: string, observations: s
     if(manualAcceptanceDigest(checked)!==digest) throw new Error('Manual acceptance observed evidence or rules changed');
     evidence.userAccepted=true;
     store.audit('manual-acceptance',{taskId:state.tasks[state.taskIndex]!.id,taskIndex:state.taskIndex,loop:state.loops,digest,observations,verificationScope:evidence.verificationScope,testsExecuted:0,snapshot:evidence.snapshotDigest,rules:evidence.acceptanceRulesHash,evidence});
-    state.evidence=evidence;state.completedTaskIds??=[];
-    if(!state.completedTaskIds.includes(state.tasks[state.taskIndex]!.id))state.completedTaskIds.push(state.tasks[state.taskIndex]!.id);
-    state.deferredTaskIds=(state.deferredTaskIds??[]).filter(id=>id!==state.tasks[state.taskIndex]!.id);
-    state.taskIndex=state.tasks.findIndex(task=>!state.completedTaskIds!.includes(task.id));
-    if(state.taskIndex<0)state.taskIndex=state.tasks.length;
-    state.reworks=0;state.reviewRepairs=0;state.reworkPending=false;state.failure=null;
+    state.evidence=evidence;advanceReviewedTask(state);
     const awaitingGuidance=pendingGuidance(store).length>0||processingGuidance(store).length>0;
     state.phase=state.taskIndex===state.tasks.length&&!awaitingGuidance?'completed':'paused';state.nextPhase='execute';
     state.reason=state.phase==='completed'?'人工验收完成；决策者审查及用户确认已记录，Controller 未判定成果或执行验收测试':'当前任务已人工验收；提交恢复决策后开发下一任务';

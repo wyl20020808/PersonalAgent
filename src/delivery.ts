@@ -1,4 +1,5 @@
 import { manualAcceptanceDigest } from './manual-acceptance.js';
+import { decisionAcceptanceDigest } from './decision-acceptance.js';
 import { observationScope } from './project-observation.js';
 import { closeSync, existsSync, fsyncSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -108,7 +109,7 @@ async function fullDiff(repo: string, base: string): Promise<string> {
 async function completionProof(store: Store, state: State): Promise<string> {
   if (!state.evidence) throw new Error('Run lacks reviewed evidence');
   if (state.purpose === 'context-onboarding') { assertOnboardingScope(state, store); loadProjectContext(state.workspace, true); }
-  if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !(state.evidence?.acceptanceMode === 'decision-user' ? state.evidence.userAccepted : state.evidence?.passed) || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
+  if (state.phase !== 'completed' || !state.tasks.length || state.taskIndex !== state.tasks.length || !(state.evidence?.acceptanceMode === 'decision-user' ? state.evidence.userAccepted || state.evidence.decisionAccepted : state.evidence?.passed) || state.evidence.executorExitCode !== 0 || !state.evidence.acceptanceRulesHash) throw new Error('Run lacks completed verification or acceptance rule fingerprints');
   if (await observeWorkspace(state) !== state.evidence.snapshotDigest || await workspaceHead(state) !== (state.evidence.acceptanceMode === 'decision-user' ? state.evidence.head : workspaceBaseHead(state))) throw new Error('Completed workspace changed');
   const rules = await acceptanceRulesHash(state, true);
   if (rules !== state.evidence.acceptanceRulesHash) throw new Error('Acceptance rules changed since verification');
@@ -121,6 +122,13 @@ async function completionProof(store: Store, state: State): Promise<string> {
     if (record.event === 'transition') { taskIndex = record.data.taskIndex; if (record.data.phase === 'executing') check = null; }
     if (record.event === 'independent-check' || record.event === 'review-evidence') check = record.data;
     if (record.event === 'review') decisionReview = record.data;
+    if (record.event === 'decision-acceptance') {
+      const accepted = record.data.evidence as NonNullable<State['evidence']>;
+      const candidate = { ...state, taskIndex: record.data.taskIndex, loops: record.data.loop, evidence: accepted };
+      if (check?.snapshotDigest === accepted.snapshotDigest && check.head === accepted.head && accepted.decisionAccepted && accepted.decisionReview?.verdict === 'pass' && accepted.executorExitCode === 0 &&
+          JSON.stringify(decisionReview) === JSON.stringify(accepted.decisionReview) && record.data.taskId === state.tasks[record.data.taskIndex]?.id &&
+          decisionAcceptanceDigest(candidate) === record.data.digest && accepted.acceptanceRulesHash === rules) approvals.set(record.data.taskIndex, accepted);
+    }
     if (record.event === 'manual-acceptance' && record.data.evidence?.acceptanceMode === 'decision-user') {
       const accepted = record.data.evidence as NonNullable<State['evidence']>;
       const candidate = { ...state, phase: 'paused' as const, nextPhase: 'verify' as const, taskIndex: record.data.taskIndex, loops: record.data.loop, evidence: { ...accepted, userAccepted: false } };

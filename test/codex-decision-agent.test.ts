@@ -162,7 +162,7 @@ test('ownership rejects mixed execution/decision Threads, shared dual Sessions a
   const collision = await fixture(), cp = protocol({ shared: true }), stopped = await drive(collision.store, new RealAgents(collision.config, cp.run)); assert.equal(stopped.phase, 'failed'); assert.match(stopped.reason, /share/);
 });
 test('Codex pass cannot bypass decision authority; Mock stays local and unique executor configuration stays enforced', async () => {
-  const f = await fixture(), p = protocol({ wrongExecute: true }), state = await drive(f.store, new RealAgents(f.config, p.run)); assert.equal(state.phase, 'completed'); assert.equal(state.evidence?.passed, false); assert.equal(state.evidence?.userAccepted,true); assert.doesNotMatch(fs.readFileSync(f.store.file('audit.jsonl'), 'utf8'), /review-vetoed/);
+  const f = await fixture(), p = protocol({ wrongExecute: true }), state = await drive(f.store, new RealAgents(f.config, p.run)); assert.equal(state.phase, 'completed'); assert.equal(state.evidence?.passed, false); assert.equal(state.evidence?.decisionAccepted,true); assert.doesNotMatch(fs.readFileSync(f.store.file('audit.jsonl'), 'utf8'), /review-vetoed/);
   for (const extra of [{ executionAgent: { backend: 'unsupported' } }, { executionAgents: [{ backend: 'codex' }, { backend: 'codex' }] }, { decisionAgent: { backend: 'codex', model: 'bad model' } }]) assert.throws(() => validate(configSchema, { ...f.config, ...extra }));
 });
 

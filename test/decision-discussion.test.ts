@@ -98,7 +98,7 @@ test('primary-only Replan is labeled separately after human decision; no second 
  state=await drive(f.store,new RealAgents(f.config,p.run),'需求已明确，继续');assert.equal(state.phase,'completed',state.reason);assert.equal(p.prompts.filter(r=>r.prompt.decisionStage==='replan').length,1);assert.equal(p.prompts.filter(r=>r.prompt.decisionStage==='discussion').length,2);
 });
 test('existing decision authority vetoes primary pass when independent tests fail',async()=>{
- const f=await fixture(),p=protocol({wrongExecute:true}),state=await drive(f.store,new RealAgents(f.config,p.run));assert.equal(state.phase,'completed');assert.equal(state.evidence?.passed,false);assert.equal(state.evidence?.userAccepted,true);assert.ok(!records(f.store).some(e=>e.event==='review-vetoed'));
+ const f=await fixture(),p=protocol({wrongExecute:true}),state=await drive(f.store,new RealAgents(f.config,p.run));assert.equal(state.phase,'completed');assert.equal(state.evidence?.passed,false);assert.equal(state.evidence?.decisionAccepted,true);assert.ok(!records(f.store).some(e=>e.event==='review-vetoed'));
 });
 test('participant/model changes and shared Sessions are rejected, unsupported role configurations cannot start',async()=>{
  const f=await fixture(),p=protocol();await drive(f.store,new RealAgents(f.config,p.run));const state=f.store.load();

@@ -25,6 +25,7 @@ import { timeoutSignal } from './timeout.js';
 import { assertDeliveryAcceptanceRules } from './rules.js';
 import {claimGuidance,claimPendingGuidance,processingGuidance,pendingGuidance,finishGuidance} from './steering.js';
 import {withGuidanceHandoff,GuidanceHandoff} from './guidance-handoff.js';
+import { acceptDecision, recordedPass, decisionAcceptanceDigest } from './decision-acceptance.js';
 
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
@@ -157,6 +158,20 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         return state;
       }
       if (pendingContextConfirmations(store).length) { checkpoint('paused', '待确认契约必须通过正式文档决策入口处理；普通恢复指令不能确认'); return state; }
+      // Reuse an old pass only for the exact unchanged result, never for rework.
+      if (intent === 'resume' && state.phase === 'paused' && state.nextPhase === 'verify' && state.evidence?.acceptanceMode === 'decision-user' && recordedPass(store, state)) {
+        state.completedTaskIds ??= state.tasks.some(task => task.dependsOn?.length) ? [] : state.tasks.slice(0, state.taskIndex).map(task => task.id);
+        assertPrerequisites(state.tasks, state.taskIndex, state.completedTaskIds);
+        const current = await checkedEvidence();
+        current.decisionReview = state.evidence.decisionReview;
+        current.taskDiff = state.evidence.taskDiff; current.roundDiff = state.evidence.roundDiff;
+        current.contextReport = state.evidence.contextReport;
+        if (decisionAcceptanceDigest({ ...state, evidence: current }) === decisionAcceptanceDigest(state)) {
+          store.audit('review-reused', { taskId: state.tasks[state.taskIndex]!.id, loop: state.loops, decision, reason: '旧暂停节点的已通过成果未变化，不重复送审' });
+          const accepted = acceptDecision(store, state);
+          if (accepted.phase === 'completed') return accepted;
+        }
+      }
       state.feedback = [state.feedback, `User decision: ${decision}`].filter(Boolean).join('\n');
       if (intent === 'rework') { state.nextPhase = 'execute'; state.reworkPending = true; }
       if (existsSync(store.file('stop.request'))) unlinkSync(store.file('stop.request'));
@@ -324,8 +339,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.evidence.acceptanceMode = 'decision-user';
         state.evidence.decisionReview = review;
         if (review.verdict === 'pass') {
-          state.nextPhase = 'verify';
-          checkpoint('paused', '决策者验收通过，等待用户确认；Controller 不判定成果成败');
+          acceptDecision(store, state);
         } else if (review.verdict === 'human') {
           state.nextPhase = 'verify'; checkpoint('paused', review.reason);
           for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);

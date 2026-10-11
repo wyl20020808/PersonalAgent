@@ -147,7 +147,7 @@ test('formal Controller OpenCode fake backend with native Mock execution preserv
   for(const fail of [false,true]){
     const f=await fixture(true),server=fake(),real=new RealAgents(f.config,undefined,new OpenCodeDecisionAgent(f.config,server.launcher));
     const done=await drive(f.store,{executionMode:'native',plan:real.plan.bind(real),review:real.review.bind(real),async execute(state){fs.writeFileSync(path.join(state.workspace,'core.js'),fail?'wrong\n':'fixed\n');return{mode:'native',summary:'本地 Mock 执行，无付费请求'};}});
-    assert.equal(done.phase,'completed');assert.equal(done.claudeCalls,2);assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.userAccepted,true);
+    assert.equal(done.phase,'completed');assert.equal(done.claudeCalls,2);assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.decisionAccepted,true);
     assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),fail?'wrong\n':'fixed\n');
     assert.ok(records(f.store).some(e=>e.event==='context-manifest'));
     assert.ok(!records(f.store).some(e=>e.event==='review-vetoed'));

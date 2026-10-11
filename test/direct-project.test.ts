@@ -50,7 +50,7 @@ test('plain folder direct mode modifies selected files without initializing Git 
   assert.equal(state.phase, 'completed'); assert.equal(state.workspace, fs.realpathSync(f.source)); assert.match(state.base, /^[a-f0-9]{64}$/);
   assert.equal(fs.existsSync(path.join(f.source, '.git')), false); assert.equal(fs.existsSync(f.store.file('workspace')), false);
   assert.deepEqual(fs.readFileSync(path.join(f.source, 'user-notes.txt')), notes); assert.match(state.evidence!.diff, /module.exports=42/); assert.match(state.evidence!.diff, /review-note.txt/);
-  assert.equal(state.evidence!.userAccepted,true);assert.deepEqual(state.evidence!.tests,[]); assert.ok(projectCapabilities.directFolder); assert.equal(nativeThreadOptions(f.source).skipGitRepoCheck, true);
+  assert.equal(state.evidence!.decisionAccepted,true);assert.deepEqual(state.evidence!.tests,[]); assert.ok(projectCapabilities.directFolder); assert.equal(nativeThreadOptions(f.source).skipGitRepoCheck, true);
 });
 test('direct Git mode preserves dirty user files and excludes preexisting edits from task diff', async () => {
   const f = await fixture('dirty-git', true), notes = fs.readFileSync(path.join(f.source, 'user-notes.txt'));

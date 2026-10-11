@@ -57,7 +57,7 @@ test('unapproved apply and wrong or empty approval never modify target', async (
 test('incomplete state and missing independent or supervisor proof cannot preview', async () => {
   const f = await fixture('proof'); const original = f.store.load();
   f.store.save({ ...original, phase: 'paused' }); await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /lacks completed/);
-  f.store.save({ ...original, evidence: { ...original.evidence!, userAccepted: false } }); await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /lacks completed/);
+  f.store.save({ ...original, evidence: { ...original.evidence!, userAccepted: false, decisionAccepted: false } }); await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /lacks completed/);
   const legacy = { ...original, evidence: { ...original.evidence! } }; delete legacy.evidence.acceptanceRulesHash; f.store.save(legacy);
   await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /fingerprints/); f.store.save(original);
   const audit = f.store.file('audit.jsonl'); writeFileSync(audit, readFileSync(audit, 'utf8').replace('Independent evidence', 'Forged review'));
