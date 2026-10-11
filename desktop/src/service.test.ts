@@ -86,7 +86,7 @@ test('create authorized Direct Mock profile without touching delivered games',as
 test('trusted upper limits and repository whitelist cannot be expanded by GUI',async()=>{
  const request={operation:'start' as const,profileId,repository:target,goal:'Mock flow',maxClaudeCalls:5,maxLoops:4,maxReworks:1};
  await assert.rejects(service.dispatch({...request,repository:'D:/OpenWorld'}),/authorized/);
- await assert.rejects(service.dispatch({...request,maxLoops:5}),/流程限制超出可信配置/);
+ assert.doesNotThrow(()=>service.validateStart({...request,maxLoops:99,maxReworks:20}));
  assert.doesNotThrow(()=>service.validateStart({...request,maxClaudeCalls:6}));
 });
 test('native CLI executes full Mock cycle, returns actual tests and durable session IDs',async()=>{const r=await service.dispatch({operation:'start',profileId,repository:target,goal:'GUI integration: create verified markers',maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;runId=r.id;const done=await wait('completed');assert.equal(done.loops,2);assert.equal(done.claudeCalls,0);assert.equal(done.evidence?.passed,true);assert.ok(done.claudeSessionId&&done.codexThreadId);assert.equal(fs.readFileSync(path.join(target,'hello.txt'),'utf8'),'hello\n');assert.ok(service.detail(profileId,runId).auditVerified);});

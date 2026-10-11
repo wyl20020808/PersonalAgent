@@ -80,7 +80,7 @@ test('native image reaches OpenCode HTTP bodies for Plan Execute Review; unsuppo
  const f=await fixture(),server=fake({imageSupport:true});bindRunAttachments(f.store,[{name:'reference.png',mimeType:'image/png',bytes:png}]);
  const result=await drive(f.store,real(f,server));assert.equal(result.phase,'completed',result.reason);
  const prompts=server.requests.filter(r=>r.route.endsWith('/message'));assert.equal(prompts.length,3);for(const request of prompts)assert.ok(request.body.parts.some((part:any)=>part.type==='file'&&part.mime==='image/png'&&part.url==='data:image/png;base64,'+png.toString('base64')));
- const unsupported=await fixture(),noImages=fake({imageSupport:false});bindRunAttachments(unsupported.store,[{name:'reference.png',mimeType:'image/png',bytes:png}]);const failed=await drive(unsupported.store,real(unsupported,noImages));assert.notEqual(failed.phase,'completed');assert.match(failed.reason,/图片输入能力/);assert.equal(noImages.prompts,0);
+ const unsupported=await fixture(),noImages=fake({imageSupport:false});bindRunAttachments(unsupported.store,[{name:'reference.png',mimeType:'image/png',bytes:png}]);const failed=await drive(unsupported.store,real(unsupported,noImages));assert.notEqual(failed.phase,'completed');assert.equal(failed.phase,'paused');assert.match(failed.reason,/不支持图片输入.*切换执行模型/);assert.equal(noImages.prompts,0);
 });
 
 test('SDK Execute uses native tools, independent Session, correct receipts, Review and human Delivery',async()=>{

@@ -2,7 +2,7 @@ import {runAttachments,opencodeParts} from './multimodal.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { FlowError } from './failure.js';
-import { nativeResultSchema, validate, type Config, type NativeResult } from './schema.js';
+import { configSchema, nativeResultSchema, validate, type Config, type NativeResult } from './schema.js';
 import type { State, Store } from './store.js';
 import { CallObservation } from './call-observation.js';
 import { activityRecorder, redact } from './telemetry.js';
@@ -50,6 +50,21 @@ export function assertExecutionState(state: State, config = state.config): void 
   const decisionIds = [state.decisionSession?.sessionId, ...state.discussion?.participants.map(p => p.session?.sessionId) ?? []];
   if (choice.backend !== 'opencode' || session.backend !== 'opencode' || session.providerID !== choice.opencode.providerID || session.modelID !== choice.opencode.modelID ||
     session.runId !== state.id || session.workspace !== directory || session.directory !== directory || decisionIds.includes(session.sessionId)) throw new FlowError('safety', 'OpenCode Execution Session ownership or role isolation mismatch');
+}
+/** User-requested recovery: rebind a halted Run to another execution backend/model. Workspace changes stay; the next Execute opens a fresh Session. */
+export function switchExecutionAgent(store: Store, choice: NonNullable<Config['executionAgent']>): State {
+  const unlock = store.lock();
+  try {
+    const state = store.load();
+    if (!['paused', 'failed', 'stopped'].includes(state.phase)) throw new Error('仅暂停、失败、停止的 Run 可以切换执行模型');
+    const previous = state.config.executionAgent ?? { backend: 'codex' as const };
+    if (JSON.stringify(previous) === JSON.stringify(choice)) return state;
+    state.config = validate<Config>(configSchema, { ...state.config, executionAgent: choice });
+    const previousSession = state.executionSession?.sessionId ?? state.codexThreadId ?? null;
+    delete state.executionSession; state.codexThreadId = null;
+    store.save(state, { executionSwitch: true }); store.audit('execution-agent-switched', { from: previous, to: choice, previousSession, loop: state.loops, taskId: state.tasks[state.taskIndex]?.id ?? null });
+    return state;
+  } finally { unlock(); }
 }
 export interface ExecutionAgent {
   execute(state: State, store: Store, signal: AbortSignal, prompt: string, context?: Record<string, any>): Promise<NativeResult>;

@@ -86,6 +86,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
   if (externalSignal?.aborted) stop.abort();
   const poll = setInterval(() => { if (existsSync(store.file('stop.request'))) stop.abort(); }, 100);
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
+  const reworkLimited = () => state.config.maxReworks !== undefined && state.reworks >= state.config.maxReworks;
   async function agentOperation<T>(agent: 'claude' | 'codex' | 'opencode', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
     if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
@@ -186,9 +187,10 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         if (state.discussion && !state.discussion.closed) throw new FlowError('safety', 'Discussion cycle has no Controller-validated final Plan');
         // Infrastructure must be healthy before charging a rework or execution attempt.
         if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
-        if (state.loops >= state.config.maxLoops) { state.nextPhase = 'execute'; checkpoint('paused', 'Loop limit reached'); break; }
+        // Limits are optional: desktop Runs carry none and are steered from chat; only an explicitly configured limit pauses.
+        if (state.config.maxLoops !== undefined && state.loops >= state.config.maxLoops) { state.nextPhase = 'execute'; checkpoint('paused', 'Loop limit reached'); break; }
         if (state.reworkPending) {
-          if (state.reworks >= state.config.maxReworks) { state.nextPhase = 'execute'; checkpoint('paused', 'Rework limit reached'); break; }
+          if (reworkLimited()) { state.nextPhase = 'execute'; checkpoint('paused', 'Rework limit reached'); break; }
           state.reworks++; state.totalReworks = (state.totalReworks ?? 0) + 1; state.reworkPending = false;
         }
         state.beforeExecution = await observeWorkspace(state, stop.signal);
@@ -270,7 +272,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           else {
             state.nextPhase = 'verify';
             // Review edits also need a bounded repair cycle, independent of paid usage.
-            if ((state.reviewRepairs ?? 0) >= Math.max(1, state.config.maxReworks)) {
+            if (state.config.maxReworks !== undefined && (state.reviewRepairs ?? 0) >= Math.max(1, state.config.maxReworks)) {
               state.evidence = await checkedEvidence();
               store.audit('independent-check', state.evidence);
               checkpoint('paused', 'Review repair limit reached');
@@ -292,7 +294,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           if (contextProblems.length) {
             store.audit('review-vetoed', { reason: 'Project Context 审查缺少正式处理', contextProblems });
             state.feedback = contextProblems.join('\n'); state.nextPhase = 'execute'; state.reworkPending = true;
-            checkpoint(state.reworks >= state.config.maxReworks ? 'paused' : 'execute', state.reworks >= state.config.maxReworks ? 'Rework limit reached' : state.feedback); continue;
+            checkpoint(reworkLimited() ? 'paused' : 'execute', reworkLimited() ? 'Rework limit reached' : state.feedback); continue;
           }
           if ((reviewEvidence(state.evidence) as { diffOmitted: boolean }).diffOmitted) { state.nextPhase = 'verify'; checkpoint('paused', 'Review context omitted diff; human inspection required'); continue; }
           state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
@@ -303,7 +305,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           state.feedback = `${review.reason}\n${state.evidence?.issues.join('\n') ?? 'No evidence'}`;
           if (review.verdict === 'pass') store.audit('review-vetoed', { reason: 'Independent verification failed' });
           state.nextPhase = 'execute'; state.reworkPending = true;
-          if (state.reworks >= state.config.maxReworks) checkpoint('paused', 'Rework limit reached');
+          if (reworkLimited()) checkpoint('paused', 'Rework limit reached');
           else checkpoint('execute');
         }
       } else { throw new Error(`Unexpected phase ${state.phase}`); }

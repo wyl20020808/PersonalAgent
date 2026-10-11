@@ -53,8 +53,8 @@ node .\dist\src\cli.js --help
 | `runtimeDir` | D 盘运行目录，默认示例为 `D:/PersonalAgent/.runtime` |
 | `claudeExecutable` | Claude Code 原生可执行文件名或绝对路径 |
 | `timeoutMs` | 每次规划、执行、审查以及每条验收命令的超时；`0` 表示不设执行时间上限，桌面新建真实任务默认使用 `0` |
-| `maxLoops` | 整个运行允许的 Codex 执行次数，包含返工和中断尝试 |
-| `maxReworks` | 每个任务允许的返工次数，不含首次执行 |
+| `maxLoops` | 可选。整个运行允许的执行次数，包含返工和中断尝试；省略表示不限。桌面端不设置 |
+| `maxReworks` | 可选。每个任务允许的返工次数，不含首次执行；省略表示不限。桌面端不设置 |
 | `maxClaudeCalls` | 历史兼容字段：不再限制真实调用。实际调用数仍落盘统计，失败/中断也记录 |
 | `minTasks` | 可选：规划至少包含的任务数量，默认 1 |
 | `mockScenario` | mock 场景；real 模式下忽略 |
@@ -213,7 +213,7 @@ JSON Schema 校验覆盖配置、规划任务、修改方案、审查结果以�
 
 2026-10-09 起移除 PersonalAgent 内部付费预算门槛。真实 Run 使用已配置的 Claude Code / Codex，不需要 `global-budget-policy.json`、调用预约、每 Run CC 额度或 Session 累计额度。历史 `maxClaudeCalls`、`globalBudget` 和预算文件保留为兼容数据，不控制派发；不会伪造余额或改写旧账本。模型认证、服务商限流和订阅额度错误仍按原流程报告。
 
-`maxLoops`、`maxReworks` 和超时继续控制工作流，防止无限执行与返工。CC 审查修改后的独立复验循环使用持久化 `reviewRepairs` 计数，自动修复次数受返工设置约束（至少允许一次小修复后复验）；达到限制后暂停，保留修改和证据。调用、工具和 Token 统计与审计链继续记录。
+`maxLoops`、`maxReworks` 为可选上限：仅在配置中显式填写时生效，桌面端 Run 不设置，由用户在聊天中停止或调整。CC 审查修改后的独立复验循环用持久化 `reviewRepairs` 计数，仅在配置了 `maxReworks` 时受其约束。Run 暂停、失败或停止时可切换执行后端或模型后继续，切换写入审计并使用新的执行 Session。调用、工具和 Token 统计与审计链继续记录。
 
 ```powershell
 rtk proxy npm run build

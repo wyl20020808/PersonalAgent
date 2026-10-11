@@ -119,11 +119,13 @@ export class Store {
     this.dir = path.join(assertD(runtime), 'runs', id); mkdirSync(this.dir, { recursive: true });
   }
   file(name: string) { return path.join(this.dir, name); }
-  save(state: State) {
+  // executionSwitch is the single user-requested exception to the execution identity lock; only a halted Run may use it.
+  save(state: State, options: { executionSwitch?: boolean } = {}) {
     if (existsSync(this.file('state.json'))) {
       const old = JSON.parse(readFileSync(this.file('state.json'), 'utf8'));
-      if (JSON.stringify(old.config.executionAgent ?? {backend:'codex'}) !== JSON.stringify(state.config.executionAgent ?? {backend:'codex'})) throw new Error('Immutable Execution Agent identity changed');
-      if (old.executionSession && JSON.stringify(old.executionSession) !== JSON.stringify(state.executionSession)) throw new Error('Immutable Execution Session changed');
+      const switching = options.executionSwitch === true && ['paused', 'failed', 'stopped'].includes(old.phase) && old.phase === state.phase;
+      if (!switching && JSON.stringify(old.config.executionAgent ?? {backend:'codex'}) !== JSON.stringify(state.config.executionAgent ?? {backend:'codex'})) throw new Error('Immutable Execution Agent identity changed');
+      if (!switching && old.executionSession && JSON.stringify(old.executionSession) !== JSON.stringify(state.executionSession)) throw new Error('Immutable Execution Session changed');
       if (JSON.stringify(old.decisionAgent ?? { backend: 'claude-code' }) !== JSON.stringify(state.decisionAgent ?? { backend: 'claude-code' })) throw new Error('Immutable Decision Agent identity changed');
       if (JSON.stringify(old.config.decisionDiscussion) !== JSON.stringify(state.config.decisionDiscussion) || JSON.stringify(old.discussion?.config) !== JSON.stringify(state.discussion?.config) || JSON.stringify(old.discussion?.participants.map((p: any) => ({id:p.id,agent:p.agent}))) !== JSON.stringify(state.discussion?.participants.map(p => ({id:p.id,agent:p.agent})))) throw new Error('Immutable discussion identity changed');
     }

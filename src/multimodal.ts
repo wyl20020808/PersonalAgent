@@ -53,6 +53,7 @@ export function claudeInput(prompt:string,items:NativeAttachment[]):string {
  return input;
 }
 export function opencodeParts(prompt:string,items:NativeAttachment[],imageSupport?:boolean|'unknown'):Array<TextPartInput|FilePartInput>{
- if(items.some(item=>item.mimeType.startsWith('image/'))&&imageSupport!==true)throw Error('所选 OpenCode 模型未声明图片输入能力，请选择支持图片的模型');
+ // Only an explicit declaration blocks before dispatch; an unknown capability is left to the provider to answer.
+ if(items.some(item=>item.mimeType.startsWith('image/'))&&imageSupport===false)throw Error('所选 OpenCode 模型声明不支持图片输入；请在暂停卡片中切换执行模型后继续');
  return [{type:'text',text:prompt},...items.map(item=>{const bytes=readNativeAttachment(item);return item.mimeType.startsWith('image/')?{type:'file' as const,mime:item.mimeType,filename:item.name,url:`data:${item.mimeType};base64,${bytes.toString('base64')}`}:{type:'text' as const,text:textPart(item,bytes)};})];
 }

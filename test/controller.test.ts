@@ -121,6 +121,11 @@ test('legacy snapshot: test mutating untracked content invalidates evidence', as
   const result = await drive(store, new MockAgents(config)); assert.equal(result.phase, 'failed');
   assert.ok(result.evidence?.issues.includes('Tests modified workspace; review snapshot is invalid'));
 });
+test('absent loop and rework limits never pause the workflow', async () => {
+  const { store, config } = await fixture('rework', { maxLoops: undefined, maxReworks: undefined });
+  const state = await drive(store, new MockAgents(config));
+  assert.equal(state.phase, 'completed'); assert.equal(state.config.maxLoops, undefined); assert.equal(state.config.maxReworks, undefined); assert.ok(state.loops >= 3); assert.ok((state.totalReworks ?? 0) >= 1);
+});
 test('manual decision can raise loop limit', async () => {
   const { store, config } = await fixture('pass', { maxLoops: 1 });
   assert.equal((await drive(store, new MockAgents(config))).phase, 'paused');

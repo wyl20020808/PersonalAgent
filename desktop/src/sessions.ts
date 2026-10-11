@@ -23,6 +23,8 @@ export class SessionStore {
  read():Saved[]{const items:Saved[]=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):[];return items.map(s=>({...s,settings:{...s.settings,decisionAgent:s.settings.decisionAgent??{backend:'claude-code'}}}));}
  save(items:Saved[]){atomicJson(this.file,items);}
  get(id:string){const session=this.read().find(s=>s.id===id);if(!session)throw Error('会话不存在');return session;}
+ /** Later Runs of the chat follow a model switched during recovery; a fresh profile is created for them. */
+ switchExecution(runId:string,executionAgent:NonNullable<Saved['settings']['executionAgent']>){const session=this.read().find(s=>s.runs.some(run=>run.id===runId));if(!session||session.legacy)return;session.settings.executionAgent=structuredClone(executionAgent);delete session.profileId;this.update(session);}
  update(session:Saved){const items=this.read(),index=items.findIndex(s=>s.id===session.id);if(index<0)throw Error('会话不存在');items[index]=session;this.save(items);}
  create(r:Request):Conversation {
   const project=this.service.inspectProject(r.projectPath!);
@@ -74,7 +76,7 @@ export class SessionStore {
   let changed=false;
   for(const message of session.messages){if(message.status==='starting'&&message.runId){message.status='executed';changed=true;}else if(message.status==='starting'&&!this.inFlight.has(session.id)&&!this.lockAlive(this.lockPath(session))){message.status='failed';message.error='启动中断；请检查运行记录后明确重试。';changed=true;}}
   if(changed)this.update(session);
-  return {...session,runs:session.runs.map(ref=>({...ref,profileId:runs.find(r=>r.id===ref.id)?.profileId??ref.profileId})),unavailableRuns,title:redact(session.title),messages:session.messages.map(m=>({...m,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))})),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,session.settings.maxLoops-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
+  return {...session,runs:session.runs.map(ref=>({...ref,profileId:runs.find(r=>r.id===ref.id)?.profileId??ref.profileId})),unavailableRuns,title:redact(session.title),messages:session.messages.map(m=>({...m,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))})),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
  }
  list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
  detail(id:string){const session=this.public(this.get(id));return {session,runs:this.resolve(this.get(id)).runs};}
