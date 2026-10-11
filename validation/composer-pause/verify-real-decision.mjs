@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {DesktopService} from '../../desktop/out/service.js';
+const resultFile=path.join(import.meta.dirname,'real-result.json'),saved=JSON.parse(fs.readFileSync(resultFile,'utf8')),root=path.resolve(import.meta.dirname,'../..');
+const service=new DesktopService(root,path.join(saved.folder,'data'),process.execPath),run=service.overview().runs.find(r=>r.id===saved.runId),store=service.store(run.profileId,run.id),state=store.load(),audit=service.audit(store),sw=audit.find(e=>e.event==='decision-agent-switched'),handoff=JSON.parse(fs.readFileSync(store.file(sw.data.handoff),'utf8')),token=fs.readFileSync(path.join(saved.folder,'project','marker.txt'),'utf8');
+assert.equal(state.phase,'paused');assert.equal(state.reason,'CODEX_HANDOFF_OK:'+token);assert.equal(state.decisionAgent.backend,'codex');assert.ok(state.decisionSession.sessionId);assert.equal(state.claudeSessionId,null);assert.equal(state.id,handoff.runId);assert.equal(state.workspace,handoff.workspace);assert.equal(handoff.reason,'CLAUDE_READY:'+token);assert.equal(handoff.from.claudeSessionId,sw.data.from.claudeSessionId);assert.equal(state.claudeCalls,2);assert.deepEqual(state.tasks,[]);
+const readProof=audit.filter(e=>e.event==='agent-activity'&&e.data.agent==='codex'&&e.data.kind==='tool').find(e=>e.data.text.includes(sw.data.handoff)&&e.data.text.includes(token)&&e.data.text.includes('completed'));
+assert.ok(readProof,'Codex native read must complete with actual marker and handoff');
+const result={passed:true,folder:saved.folder,runId:state.id,oldSession:handoff.from.claudeSessionId,newSession:state.decisionSession,controllerCalls:state.claudeCalls,usage:service.detail(run.profileId,run.id).run.usage,nativeHandoffRead:true,initialVerificationNote:'Initial harness used id instead of sessionId; corrected and verified persisted evidence without new paid calls.',events:audit.map(e=>({event:e.event,data:e.data}))};
+fs.writeFileSync(resultFile,JSON.stringify(result,null,2));console.log(JSON.stringify({...result,events:undefined}));
