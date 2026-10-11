@@ -1,9 +1,9 @@
 import type { State, Store } from './store.js';
 
 // Historical budget fields remain readable; calls are usage, not reservations.
-export function recordClaudeCall(state: State, store: Store, role: 'plan' | 'review'): number {
+export function recordClaudeCall(state: State, store: Store, role: 'plan' | 'review' | 'execute'): number {
   state.claudeCalls = (state.claudeCalls ?? 0) + 1;
   store.save(state);
-  store.audit('claude-call-start', { call: state.claudeCalls, role, taskIndex: state.taskIndex, sessionId: state.claudeSessionId });
+  store.audit('claude-call-start', { call: state.claudeCalls, role, taskIndex: state.taskIndex, sessionId: role === 'execute' ? state.claudeExecutionSessionId : state.claudeSessionId });
   return state.claudeCalls;
 }

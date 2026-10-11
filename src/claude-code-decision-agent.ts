@@ -1,9 +1,11 @@
 import { nativeAgentEnv } from './workspace.js';
+import { realpathSync, readFileSync } from 'node:fs';
 import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { fileURLToPath } from 'node:url';
 import { agentRules } from './native-agent.js';
 import { runProcess } from './process.js';
-import { validate, type Config } from './schema.js';
+import { nativeResultSchema, validate, type Config, type NativeResult } from './schema.js';
+import { assertExecutionState, type ExecutionAgent } from './opencode-execution-agent.js';
 import type { State, Store } from './store.js';
 import { recordClaudeCall } from './agent-usage.js';
 import { FlowError, classifyFailure } from './failure.js';
@@ -15,27 +17,43 @@ import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type De
 export class ClaudeCodeDecisionAgent implements DecisionAgent {
   constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
-    assertOperationPolicy({ kind: 'model' });
     assertDecisionRequest(request);
+    return this.invoke<T>(request);
+  }
+  protected async invoke<T>(request: Omit<DecisionRequest, 'role' | 'phase'> & { role: 'plan' | 'review' | 'execute' }): Promise<DecisionResult<T>> {
+    assertOperationPolicy({ kind: 'model' });
     const {state, store, signal, schema, prompt, role, context} = request;
+    const execution = role === 'execute';
+    const sessionKey = execution ? 'claudeExecutionSessionId' : 'claudeSessionId';
+    const bind = (id: string) => {
+      if (id !== state[sessionKey]) throw new FlowError('safety', 'Claude Session ownership mismatch');
+      if (execution) {
+        const choice = state.config.executionAgent;
+        if (choice?.backend !== 'claude-code') throw new FlowError('safety', 'Claude execution backend mismatch');
+        const directory = realpathSync(state.workspace);
+        state.executionSession = { backend: 'claude-code', ...(choice.model ? { model: choice.model } : {}), sessionId: id, runId: state.id, workspace: directory, directory };
+        assertExecutionState(state, this.config); store.save(state);
+      } else bindDecisionSession(state, store, id);
+    };
     const env = nativeAgentEnv();
     const attachments=runAttachments(state,store);
     const input=attachments.length?claudeInput(prompt,attachments):prompt;
     const streaming = this.config.claudeStreaming !== false || attachments.length>0;
-    const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules];
+    const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules + (execution ? ' 当前角色为执行者：仅实施 Controller 已校验的当前任务，使用原生工具修改并验证；不得更改 Plan、角色配置或重放已完成任务。' : '')];
     // Invocation-local settings preserve the user's files and existing hooks.
     const hookScript = fileURLToPath(new URL('../scripts/codex-interaction-hook.js', import.meta.url));
     args.push('--settings', JSON.stringify({ disableAllHooks: false, hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
-    if (this.config.decisionAgent?.backend === 'claude-code' && this.config.decisionAgent.model) args.push('--model', this.config.decisionAgent.model);
-    const resumed = !!state.claudeSessionId;
-    let confirmed = !!state.decisionSession;
-    if (state.claudeSessionId) args.push('--resume', state.claudeSessionId);
-    else { state.claudeSessionId = crypto.randomUUID(); store.save(state); args.push('--session-id', state.claudeSessionId); }
+    const choice = execution ? this.config.executionAgent : this.config.decisionAgent;
+    if (choice?.backend === 'claude-code' && choice.model) args.push('--model', choice.model);
+    const resumed = !!state[sessionKey];
+    let confirmed = execution ? !!state.executionSession : !!state.decisionSession;
+    if (state[sessionKey]) args.push('--resume', state[sessionKey]!);
+    else { state[sessionKey] = crypto.randomUUID(); store.save(state); args.push('--session-id', state[sessionKey]!); }
     const call = recordClaudeCall(state, store, role);
-    const observation = new CallObservation(state, store, role, prompt, context, resumed);
+    const observation = new CallObservation(state, store, role, prompt, context, resumed, 'claude');
     let completed = false, transportFailed = false;
     try {
-    const record = activityRecorder(state, store, 'claude', `claude:${call}`);
+    const record = activityRecorder(state, store, 'claude', `claude:${execution ? 'execute:' : ''}${call}`, role);
     let streamedResult: any; let characters = 0, lastProgress = 0;
     const pendingTools = new Set<string>();
     if (streaming) { args[args.indexOf('--output-format') + 1] = 'stream-json'; args.push('--verbose', '--include-partial-messages'); }
@@ -43,8 +61,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const onLine = streaming ? (line: string) => {
       if (!line.trim()) return; const event = JSON.parse(line);
       if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
-        if (event.session_id !== state.claudeSessionId) throw new FlowError('safety', 'Claude Session ownership mismatch');
-        bindDecisionSession(state, store, event.session_id); confirmed = true;
+        bind(event.session_id); confirmed = true;
       }
       for (const block of event.message?.content ?? []) {
         if (block.type === 'tool_use') pendingTools.add(block.id);
@@ -71,25 +88,58 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     }
     if (!streaming) observation.observe(envelope);
     if (envelope.session_id) {
-      if (envelope.session_id !== state.claudeSessionId) throw new FlowError('safety', 'Claude Session ownership mismatch');
-      bindDecisionSession(state, store, envelope.session_id); confirmed = true;
+      bind(envelope.session_id); confirmed = true;
     }
-    store.audit('claude-exit', { call, callId: observation.usage.callId, role, exitCode: result.exitCode, sessionId: envelope.session_id ?? state.claudeSessionId });
+    if (execution) { state.executorExitCode = result.exitCode; store.save(state); }
+    store.audit('claude-exit', { call, callId: observation.usage.callId, role, exitCode: result.exitCode, sessionId: envelope.session_id ?? state[sessionKey] });
     if (result.exitCode !== 0 || envelope.is_error) {
       const message = `Claude exited ${result.exitCode}: ${envelope.errors?.join('; ') || envelope.result || result.stderr.slice(0, 1000) || 'API error without message'}`;
       if (classifyFailure(new Error(message), role).kind === 'transport' && (!streaming || pendingTools.size))
         throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
-      const classified = classifyFailure(new Error(message), role); throw new FlowError(classified.kind === 'unknown' ? 'supervisor' : classified.kind, message);
+      const classified = classifyFailure(new Error(message), role); throw new FlowError(classified.kind === 'unknown' ? execution ? 'executor' : 'supervisor' : classified.kind, message);
     }
-    if (envelope.session_id) state.claudeSessionId = envelope.session_id;
     store.save(state);
-    const output = validate<T>(schema, envelope.structured_output); completed = true; bindDecisionSession(state, store, state.claudeSessionId!); return { output, sessionId: state.claudeSessionId!, usage: observation.usage };
+    if (execution && (!confirmed || pendingTools.size)) throw new FlowError('interrupted', 'Claude Execute lacks confirmed Session or terminal tool results');
+    const output = validate<T>(schema, envelope.structured_output); bind(state[sessionKey]!); completed = true; return { output, sessionId: state[sessionKey]!, usage: observation.usage };
     } catch (error) { transportFailed = classifyFailure(error, role).kind === 'transport'; throw error; }
     finally {
       observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');
       // A reserved UUID is not a confirmed CLI Session. Keep its invocation in
       // audit history, but do not leave a bogus --resume target after pre-init failure.
-      if (!resumed && !confirmed && !completed && transportFailed) { state.claudeSessionId = null; store.save(state); }
+      if (!resumed && !confirmed && !completed && (transportFailed || execution)) { state[sessionKey] = null; store.save(state); }
+    }
+  }
+}
+
+/** Reuses the CLI protocol while keeping Execute ownership separate from Plan/Review. */
+export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements ExecutionAgent {
+  async execute(state: State, store: Store, signal: AbortSignal, prompt: string, context?: Record<string, any>): Promise<NativeResult> {
+    assertExecutionState(state, this.config);
+    const task = state.tasks[state.taskIndex], persisted = store.load();
+    if (state.config.executionAgent?.backend !== 'claude-code' || state.phase !== 'executing' || !state.nativeExecution || !task || state.discussion && !state.discussion.closed || state.completedTaskIds?.includes(task.id)) throw new FlowError('safety', 'Claude Execute requires Controller-validated pending native task');
+    if (store.id !== state.id || persisted.id !== state.id || persisted.phase !== state.phase || persisted.workspace !== state.workspace || persisted.loops !== state.loops || JSON.stringify(persisted.tasks) !== JSON.stringify(state.tasks) || JSON.stringify(persisted.config) !== JSON.stringify(state.config)) throw new FlowError('safety', 'Claude Execute persisted Run/Plan/workspace mismatch');
+    const source = realpathSync(state.source), workspace = realpathSync(state.workspace);
+    if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || workspace !== (state.config.projectMode === 'direct' ? source : realpathSync(store.file('workspace'))) || state.config.projectMode === 'direct' && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'Claude Execute workspace authorization mismatch');
+    if (state.executionAttempt) {
+      if (state.executionAttempt.loop === state.loops) throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
+      if (state.executionAttempt.status !== 'success') {
+        const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+        let last = -1;
+        events.forEach((e, index) => { if (e.event === 'claude-execute-dispatch' || e.event === 'opencode-execute-dispatch') last = index; });
+        if (last < 0 || !events.slice(last + 1).some(e => e.event === 'human-decision')) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+      }
+    }
+    if (state.claudeExecutionSessionId && [state.claudeSessionId, state.decisionSession?.sessionId, ...state.discussion?.participants.map(p => p.session?.sessionId) ?? []].includes(state.claudeExecutionSessionId)) throw new FlowError('safety', 'Claude execution cannot share a Decision Session');
+    signal.throwIfAborted();
+    state.executionAttempt = { loop: state.loops, taskId: task.id, status: 'running' }; store.save(state);
+    store.audit('claude-execute-dispatch', { role: 'execute', taskId: task.id, loop: state.loops, configuredModel: state.config.executionAgent.model ?? null });
+    try {
+      const result = await this.invoke<NativeResult>({ state, store, signal, prompt, context, role: 'execute', schema: nativeResultSchema, workspace, runId: state.id, taskId: task.id, timeoutMs: state.config.timeoutMs });
+      signal.throwIfAborted(); assertExecutionState(state, this.config);
+      state.executionAttempt.status = 'success'; state.executorExitCode = 0; store.save(state);
+      return result.output;
+    } catch (error) {
+      state.executionAttempt.status = signal.aborted ? 'interrupted' : 'failed'; state.executorExitCode = -1; store.save(state); throw error;
     }
   }
 }

@@ -1,23 +1,20 @@
-import React, {useEffect, useState} from 'react';
-import {Check, Settings2, X} from 'lucide-react';
+import React,{useEffect,useState} from 'react';
+import {Check,Settings2} from 'lucide-react';
+import {agentCapabilities,type AgentId} from '../../src/agent-capabilities.js';
 import type {ExecutionAgent} from './types.js';
 import AgentLogo from './AgentLogo.js';
+import AgentModelDialog from './AgentModelDialog.js';
 import {useDecisionModels} from './DecisionAgentSelect.js';
 
-export function executionLabel(value?:ExecutionAgent):string {
- return value?.backend==='opencode'?`OpenCode · ${value.opencode.providerID} / ${value.opencode.modelID}`:'Codex SDK';
+export function executionLabel(value?:ExecutionAgent):string{
+ if(value?.backend==='opencode')return `OpenCode · ${value.opencode.providerID} / ${value.opencode.modelID}`;
+ return value?.backend==='claude-code'?`Claude Code（${value.model??'本机默认模型'}）`:`Codex（${value?.model??'SDK 默认模型'}）`;
 }
-export default function ExecutionAgentSelect({value,onChange,onValid,projectPath,disabled=false}:{value?:ExecutionAgent;onChange:(value:ExecutionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean}) {
- const selected=value?.backend??'codex', [settings,setSettings]=useState<"codex"|"opencode"|null>(null);
- const discovery=useDecisionModels(value?.backend==='opencode'?value:{backend:'opencode',opencode:{providerID:'',modelID:''}},projectPath,'executionModels');
- const {models,loading,selection,provider,valid,refresh}=discovery;
- useEffect(()=>onValid(selected==='codex'||valid),[selected,valid,onValid]);
- useEffect(()=>{if(!settings)return;const escape=(e:KeyboardEvent)=>{if(e.key==='Escape')setSettings(null);};document.addEventListener('keydown',escape);return()=>document.removeEventListener('keydown',escape);},[settings]);
- return <section className="agent-pool execution" aria-label="执行池"><header><h4>执行池</h4></header><div className="agent-cards"><div className="agent-card unsupported"><button type="button" className="agent-choice" aria-label="执行池 Claude Code" disabled aria-pressed={false}><AgentLogo agent="claude-code"/><span className="agent-card-copy"><strong>Claude Code</strong><span>执行者 · 尚未支持</span><small>执行适配将在后续开放</small></span></button></div>{(['opencode','codex'] as const).map(id=><div key={id} className={`agent-card ${selected===id?'selected':''} ${id==='opencode'&&!models?.available?'unsupported':''}`}>
-  <button type="button" className="agent-choice" aria-label={`执行池 ${id==='codex'?'Codex':'OpenCode'}`} aria-pressed={selected===id} disabled={disabled||id==='opencode'&&(loading||!models?.available)} onClick={()=>{onChange(id==='codex'?{backend:'codex'}:{backend:'opencode',opencode:{providerID:'',modelID:''}});setSettings(id==='opencode'?'opencode':null);}}><AgentLogo agent={id}/><span className="agent-card-copy"><strong>{id==='codex'?'Codex':'OpenCode'}</strong><span>执行者 · {id==='codex'?'可用':loading?'正在核验能力':!models?.available?'不可用':selected==='opencode'&&valid?'实验性 · 协议已就绪':'实验性 · V1'}</span><small>{id==='codex'?'SDK 默认模型':selected==='opencode'?selection?.modelID||'选择执行模型':'独立执行 Session'}</small></span>{selected===id&&<Check size={15} className="agent-selected-mark"/>}</button>
-  {<button type="button" className="agent-settings" aria-label={`执行池 ${id==='codex'?'Codex':'OpenCode'} 设置`} aria-expanded={settings===id} disabled={disabled} onClick={()=>setSettings(settings===id?null:id)}><Settings2 size={14}/></button>}
- </div>)}</div>{settings&&<div className="agent-config" role="region" aria-label={`${settings==='codex'?'Codex':'OpenCode'} 执行配置`}><div className="agent-config-heading"><strong>{settings==='codex'?'Codex':'OpenCode'} 执行设置</strong><button type="button" aria-label="关闭执行设置" onClick={()=>setSettings(null)}><X size={14}/></button></div>
- {settings==='codex'?<p>沿用 Codex SDK 默认模型；独立 Thread。</p>:<><label>Provider<select aria-label="OpenCode 执行 Provider" disabled={disabled||loading||!models?.available} value={selection?.providerID??''} onChange={e=>onChange({backend:'opencode',opencode:{providerID:e.target.value,modelID:''}})}><option value="">请选择 Provider</option>{models?.providers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
- <label>Model<select aria-label="OpenCode 执行 Model" disabled={disabled||loading||!models?.available||!provider} value={selection?.modelID??''} onChange={e=>onChange({backend:'opencode',opencode:{providerID:selection!.providerID,modelID:e.target.value}})}><option value="">请选择 Model</option>{provider?.models.map(m=><option key={m.id} value={m.id} disabled={m.capabilities.tools!==true||m.capabilities.structuredOutput!==true}>{m.name}{m.capabilities.tools!==true||m.capabilities.structuredOutput!==true?'（能力不足或未知）':''}</option>)}</select></label><p>执行模型与决策模型独立。仅已核验本地协议；真实远端执行须另行验收。</p><button type="button" className="text-button" disabled={disabled||loading} onClick={refresh}>刷新执行能力</button></>}</div>}
- {(!models?.available||selected==='opencode')&&<p role="status">{loading?'正在核验原生工具、权限和 Session 接口…':!models?.available?models?.reason||'OpenCode 执行不可用':!valid&&selected==='opencode'?'请选择执行 Provider / Model':'OpenCode 原生执行；启动时再次核验能力。'}</p>}</section>;
+export default function ExecutionAgentSelect({value,onChange,onValid,projectPath,disabled=false}:{value?:ExecutionAgent;onChange:(value:ExecutionAgent)=>void;onValid:(valid:boolean)=>void;projectPath?:string;disabled?:boolean}){
+ const current=value??{backend:'codex'},[settings,setSettings]=useState<ExecutionAgent|null>(null);
+ const {valid}=useDecisionModels(current,projectPath,'executionModels');
+ useEffect(()=>onValid(valid),[valid,onValid]);
+ const choiceFor=(id:AgentId):ExecutionAgent=>current.backend===id?current:id==='opencode'?{backend:id,opencode:{providerID:'',modelID:''}}:{backend:id};
+ return <section className="agent-pool execution" aria-label="执行池"><header><h4>执行池</h4></header><div className="agent-cards">{agentCapabilities.map(agent=>{const selected=current.backend===agent.id,choice=choiceFor(agent.id),model=choice.backend==='opencode'?choice.opencode.modelID||'选择 Provider 与模型':choice.model||(choice.backend==='claude-code'?'本机默认模型':'SDK 默认模型');return <div key={agent.id} className={`agent-card ${selected?'selected':''}`}><button type="button" className="agent-choice" aria-label={`执行池 ${agent.name}`} aria-pressed={selected} disabled={disabled} onClick={()=>{if(selected)return;if(agent.id==='opencode')setSettings(choice);else onChange(choice);}}><AgentLogo agent={agent.id}/><span className="agent-card-copy"><strong>{agent.name}</strong><span>执行者 · {selected&&!valid?'待配置':agent.experimental?'实验性':'可用'}</span><small>{model}</small></span>{selected&&<Check size={15} className="agent-selected-mark"/>}</button><button type="button" className="agent-settings" aria-label={`执行池 ${agent.name} 设置`} aria-haspopup="dialog" disabled={disabled} onClick={()=>setSettings(choice)}><Settings2 size={14}/></button></div>;})}</div>
+ {settings&&<AgentModelDialog role="execution" value={settings} projectPath={projectPath} onClose={()=>setSettings(null)} onConfirm={onChange}/>}</section>;
 }

@@ -14,13 +14,30 @@ import {claimGuidance,guidanceStatus,pendingGuidance} from '../../dist/src/steer
 import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+test('Claude and Codex executor models persist through IPC, Session restart, project reopen and halted recovery',async()=>{
+ for(const backend of ['claude-code','codex'] as const){
+  const {data,project}=fixture(),service=new DesktopService(root,data,process.execPath);service.launch=()=>{};
+  const executionAgent={backend,model:'executor-model'},decisionAgent={backend:'claude-code' as const,model:'decision-model'};
+  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',executionAgent,decisionAgent}) as Conversation;
+  assert.deepEqual(new DesktopService(root,data,process.execPath).sessions.get(session.id).settings.executionAgent,executionAgent);
+  await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Local model persistence fixture',directAcknowledged:true});
+  const run=service.sessions.detail(session.id).runs[0]!,store=service.store(run.profileId,run.id),state=store.load();assert.deepEqual(state.config.executionAgent,executionAgent);assert.deepEqual(service.inspectProject(project).settings.executionAgent,executionAgent);
+  state.phase='paused';state.nextPhase='execute';state.claudeSessionId='decision-existing';if(backend==='claude-code'){state.claudeExecutionSessionId='execution-existing';state.executionSession={backend,model:'executor-model',sessionId:'execution-existing',runId:state.id,workspace:state.workspace,directory:state.workspace};}else state.codexThreadId='execution-existing';store.save(state);
+  const choice={backend,model:'replacement-model'};
+  await service.dispatch({operation:'resume',profileId:run.profileId,runId:run.id,decision:'Switch the model and continue the existing local fixture',executionAgent:choice});
+  const after=store.load();assert.equal(after.id,state.id);assert.deepEqual(after.config.executionAgent,choice);assert.equal(after.executionSession,undefined);assert.equal(after.claudeExecutionSessionId,undefined);assert.equal(after.codexThreadId,null);assert.equal(after.claudeSessionId,'decision-existing');assert.deepEqual(service.sessions.get(session.id).settings.executionAgent,choice);
+  assert.throws(()=>validateRequest({operation:'resume',profileId:run.profileId,runId:run.id,decision:'invalid',executionAgent:{backend,model:'invalid model'}}));
+ }
+ assert.throws(()=>validateRequest({operation:'nativeModels',backend:'opencode'}));
+ assert.deepEqual(validateRequest({operation:'nativeModels',backend:'codex'}),{operation:'nativeModels',backend:'codex'});
+});
 test('P3C executor selection is independent, validated and durable; history defaults to Codex',async()=>{
  const {data,project}=fixture();
  let execution:DecisionModels={available:true,reason:'',providers:[{id:'executor-provider',name:'LOCAL MOCK',models:[{id:'executor-model',name:'LOCAL MOCK tools',capabilities:{tools:true,structuredOutput:true}}]}]};
  const decision:DecisionModels={available:true,reason:'',providers:[{id:'decision-provider',name:'LOCAL MOCK',models:[{id:'decision-model',name:'LOCAL MOCK decision',capabilities:{tools:true,structuredOutput:true}}]}]};
  const service=new DesktopService(root,data,process.execPath,async()=>decision,async()=>execution);
  const executionAgent={backend:'opencode' as const,opencode:{providerID:'executor-provider',modelID:'executor-model'}},decisionAgent={backend:'opencode' as const,opencode:{providerID:'decision-provider',modelID:'decision-model'}};
- for(const invalid of [{backend:'claude-code'},[{backend:'codex'},executionAgent],{...executionAgent,opencode:{...executionAgent.opencode,executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,executionAgent:invalid}));
+ for(const invalid of [{backend:'unsupported'},[{backend:'codex'},executionAgent],{...executionAgent,opencode:{...executionAgent.opencode,executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,executionAgent:invalid}));
  const discovered=await service.dispatch({operation:'executionModels',projectPath:project}) as DecisionModels;assert.equal(discovered.providers[0].id,'executor-provider');
  const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',executionAgent,decisionAgent}) as Conversation;
  assert.deepEqual(session.settings.executionAgent,executionAgent);assert.deepEqual(session.settings.decisionAgent,decisionAgent);

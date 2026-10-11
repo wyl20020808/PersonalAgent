@@ -1,0 +1,154 @@
+TAP version 13
+# Subtest: Claude CLI executes two native tasks, resumes independent execution Session, retains decision model and usage
+ok 1 - Claude CLI executes two native tasks, resumes independent execution Session, retains decision model and usage
+  ---
+  duration_ms: 1837.868
+  type: 'test'
+  ...
+# Subtest: Claude execution rejects Session alias, model mismatch, invalid phase, unauthorized workspace and duplicate dispatch
+ok 2 - Claude execution rejects Session alias, model mismatch, invalid phase, unauthorized workspace and duplicate dispatch
+  ---
+  duration_ms: 62.4699
+  type: 'test'
+  ...
+# Subtest: Claude CLI invalid output and interrupted tools fail closed, preserve Session and block replay
+ok 3 - Claude CLI invalid output and interrupted tools fail closed, preserve Session and block replay
+  ---
+  duration_ms: 435.3627
+  type: 'test'
+  ...
+# Subtest: Codex execution model is bound to both new and resumed SDK Threads; default remains inherited
+ok 4 - Codex execution model is bound to both new and resumed SDK Threads; default remains inherited
+  ---
+  duration_ms: 1.9058
+  type: 'test'
+  ...
+# Subtest: native options restore SDK full access without changing model or extensions
+ok 5 - native options restore SDK full access without changing model or extensions
+  ---
+  duration_ms: 2.3139
+  type: 'test'
+  ...
+# Subtest: real adapters complete Plan Execute Review without authorization; usage and audit remain readable
+ok 6 - real adapters complete Plan Execute Review without authorization; usage and audit remain readable
+  ---
+  duration_ms: 6354.3087
+  type: 'test'
+  ...
+# Subtest: claude provider authentication remains reported without local authorization
+ok 7 - claude provider authentication remains reported without local authorization
+  ---
+  duration_ms: 1076.9474
+  type: 'test'
+  ...
+# Subtest: claude provider budget remains reported without local authorization
+ok 8 - claude provider budget remains reported without local authorization
+  ---
+  duration_ms: 1165.6388
+  type: 'test'
+  ...
+# Subtest: claude provider budget remains reported without local authorization
+ok 9 - claude provider budget remains reported without local authorization
+  ---
+  duration_ms: 1192.0927
+  type: 'test'
+  ...
+# Subtest: codex provider authentication remains reported without local authorization
+ok 10 - codex provider authentication remains reported without local authorization
+  ---
+  duration_ms: 1102.8522
+  type: 'test'
+  ...
+# Subtest: codex provider budget remains reported without local authorization
+ok 11 - codex provider budget remains reported without local authorization
+  ---
+  duration_ms: 1128.6187
+  type: 'test'
+  ...
+# Subtest: codex provider budget remains reported without local authorization
+ok 12 - codex provider budget remains reported without local authorization
+  ---
+  duration_ms: 1088.9824
+  type: 'test'
+  ...
+# Subtest: SDK stream consumer allows failed test then repair and success within one turn (local fixture)
+ok 13 - SDK stream consumer allows failed test then repair and success within one turn (local fixture)
+  ---
+  duration_ms: 1740.8679
+  type: 'test'
+  ...
+# Subtest: legacy snapshot: native controller includes planning, executor and reviewer modifications and revalidates review
+ok 14 - legacy snapshot: native controller includes planning, executor and reviewer modifications and revalidates review
+  ---
+  duration_ms: 9423.1259
+  type: 'test'
+  ...
+# Subtest: native mode rejects old file proposal without duplicate application
+ok 15 - native mode rejects old file proposal without duplicate application
+  ---
+  duration_ms: 3253.4409
+  type: 'test'
+  ...
+# Subtest: legacy snapshot: interrupted native changes survive resume with same thread and task baseline
+ok 16 - legacy snapshot: interrupted native changes survive resume with same thread and task baseline
+  ---
+  duration_ms: 10234.1413
+  type: 'test'
+  ...
+# Subtest: durable native result recovers without executing or writing files again
+ok 17 - durable native result recovers without executing or writing files again
+  ---
+  duration_ms: 6240.2281
+  type: 'test'
+  ...
+# Subtest: Claude review repair finishes beyond historical call limit after independent verification
+ok 18 - Claude review repair finishes beyond historical call limit after independent verification
+  ---
+  duration_ms: 7778.6441
+  type: 'test'
+  ...
+# Subtest: legacy snapshot: repeated CC review modifications are bounded by repair control across recovery
+ok 19 - legacy snapshot: repeated CC review modifications are bounded by repair control across recovery
+  ---
+  duration_ms: 9055.2008
+  type: 'test'
+  ...
+# Subtest: snapshot-free Run preserves native files and explicitly reports limited verification
+ok 20 - snapshot-free Run preserves native files and explicitly reports limited verification
+  ---
+  duration_ms: 7521.5689
+  type: 'test'
+  ...
+# Subtest: native CLI inherits configuration and session with invocation-local interaction Hook
+ok 21 - native CLI inherits configuration and session with invocation-local interaction Hook
+  ---
+  duration_ms: 1063.891
+  type: 'test'
+  ...
+# Subtest: Claude tool blocks and results are retained without hidden thinking
+ok 22 - Claude tool blocks and results are retained without hidden thinking
+  ---
+  duration_ms: 0.2653
+  type: 'test'
+  ...
+# Subtest: SDK MCP, web and file events stay visible, nonfatal tool errors do not end turn
+ok 23 - SDK MCP, web and file events stay visible, nonfatal tool errors do not end turn
+  ---
+  duration_ms: 1380.2711
+  type: 'test'
+  ...
+# Subtest: native SDK resume uses original thread and allows tools in proposal compatibility
+ok 24 - native SDK resume uses original thread and allows tools in proposal compatibility
+  ---
+  duration_ms: 3.1433
+  type: 'test'
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 71262.2492

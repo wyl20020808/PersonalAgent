@@ -6,8 +6,8 @@ const object = (properties: Record<string, unknown>) => ({ type: 'object', prope
 export const decisionAgentSchema = { oneOf: [{ ...object({ backend: { const: 'codex' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, { ...object({ backend: { const: 'claude-code' }, model: { type: 'string', pattern: '^[a-zA-Z0-9._:/-]{1,200}$' } }), required: ['backend'] }, object({ backend: { const: 'opencode' }, opencode: { ...object({ providerID: text, modelID: text, executable: text }), required: ['providerID', 'modelID'] } })] };
 export const decisionDiscussionSchema = object({ participants: { type: 'array', minItems: 2, maxItems: 2, items: object({ id: { enum: ['a', 'b'] }, agent: decisionAgentSchema }) }, primary: { enum: ['a', 'b'] }, rounds: { enum: [0, 1] } });
 export type DecisionChoice = { backend: 'codex'; model?: string } | { backend: 'claude-code'; model?: string } | { backend: 'opencode'; opencode: { providerID: string; modelID: string; executable?: string } };
-export type ExecutionChoice = { backend: 'codex' } | Extract<DecisionChoice, { backend: 'opencode' }>;
-export const executionAgentSchema = { oneOf: [object({ backend: { const: 'codex' } }), decisionAgentSchema.oneOf[2]] };
+export type ExecutionChoice = DecisionChoice;
+export const executionAgentSchema = decisionAgentSchema;
 export interface DecisionDiscussion { participants: { id: 'a' | 'b'; agent: DecisionChoice }[]; primary: 'a' | 'b'; rounds: 0 | 1 }
 export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
@@ -63,6 +63,7 @@ export interface Config {
 }
 export function normalizeConfig(config: Config): Config {
   if (config.executionAgent?.backend === 'opencode' && config.executionMode === 'proposal') throw new Error('OpenCode execution requires native execution mode');
+  if (config.executionAgent?.backend === 'claude-code' && config.executionMode === 'proposal') throw new Error('Claude Code execution requires native execution mode');
   if (config.projectMode && config.workspaceMode && config.projectMode !== config.workspaceMode) throw new Error('Conflicting projectMode and workspaceMode');
   const { workspaceMode, ...canonical } = config;
   const discussion = config.decisionDiscussion;

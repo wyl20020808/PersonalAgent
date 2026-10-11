@@ -27,6 +27,7 @@ export function assertDecisionState(state: State, config = state.config): Decisi
   if (session?.backend === 'codex' && !session.sessionId.trim()) throw new FlowError('safety', 'Decision Session ownership mismatch: empty Codex Thread');
   if (session && (session.backend !== identity.backend || session.runId !== state.id || session.workspace !== realpathSync(state.workspace) || session.directory !== realpathSync(state.workspace) || (session.backend === 'claude-code' && session.sessionId !== state.claudeSessionId))) throw new FlowError('safety', 'Decision Session ownership mismatch');
   if (session?.backend === 'codex' && session.sessionId === state.codexThreadId) throw new FlowError('safety', 'Decision and Execution cannot share a Thread');
+  if (session && (session.sessionId === state.executionSession?.sessionId || session.sessionId === state.claudeExecutionSessionId)) throw new FlowError('safety', 'Decision and Execution cannot share a Session');
   return identity;
 }
 export function assertDecisionRequest(request: DecisionRequest): void {

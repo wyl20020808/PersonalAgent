@@ -429,6 +429,26 @@
               "properties": {
                 "backend": {
                   "const": "codex"
+                },
+                "model": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+                }
+              },
+              "required": [
+                "backend"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "backend": {
+                  "const": "claude-code"
+                },
+                "model": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
                 }
               },
               "required": [
@@ -1115,41 +1135,82 @@
         }
       }
     },
+    "claudeExecutionSessionId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "executionSession": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "backend",
-        "providerID",
-        "modelID",
-        "sessionId",
-        "runId",
-        "workspace",
-        "directory"
-      ],
-      "properties": {
-        "backend": {
-          "const": "opencode"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "backend",
+            "providerID",
+            "modelID",
+            "sessionId",
+            "runId",
+            "workspace",
+            "directory"
+          ],
+          "properties": {
+            "backend": {
+              "const": "opencode"
+            },
+            "providerID": {
+              "type": "string"
+            },
+            "modelID": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            },
+            "directory": {
+              "type": "string"
+            }
+          }
         },
-        "providerID": {
-          "type": "string"
-        },
-        "modelID": {
-          "type": "string"
-        },
-        "sessionId": {
-          "type": "string"
-        },
-        "runId": {
-          "type": "string"
-        },
-        "workspace": {
-          "type": "string"
-        },
-        "directory": {
-          "type": "string"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "backend",
+            "sessionId",
+            "runId",
+            "workspace",
+            "directory"
+          ],
+          "properties": {
+            "backend": {
+              "const": "claude-code"
+            },
+            "model": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            },
+            "directory": {
+              "type": "string"
+            }
+          }
         }
-      }
+      ]
     },
     "executionAttempt": {
       "type": "object",

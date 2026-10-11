@@ -10,6 +10,11 @@ import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});
+test('Claude executor remains on the execution lane even when Codex decides',()=>{
+ const state={id:'roles',tasks:[],decisionAgent:{backend:'codex'},config:{mode:'real',executionAgent:{backend:'claude-code'}}} as unknown as State;
+ const messages=projectMessages(state,[event('start','agent-start',{agent:'claude',role:'execute'}),event('tool','agent-activity',{agent:'claude',phase:'execute',kind:'tool',title:'Write',text:'fixture',scope:'claude:execute:1'}),event('finish','agent-finish',{agent:'claude',role:'execute',durationMs:1}),event('result','native-result',{agent:'claude',summary:'fixture'})],[]);
+ assert.ok(messages.every(message=>message.role==='claude'&&message.participantRole==='执行者'&&message.participantName==='Claude Code'));
+});
 
 test('durable role clocks exclude paused/verification time and retain totals across switches and Runs',()=>{
  const e=(seconds:number,phase?:string)=>({time:new Date(seconds*1000).toISOString(),event:phase?'transition':'created',data:phase?{phase}:undefined});

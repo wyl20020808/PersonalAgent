@@ -30,9 +30,12 @@ export class MockAgents implements Agents {
     return { humanDecision: null, tasks: [{ id: 'hello', instruction: 'Create hello.txt containing hello', acceptance: ['hello.txt must contain hello followed by a newline', 'Independent tests pass'] }, { id: 'done', instruction: 'Create done.txt containing done', acceptance: ['done.txt must contain done followed by a newline'] }] };
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
-    const execution = state.config.executionAgent, agent = execution?.backend === 'opencode' ? 'opencode' : 'codex';
+    const execution = state.config.executionAgent, agent = execution?.backend === 'claude-code' ? 'claude' : execution?.backend === 'opencode' ? 'opencode' : 'codex';
     if (execution?.backend === 'opencode') state.executionSession ??= { backend: 'opencode', providerID: execution.opencode.providerID, modelID: execution.opencode.modelID, sessionId: 'mock-opencode-execution-' + state.id, runId: state.id, workspace: state.workspace, directory: state.workspace };
-    else state.codexThreadId ??= 'mock-codex-thread'; store.save(state);
+    else if (execution?.backend === 'claude-code') {
+      state.claudeExecutionSessionId ??= 'mock-claude-execution-' + state.id;
+      state.executionSession ??= { backend: 'claude-code', ...(execution.model ? { model: execution.model } : {}), sessionId: state.claudeExecutionSessionId, runId: state.id, workspace: state.workspace, directory: state.workspace };
+    } else state.codexThreadId ??= 'mock-codex-thread'; store.save(state);
     if (state.purpose === 'context-onboarding') {
       const candidates = projectFiles(state.workspace).filter(name => contextPath(name) && !name.startsWith('docs/project-context/'));
       const file = candidates.find(stampEligible) ?? candidates[0];
