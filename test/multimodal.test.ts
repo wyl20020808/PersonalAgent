@@ -41,7 +41,7 @@ test('Run keeps its own attachment bytes across restart and rejects tampering an
 test('native serializers send exact pixels and full text; unsupported OpenCode model fails explicitly',async()=>{
  const {store}=await fixture(),items=runAttachments(store.load(),store);
  const input=JSON.parse(claudeInput('任务',items));assert.equal(input.type,'user');assert.deepEqual(Buffer.from(input.message.content.find((p:any)=>p.type==='image').source.data,'base64'),png);assert.ok(input.message.content.some((p:any)=>p.text?.includes('中文附件')));
- const parts=opencodeParts('任务',items,true);assert.equal(parts[1]!.type,'file');assert.ok(JSON.stringify(parts).includes(png.toString('base64')));assert.throws(()=>opencodeParts('任务',items,false),/图片输入能力/);assert.throws(()=>opencodeParts('任务',items),/图片输入能力/);
+ const parts=opencodeParts('任务',items,true);assert.equal(parts[1]!.type,'file');assert.ok(JSON.stringify(parts).includes(png.toString('base64')));assert.throws(()=>opencodeParts('任务',items,false),/不支持图片输入/);assert.equal(opencodeParts('任务',items)[1]!.type,'file');assert.equal(opencodeParts('任务',items,'unknown')[1]!.type,'file');
  const codex=codexInput('任务',items);assert.ok(Array.isArray(codex));assert.equal(codex.filter(p=>p.type==='local_image').length,1);assert.equal(codexInput('text only'),'text only');
 });
 test('chat follow-up appends verified attachments once and keeps the existing files',async()=>{

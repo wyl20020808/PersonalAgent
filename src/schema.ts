@@ -29,6 +29,8 @@ export const configSchema = object({
   tests: { type: 'array', minItems: 0, maxItems: 20, items: object({ executable: text, args: { type: 'array', items: { type: 'string' }, maxItems: 50 } }) },
   mockScenario: { type: 'string', enum: ['pass', 'rework', 'human', 'fail', 'timeout', 'invalid', 'escape', 'nochange'] }
 });
+// Optional workflow limits: absent means unlimited. Desktop Runs never set them.
+configSchema.required = configSchema.required.filter(key => key !== 'maxLoops' && key !== 'maxReworks');
 Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'proposal'] }, claudeStreaming: { type: 'boolean' }, maxClaudeCalls: { type: 'integer', minimum: 1, maximum: 100 }, minTasks: { type: 'integer', minimum: 1, maximum: 20 } });
 Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
@@ -53,7 +55,7 @@ export interface Config {
   acceptanceStages?: Record<string, number[]>; globalBudget?: { file: string; limit: number };
   taskStages?: Record<string, string>;
   allowedRepositories: string[]; runtimeDir: string; mode: 'mock' | 'real'; claudeExecutable: string;
-  timeoutMs: number; maxLoops: number; maxReworks: number;
+  timeoutMs: number; maxLoops?: number; maxReworks?: number;
   tests: { executable: string; args: string[] }[];
   mockScenario: 'pass' | 'rework' | 'human' | 'fail' | 'timeout' | 'invalid' | 'escape' | 'nochange';
 }

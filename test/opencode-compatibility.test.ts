@@ -15,7 +15,9 @@ test('real V1 OpenAPI reference shape resolves format; mixed API family and V2 a
 test('V2 providers map to supported V1 packages without guessing model limits, variants, subscriptions or tools',()=>{
  const result=v1ProviderConfig({plugins:['never-execute'],providers:{relay:{package:'@opencode/ai/providers/openai-compatible',settings:{baseURL:'https://example.invalid/v1',apiKey:'local-fixture-secret'},models:{model:{modelID:'wire-id',name:'Fixture',body:{temperature:0},variants:{custom:{}}}}},claude:{package:'@opencode/ai/providers/anthropic',settings:{},models:{}}}});
  assert.equal(result.provider.relay.npm,'@ai-sdk/openai-compatible');assert.equal(result.provider.claude.npm,'@ai-sdk/anthropic');
- assert.deepEqual(result.provider.relay.models.model,{id:'wire-id',name:'Fixture',options:{temperature:0}});
+ assert.deepEqual(result.provider.relay.models.model,{id:'wire-id',name:'Fixture',attachment:true,modalities:{input:['text','image'],output:['text']},options:{temperature:0}});
+ const declared=v1ProviderConfig({providers:{relay:{package:'@opencode/ai/providers/openai-compatible',models:{text:{attachment:false},custom:{modalities:{input:['text'],output:['text']}}}}}}).provider.relay.models;
+ assert.deepEqual(declared.text,{id:'text',name:undefined,attachment:false});assert.deepEqual(declared.custom,{id:'custom',name:undefined,modalities:{input:['text'],output:['text']}});
  assert.equal(result.provider.relay.options.apiKey,'local-fixture-secret');assert.deepEqual(result.plugin,[]);
  assert.throws(()=>v1ProviderConfig({providers:{unsupported:{package:'unknown',models:{}}}}),/cannot be mapped/);
 });

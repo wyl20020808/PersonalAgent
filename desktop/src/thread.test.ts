@@ -60,24 +60,32 @@ test('same backend decision and execution activity retain distinct roles after P
 });
 test('tampered audit blocks group history and screenshot queries',()=>{const store=service.store(profileId,runId),file=store.file('audit.jsonl'),bytes=fs.readFileSync(file);fs.appendFileSync(file,'{"hash":"forged"}\n');assert.throws(()=>service.thread(profileId,runId),/integrity/);assert.throws(()=>service.pictures(profileId,runId),/integrity/);fs.writeFileSync(file,bytes);});
 test('visual intent requires current-stage trusted proof; stale task and replaced file rejected',()=>{const p=service.registry().profiles[0]!;service.register(p.file,false);const store=service.store(profileId,runId),state=store.load();state.phase='paused';state.taskIndex=0;const verifier=state.config.tests[0].args[0],dir=path.join(path.dirname(verifier),'artifacts','proof');fs.mkdirSync(dir,{recursive:true});const bytes=Buffer.alloc(24);Buffer.from('89504e470d0a1a0a','hex').copy(bytes);bytes.write('IHDR',12);bytes.writeUInt32BE(1280,16);bytes.writeUInt32BE(720,20);const file=path.join(dir,'proof.png');fs.writeFileSync(file,bytes);store.save(state);store.audit('transition',{taskIndex:0,loops:state.loops,phase:'paused'});store.audit('independent-check',{tests:[{exitCode:0,stdout:JSON.stringify({artifacts:dir}),stderr:''}]});const proof=service.pictures(profileId,runId)[0]!;const request={operation:'resume' as const,profileId,runId,decision:'confirm this stage',intent:'visual' as const,pictureIds:[proof.id]};assert.doesNotThrow(()=>service.validateResume(request));assert.throws(()=>service.validateResume({...request,pictureIds:[]}),/截图/);state.taskIndex=1;store.save(state);assert.throws(()=>service.validateResume(request),/another task/);state.taskIndex=0;store.save(state);fs.appendFileSync(file,'changed');assert.throws(()=>service.validateResume(request),/changed/);});
-test('exhausted rework intent is refused before Controller is launched',async()=>{const store=service.store(profileId,runId),state=store.load();state.reworks=state.config.maxReworks;store.save(state);let launches=0;const original=service.launch;service.launch=()=>{launches++;throw Error('Unexpected launch');};try{await assert.rejects(service.dispatch({operation:'resume',profileId,runId,decision:'fix',intent:'rework'}),/执行轮数不足/);assert.equal(launches,0);}finally{service.launch=original;}});
-test('generic recovery cannot silently re-pause at exhausted rework limit',async()=>{
+test('rework and execution counters never refuse a user-requested rework',async()=>{const store=service.store(profileId,runId),state=store.load();assert.equal(state.config.maxReworks,undefined);assert.equal(state.config.maxLoops,undefined);state.reworks=50;store.save(state);let received:any[]=[];const original=service.launch;service.launch=(...args:any[])=>{received=args;};try{await service.dispatch({operation:'resume',profileId,runId,decision:'fix',intent:'rework'});assert.equal(received[3],undefined);assert.equal(received[4],'rework');}finally{service.launch=original;}});
+test('legacy rework-limit pause resumes from a plain chat decision',async()=>{
  const store=service.store(profileId,runId),state=store.load();state.phase='paused';state.reason='Rework limit reached';state.reworkPending=true;store.save(state);
- const before=fs.readFileSync(store.file('state.json'));let launches=0;const original=service.launch;service.launch=()=>{launches++;};
- try{await assert.rejects(service.dispatch({operation:'resume',profileId,runId,decision:'确认返工 并且获得额外返工机会',intent:'resume'}),/明确授权额外一次/);assert.equal(launches,0);assert.deepEqual(fs.readFileSync(store.file('state.json')),before);}finally{service.launch=original;}
+ let launches=0;const original=service.launch;service.launch=()=>{launches++;};
+ try{await service.dispatch({operation:'resume',profileId,runId,decision:'继续返工',intent:'resume'});assert.equal(launches,1);}finally{service.launch=original;}
 });
-test('explicit one-extra-rework reaches Controller without resetting consumption or total call limits',async()=>{
- const store=service.store(profileId,runId),before=store.load();let received:any[]=[];const original=service.launch;service.launch=(...args:any[])=>{received=args;};
+test('resume can switch the execution model, dropping the old execution session and keeping usage',async()=>{
+ const store=service.store(profileId,runId),before=store.load();let received:any[]=[];const original=service.launch,discover=(service as any).discoverExecution;service.launch=(...args:any[])=>{received=args;};
+ (service as any).discoverExecution=async()=>({available:true,reason:'',providers:[{id:'p',name:'P',models:[{id:'m',name:'M',capabilities:{tools:true,structuredOutput:true}},{id:'weak',name:'Weak',capabilities:{tools:false,structuredOutput:false}}]}]});
+ const choice={backend:'opencode' as const,opencode:{providerID:'p',modelID:'m'}};
+ for(let i=0;i<200&&service.children.has(runId);i++)await new Promise(resolve=>setTimeout(resolve,50));
  try{
-  await assert.rejects(service.dispatch({operation:'resume',profileId,runId,decision:'extra',maxReworks:before.config.maxReworks+2}),/只能增加一次/);
-  await service.dispatch({operation:'resume',profileId,runId,decision:'authorize exactly one extra rework',intent:'rework',maxReworks:before.config.maxReworks+1});
-  assert.equal(received[3],before.config.maxReworks+1);assert.equal(received[4],'rework');assert.deepEqual(store.load(),before);
-  const action=JSON.parse(fs.readFileSync(path.join(data,'user-actions.jsonl'),'utf8').trim().split('\n').at(-1)!);assert.equal(action.maxReworks,before.config.maxReworks+1);
+  await assert.rejects(service.dispatch({operation:'resume',profileId,runId,decision:'switch',executionAgent:{backend:'opencode',opencode:{providerID:'p',modelID:'weak'}}}),/OpenCode 执行不可用/);
+  assert.deepEqual(store.load(),before);
+  await service.dispatch({operation:'resume',profileId,runId,decision:'换模型后继续',executionAgent:choice});
+  const after=store.load();assert.deepEqual(after.config.executionAgent,choice);assert.equal(after.executionSession,undefined);assert.equal(after.codexThreadId,null);
+  assert.equal(after.loops,before.loops);assert.equal(after.reworks,before.reworks);assert.equal(after.claudeCalls,before.claudeCalls);assert.equal(received[2],'换模型后继续');
+  assert.deepEqual(JSON.parse(fs.readFileSync(store.file('desktop.config.json'),'utf8')).executionAgent,choice);
+  assert.equal(service.audit(store).at(-1)!.event,'execution-agent-switched');
+  assert.deepEqual(service.publicRun(after,profileId).executionAgent,choice);
+  await service.dispatch({operation:'resume',profileId,runId,decision:'换回 Codex',executionAgent:{backend:'codex'}});
+  assert.deepEqual(store.load().config.executionAgent,{backend:'codex'});
   const messages=projectMessages(before,[event('extra','limits-updated',{maxReworks:2}),event('decision','human-decision',{decision:'authorized'})],[]);
   assert.match(messages.find(m=>m.title==='授权预算已更新')!.text,/2/);const decision=messages.find(m=>m.kind==='decision')!;assert.equal(decision.status,'recorded');assert.match(decision.text,/不代表已开始执行/);
- }finally{service.launch=original;}
+ }finally{service.launch=original;(service as any).discoverExecution=discover;}
 });
-
 test('desktop rework reaches CLI and Controller at missing-tests pause instead of repeating verify',async()=>{
  const entry=service.registry().profiles[0]!,config=JSON.parse(fs.readFileSync(entry.file,'utf8'));
  const file=path.join(data,'rework.config.json');fs.writeFileSync(file,JSON.stringify({...config,runtimeDir:path.join(data,'rework-runtime'),tests:[],maxLoops:6,maxReworks:2}));
@@ -89,7 +97,7 @@ test('desktop rework reaches CLI and Controller at missing-tests pause instead o
  await service.dispatch({operation:'resume',profileId:profile.id,runId:created.id,decision:'Continue current task repair',intent:'rework'});
  const repaired=await waitPaused();assert.equal(repaired.loops,2);assert.equal(repaired.reworks,1);assert.equal(repaired.totalReworks,1);
  assert.equal(repaired.taskIndex,first.taskIndex);assert.deepEqual(repaired.completedTaskIds,[]);
- assert.equal(repaired.config.maxLoops,6);assert.equal(repaired.config.maxReworks,2);
+ assert.equal(repaired.config.maxLoops,undefined);assert.equal(repaired.config.maxReworks,undefined);
  assert.equal(store.load().claudeSessionId,before.claudeSessionId);assert.equal(store.load().codexThreadId,before.codexThreadId);
  assert.equal(repaired.evidence?.passed,false);assert.equal(repaired.evidence?.tests.length,0);
  assert.ok(service.audit(store).some(e=>e.event==='human-decision'&&e.data.intent==='rework'));

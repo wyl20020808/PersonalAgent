@@ -19,7 +19,10 @@ export function v1ProviderConfig(config: Record<string, any>): Record<string, an
     provider[id] = { name: p.name, npm, options: p.settings ?? {}, models: Object.fromEntries(Object.entries(p.models ?? {}).map(([key, value]) => {
       const m = value as Record<string, any>;
       // Preserve configured IDs/body/limits; do not invent limits or tool support.
-      return [key, { id: m.modelID ?? key, name: m.name, ...(m.limit ? { limit: m.limit } : {}), ...(m.body ? { options: m.body } : {}) }];
+      // V1 reports image input as unsupported for custom models without a declaration, so an
+      // undeclared model is projected as accepting images and the provider gives the real answer.
+      const input = m.modalities ? { modalities: m.modalities, ...(m.attachment === undefined ? {} : { attachment: m.attachment }) } : m.attachment === false ? { attachment: false } : { attachment: true, modalities: { input: ['text', 'image'], output: ['text'] } };
+      return [key, { id: m.modelID ?? key, name: m.name, ...input, ...(m.limit ? { limit: m.limit } : {}), ...(m.body ? { options: m.body } : {}) }];
     })) };
   }
   return { provider, plugin: [] };

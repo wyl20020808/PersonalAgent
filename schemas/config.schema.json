@@ -444,8 +444,6 @@
     "mode",
     "claudeExecutable",
     "timeoutMs",
-    "maxLoops",
-    "maxReworks",
     "tests",
     "mockScenario"
   ],

@@ -133,7 +133,7 @@ test('session continues after historical cumulative exhaustion and restart; old 
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'第一轮开发',directAcknowledged:true});const first=await done(service,session.id),store=service.store(first.profileId,first.id),before=fs.readFileSync(store.file('state.json')),audit=fs.readFileSync(store.file('audit.jsonl'));
  const ledger=path.join(data,'legacy-budget.json');fs.writeFileSync(ledger,'historical ledger');
  const restarted=new DesktopService(root,data,process.execPath);assert.equal(restarted.sessions.detail(session.id).session.budget.loopsRemaining,0);
- await restarted.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'第二轮开发'});const second=await done(restarted,session.id);assert.equal(second.phase,'completed');assert.equal(second.config.maxLoops,2);assert.equal(restarted.sessions.detail(session.id).session.budget.loopsUsed,4);
+ await restarted.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'第二轮开发'});const second=await done(restarted,session.id);assert.equal(second.phase,'completed');assert.equal(second.config.maxLoops,undefined);assert.equal(restarted.sessions.detail(session.id).session.budget.loopsUsed,4);
  assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);assert.equal(fs.readFileSync(ledger,'utf8'),'historical ledger');assert.equal(store.load().config.globalBudget,undefined);
  assert.equal(fs.readdirSync(data).some(name=>name.startsWith('session-budget-')),false);
 });
