@@ -1,3 +1,4 @@
+import { ownedCodexEvents } from './codex-stream.js';
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
 import {codexInput,type NativeAttachment} from './multimodal.js';
 import { codexPublicEvent } from './telemetry.js';
@@ -16,17 +17,20 @@ export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThr
   const options = nativeThreadOptions(request.workspace);
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
   const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), native ? {} : { outputSchema: editSchema });
-  let final = '', completed = false;
-  for await (const event of events) {
+  let final = '', completed = false, lastError = '';
+  try { for await (const event of ownedCodexEvents(events)) {
+    if (event.type !== 'error') lastError = '';
     const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
     const activity = codexPublicEvent(event); if (activity) emit({ type: 'activity', data: activity });
     if (event.type === 'thread.started') emit({ type: 'thread', id: event.thread_id });
-    if (event.type === 'error') throw new Error(event.message);
+    // Error events include CLI reconnect progress. Keep consuming until a terminal
+    // turn or process failure; closing this iterator kills the CLI before retry.
+    if (event.type === 'error') lastError = event.message;
     if (event.type === 'turn.failed') throw new Error(event.error.message);
     if (event.type === 'turn.completed') completed = true;
     if (event.type === 'item.completed' && event.item.type === 'agent_message') final = event.item.text;
     // Failed commands and tools are feedback for the agent, not fatal turns.
-  }
-  if (!completed || !final.trim()) throw new Error('Codex returned no completed result');
+  } } catch (error) { throw new Error(`${(error as Error).message}${lastError ? `\nLast CLI diagnostic: ${lastError}` : ''}`, { cause: error }); }
+  if (!completed || !final.trim()) throw new Error(`Codex returned no completed result${lastError ? `: ${lastError}` : ''}`);
   return native ? validate(nativeResultSchema, { mode: 'native', summary: final }) : validate(editSchema, JSON.parse(final));
 }

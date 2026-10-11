@@ -447,6 +447,16 @@
             }
           ]
         },
+        "transportRetryDelaysMs": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60000
+          },
+          "description": "Additional retries after provider recovery, default [5000,15000,30000]; [] disables them."
+        },
         "taskStages": {
           "type": "object",
           "minProperties": 1,
@@ -809,6 +819,7 @@
           "properties": {
             "kind": {
               "enum": [
+                "transport",
                 "executor",
                 "supervisor",
                 "timeout",

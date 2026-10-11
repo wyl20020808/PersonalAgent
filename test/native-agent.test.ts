@@ -48,12 +48,13 @@ test('native options restore SDK full access without changing model or extension
 
 test('real adapters complete Plan Execute Review without authorization; usage and audit remain readable', async () => {
   const f = await fixture('no-paid-gate', {maxClaudeCalls:1,claudeStreaming:false,executionMode:'native',globalBudget:{file:path.join(root,'missing-history.json'),limit:1}});
-  let cc=0,codex=0;
-  const adapter = new RealAgents(f.config, async (program,_args,options) => {
+  let cc=0,codex=0;const claudeSessions:string[]=[];
+  const adapter = new RealAgents(f.config, async (program,args,options) => {
     if(program===f.config.claudeExecutable){
       cc++;
+      const sessionId=args[args.indexOf(args.includes('--resume')?'--resume':'--session-id')+1]!;claudeSessions.push(sessionId);
       const output=cc===1?{humanDecision:null,tasks:[{id:'native',instruction:'local injected task',acceptance:['independent fixture passes']}]}:{verdict:'pass',reason:'local injected review'};
-      return {exitCode:0,stdout:JSON.stringify({session_id:'local-cc',structured_output:output,usage:{input_tokens:10,output_tokens:5}}),stderr:''};
+      return {exitCode:0,stdout:JSON.stringify({session_id:sessionId,structured_output:output,usage:{input_tokens:10,output_tokens:5}}),stderr:''};
     }
     codex++;
     fs.writeFileSync(path.join(f.store.load().workspace,'result.txt'),'fixed\n');
@@ -64,7 +65,7 @@ test('real adapters complete Plan Execute Review without authorization; usage an
     return {exitCode:0,stdout:'',stderr:''};
   });
   const state=await drive(f.store,adapter);
-  assert.equal(state.phase,'completed');assert.equal(cc,2);assert.equal(codex,1);assert.equal(state.claudeCalls,2);assert.equal(state.codexThreadId,'local-codex');assert.equal(state.claudeSessionId,'local-cc');
+  assert.equal(state.phase,'completed');assert.equal(cc,2);assert.equal(codex,1);assert.equal(state.claudeCalls,2);assert.equal(state.codexThreadId,'local-codex');assert.equal(state.claudeSessionId,claudeSessions[0]);assert.equal(claudeSessions[0],claudeSessions[1]);
   assert.equal(fs.existsSync(f.config.globalBudget!.file),false);
   const {runUsage}=await import('../src/call-observation.js');
   const usage=runUsage(f.store);assert.equal(usage.calls.length,3);assert.ok(usage.calls.some(call=>call.agent==='codex'&&call.inputTokens===12));
