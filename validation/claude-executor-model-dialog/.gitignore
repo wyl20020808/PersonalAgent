@@ -1,0 +1,9 @@
+# Preserve local evidence without delivering runtime state, transcripts or caches.
+real-*/runtime/
+real-*/source/
+real-*/verify.cjs
+ui/electron-data/
+ui/assets/
+ui/index.html
+ui/preview.js
+ui/preview.css

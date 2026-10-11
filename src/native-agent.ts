@@ -12,11 +12,12 @@ export const agentRules = `围绕用户授权的项目目标工作，优先复�
 export function nativeThreadOptions(workspace: string): ThreadOptions {
   return { workingDirectory: workspace, skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' };
 }
-export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
+export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; model?: string; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
 export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
   assertOperationPolicy({ kind: 'model' });
   const native = request.executionMode !== 'proposal';
   const options = nativeThreadOptions(request.workspace);
+  if (request.model) options.model = request.model;
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
   const stop = new AbortController();
   const { events } = await thread.runStreamed(codexInput(request.prompt + interactionAgentRules,request.attachments), native ? { signal: stop.signal } : { outputSchema: editSchema, signal: stop.signal });
