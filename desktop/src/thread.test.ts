@@ -5,10 +5,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {projectMessages,messagePage} from './thread.js';
+import {runTiming,timingTotals,durationLabel} from './runTiming.js';
 import {DesktopService,validateRequest} from './service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});
+
+test('durable role clocks exclude paused/verification time and retain totals across switches and Runs',()=>{
+ const e=(seconds:number,phase?:string)=>({time:new Date(seconds*1000).toISOString(),event:phase?'transition':'created',data:phase?{phase}:undefined});
+ const history=[e(0),e(10,'executing'),e(30,'verify'),e(50,'review'),e(60,'paused'),{time:new Date(100000).toISOString(),event:'decision-agent-switched'},e(200,'planning'),e(210,'execute'),e(212,'executing'),e(220,'stopped')];
+ const timing=runTiming(history);assert.deepEqual(timing,{decisionMs:30000,executionMs:30000,running:null,since:null});
+ assert.deepEqual(timingTotals([timing],999999999),{decisionMs:30000,executionMs:30000});
+ const live=runTiming([e(300),e(310,'executing')]);assert.deepEqual(timingTotals([timing,live],315000),{decisionMs:40000,executionMs:35000});
+ assert.deepEqual(runTiming([]),{decisionMs:0,executionMs:0,running:null,since:null});
+ assert.equal(durationLabel(3661000),'1:01:01');assert.equal(durationLabel(62000),'01:02');
+});
 
 test('Codex decision and executor messages retain official identity and distinct role; dual Codex A/B never group',()=>{
  const single={...state,decisionAgent:{backend:'codex',model:'fixture'}} as State;

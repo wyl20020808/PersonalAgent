@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "checks": [
+    "real service IPC and Run workspace",
+    "chat card opens sidebar",
+    "deduplicated tabs",
+    "file/diff switch",
+    "line numbers and syntax highlighting",
+    "2 additions and 1 deletion",
+    "untracked file current Git fallback",
+    "escaped source HTML",
+    "change overview",
+    "1000/700 px no page overflow",
+    "read-only operations"
+  ],
+  "errors": []
+}

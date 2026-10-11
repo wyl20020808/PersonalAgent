@@ -12,6 +12,25 @@ import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
 
+test('paused single decision IPC preserves Session Run, switches settings and rejects active or collaborative switches',async()=>{
+ const local=new DesktopService(root,path.join(data,'decision-switch'),process.execPath),project=path.join(data,'decision-switch-project');fs.mkdirSync(project,{recursive:true});const launches:any[]=[];local.launch=(store,_file,decision)=>{launches.push({id:store.id,decision});};
+ const session=local.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct',decisionAgent:{backend:'claude-code'}});
+ const started=await local.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'本地切换夹具',directAcknowledged:true}),ref=started.runs[0],store=local.store(ref.profileId,ref.id),state=store.load();state.phase='paused';state.nextPhase='planning';state.claudeSessionId='old-session';store.save(state);
+ const request={operation:'resume' as const,profileId:ref.profileId,runId:ref.id,intent:'resume' as const,decision:'明确切换并继续',decisionAgent:{backend:'codex' as const}};
+ local.children.set(ref.id,{} as any);await assert.rejects(local.dispatch(request),/Run still active/);local.children.delete(ref.id);
+ await assert.rejects(local.dispatch({...request,executionAgent:{backend:'codex'}}),/一次只切换/);
+ await assert.rejects(local.dispatch({...request,intent:'rework'}),/仅支持继续/);
+ const before=store.load();await assert.rejects(local.dispatch({...request,decisionAgent:{backend:'codex',model:'invalid model'}}),/IPC|Schema/);assert.deepEqual(store.load(),before);
+ await local.dispatch(request);assert.equal(store.load().decisionAgent?.backend,'codex');assert.equal(store.load().claudeSessionId,null);assert.equal(launches.at(-1).id,ref.id);
+ const current=local.sessions.get(session.id);assert.equal(current.runs.length,1);assert.equal(current.settings.decisionAgent?.backend,'codex');assert.equal(current.profileId,undefined);
+ const file=store.file('desktop.config.json');assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).decisionAgent.backend,'codex');
+ // Future task creation must inherit the selected decision identity.
+ const complete=store.load();complete.phase='completed';store.save(complete);const next=await local.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'下一轮需求'});const nextRef=next.runs.at(-1)!;assert.notEqual(nextRef.id,ref.id);assert.equal(local.store(nextRef.profileId,nextRef.id).load().decisionAgent?.backend,'codex');
+ const multiProject=path.join(data,'multi-switch-project');fs.mkdirSync(multiProject,{recursive:true});const multi=local.sessions.create({operation:'createSession',projectPath:multiProject,mode:'mock',projectMode:'direct',decisionDiscussion:{participants:[{id:'a',agent:{backend:'claude-code'}},{id:'b',agent:{backend:'codex'}}],primary:'a',rounds:0}});
+ const multiRun=await local.sessions.send({operation:'sendSession',sessionId:multi.id,messageId:randomUUID(),text:'多人本地夹具',directAcknowledged:true}),multiRef=multiRun.runs[0],multiStore=local.store(multiRef.profileId,multiRef.id),multiState=multiStore.load();multiState.phase='paused';multiStore.save(multiState);
+ await assert.rejects(local.dispatch({...request,runId:multiRef.id,profileId:multiRef.profileId}),/多决策者/);
+});
+
 test('MAIN cannot acquire writable profiles inside claimed DEV data, including junction aliases; history remains read-only',()=>{
  const previous=process.env.PERSONALAGENT_INSTANCE;process.env.PERSONALAGENT_INSTANCE='main';
  try{const local=new DesktopService(root,path.join(data,'main-ownership'),process.execPath);const foreign=path.join(data,'claimed-dev'),alias=path.join(data,'dev-alias');fs.mkdirSync(foreign,{recursive:true});fs.writeFileSync(path.join(foreign,'instance.json'),JSON.stringify({version:1,instanceId:'dev'}));fs.symlinkSync(foreign,alias,'junction');

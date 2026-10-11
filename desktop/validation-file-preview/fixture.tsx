@@ -1,0 +1,10 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import GroupWorkspace from '../src/GroupWorkspace.js';
+import '../src/style.css';
+import '../src/codex.css';
+import '../src/chat-messages.css';
+window.personalAgent={invoke:async request=>{const response=await fetch('/api',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(request)}),result=await response.json();if(!response.ok)throw Error(result.error);return result;}};
+const {run,conversation}=await (await fetch('/fixture')).json();
+localStorage.setItem('personalagent:details-open','0');
+createRoot(document.getElementById('root')!).render(<GroupWorkspace run={run} conversation={conversation} onDetails={()=>{}} onDelivery={()=>{}} onGoal={()=>{}}/>);

@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "electron": "44.7.0",
+  "isolatedData": "D:\\PersonalAgent-worktrees\\tasks\\task-running-spinner-20261011\\desktop\\validation-task-spinner\\electron-data",
+  "offscreen": true,
+  "realBuiltRenderer": true,
+  "fixtureBridge": true,
+  "selectedRow": true,
+  "rotation": true,
+  "activeStates": 6,
+  "attentionStates": 3,
+  "completed": true,
+  "appReducedMotion": true,
+  "errors": []
+}

@@ -1,0 +1,61 @@
+{
+  "purpose": "Local source evidence; not Controller delivery approval",
+  "branch": "feature/chat-file-diff-20261011",
+  "base": "d2fe3e67ee911c816070afca5010fcc6f76213a9",
+  "observedDev": "c2caff4e6d321eab315ec1cdc6c5b7691003d4fe",
+  "digest": "fdba4a19e1395d695189676bdc80e4771bf8fe30fa65bdf507cd7f8449f7c9bd",
+  "files": [
+    {
+      "path": "desktop/build.mjs",
+      "sha256": "670cb1369908ccd95b6c1d858abf7465b14b5777db567c6346fda4120a960cbb"
+    },
+    {
+      "path": "desktop/package.json",
+      "sha256": "74cd6ee8eb07ebb4a9df73a15f1ab6f2eaa96bfc0e7df5548f89f0e704ae0b34"
+    },
+    {
+      "path": "desktop/package-lock.json",
+      "sha256": "6f0a596e4933ca8516cc1656cc6fab45f3f6d0d2d1e2bd513ae4201f8f1c3c0d"
+    },
+    {
+      "path": "desktop/src/GroupWorkspace.tsx",
+      "sha256": "c052eac731e37be4ce41004085c0716415a7d1eeec630569b9825c774a216ed9"
+    },
+    {
+      "path": "desktop/src/service.ts",
+      "sha256": "5b55f710cd8b4c9b5ab94636fb81eefb731695f8a41b6e485df65b91f233001a"
+    },
+    {
+      "path": "desktop/src/thread.ts",
+      "sha256": "846dfb4b296ef8d4be7400df2ab49ce428ba4c01734ca8b460e6fbd8b78602b8"
+    },
+    {
+      "path": "desktop/src/types.ts",
+      "sha256": "a4dd05107f5af5c2f898cca72944e682b2b0dbe46dd5e38823a6f4a77b6b2bf2"
+    },
+    {
+      "path": "desktop/src/FilePreview.tsx",
+      "sha256": "d8070cdb368c95c3126d3480fbe6f35dc3a95dff4d5729c695c7f122644bc3d7"
+    },
+    {
+      "path": "desktop/src/fileChanges.ts",
+      "sha256": "70f637d50f906e95779b0d3b61c14c960dd062e2313d4a25287322b7c45f34fe"
+    },
+    {
+      "path": "desktop/src/file-preview.css",
+      "sha256": "f970c216f6e4f916eb5e73ba32dc04040fc8af1543ae5f86afb40f5d500a6f14"
+    },
+    {
+      "path": "desktop/src/fileChanges.test.ts",
+      "sha256": "4ed5fe9ec9c03fea03ac5004d923a984aee34303ddf0a149898e620d7daafc71"
+    },
+    {
+      "path": "desktop/validation-file-preview/check.mjs",
+      "sha256": "f997bb9f20ccf90b71906d4f04e9a3d4fe7f3e1e1ab48b7861c99cca82b1538f"
+    },
+    {
+      "path": "desktop/validation-file-preview/fixture.tsx",
+      "sha256": "b6c687b895a0d37220da3c870d303d09076721c0c33ec454ff23cf394d188b4f"
+    }
+  ]
+}

@@ -26,6 +26,7 @@ export class SessionStore {
  get(id:string){const session=this.read().find(s=>s.id===id);if(!session)throw Error('会话不存在');return session;}
  /** Later Runs of the chat follow a model switched during recovery; a fresh profile is created for them. */
  switchExecution(runId:string,executionAgent:NonNullable<Saved['settings']['executionAgent']>){const session=this.read().find(s=>s.runs.some(run=>run.id===runId));if(!session||session.legacy)return;session.settings.executionAgent=structuredClone(executionAgent);delete session.profileId;this.update(session);}
+ switchDecision(runId:string,decisionAgent:NonNullable<Saved['settings']['decisionAgent']>){const session=this.read().find(s=>s.runs.some(run=>run.id===runId));if(!session||session.legacy)return;session.settings.decisionAgent=structuredClone(decisionAgent);delete session.profileId;this.update(session);}
  update(session:Saved){const items=this.read(),index=items.findIndex(s=>s.id===session.id);if(index<0)throw Error('会话不存在');items[index]=session;this.save(items);}
  create(r:Request):Conversation {
   const project=this.service.inspectProject(r.projectPath!);

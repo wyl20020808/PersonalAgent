@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "headless": true,
+  "activeStates": 6,
+  "attentionStates": 3,
+  "inactiveStates": 4,
+  "rotation": true,
+  "systemReducedMotion": true,
+  "appReducedMotion": true,
+  "pageErrors": []
+}

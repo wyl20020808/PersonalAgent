@@ -7,11 +7,12 @@
   "scripts": {
     "build": "node build.mjs",
     "start": "electron .",
-    "test": "node --test --test-concurrency=1 out/service.test.js out/thread.test.js out/unified.test.js out/sessions.test.js out/workbench.test.js",
+    "test": "node --test --test-concurrency=1 out/service.test.js out/thread.test.js out/unified.test.js out/sessions.test.js out/workbench.test.js out/fileChanges.test.js",
     "test:workbench-ui": "node preview-workbench.mjs",
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "highlight.js": "11.12.0",
     "lucide-react": "1.52.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
