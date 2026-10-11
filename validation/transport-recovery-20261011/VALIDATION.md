@@ -54,4 +54,14 @@ Claude 三次真实审查调用的原始用量按 CLI 原始字段保存在各 J
 
 ## 交付边界
 
-源码、规则、测试和验证脚本均留在独立修复 Worktree。未提交、未合并 dev/main、未推送、未更新运行软件、未恢复历史故障 Run。dev/main 的现有用户改动和其他任务保留。正式交付仍需依照 AGENT_WORK_RULES.md 第 5 条及开发治理规则审批。
+用户随后明确批准整合到 DEV。本修复提交为 `6aa7c56`，以最新 DEV `830edc8` 为组合基线，在独立集成 Worktree 验证后形成合并提交 `0c90301ceea04a60e2128feaad63eac0e1cfa939`，DEV 已快进到该提交。MAIN 保持 `aff80240342176ec196fedb2028905f489afced9`，未推送，未恢复历史故障 Run。微型验收 Run 的游戏/项目 Delivery 未批准，与本次软件修复的用户整合批准分别记录。
+
+## DEV 组合验收与死机后核查
+
+- 组合包含原 DEV 的任务边界调整和单决策者切换；源码自动合并，治理文档一处冲突保留双方独立修订。
+- 首次在过长目录运行 98 项，86 通过，12 项均在 Git 克隆准备阶段报 `$GIT_DIR too big`。原日志保留于 `dev-integration-tests.log`。目录移动失败后新建短目录 `D:/PersonalAgent-worktrees/tasks/tr-dev-20261011`，同一组合、同一测试断言重跑 98/98，通过日志 `dev-integration-short-path-tests.log`。未将初次失败隐藏或称为通过。
+- 串行测试选择：transport-recovery、native-agent、codex-output-schema、codex-decision-agent、recovery、steering、decision-switch。不是全库回归。
+- Controller build、desktop build、desktop check 均通过；DEV 快进后再次 Controller build 通过。桌面打包有既有 use client/chunk size 警告，退出码 0。未完成可见 GUI 验收。
+- DEV 无活动 Controller 子进程；6 个已登记历史 Run 均处于 paused/failed/completed。8 个历史文件已外置备份，并用组合状态 schema 校验，停止 DEV 实例及整合后 SHA256 均未变化。外置记录 `D:/PersonalAgent-data/transport-recovery-20261011/dev-state-checkpoint.json`，未自动续跑历史任务。DEV 实例暂保持停止，后续正常启动使用新构建。
+- 用户报告合并期间电脑死机。发现 DEV 和集成分支两个引用文件均为 41 个零字节；commit 对象、reflog 和源码完整。备份损坏引用后，仅按双方 reflog 已记录的 `0c90301` 精确恢复引用并 fsync。`git fsck --full` 退出 0，无缺失或损坏对象，仅列出 dangling 历史对象，未清理。源码与提交一致，历史文件再次核查不变。详见问题记录。
+- 整合已完成后收到 V2 三分支规则；已全文读取当前 V2。当前没有 TEST 分支/Worktree，本次未擅自建设 TEST 或改写 MAIN 的 V2 规则。后续建设 TEST 后须保留并同步本修复，避免回退；本报告中的 V1 基线流程仅描述已发生的历史操作。
