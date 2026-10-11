@@ -158,8 +158,7 @@
         },
         "minTasks": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 20
+          "minimum": 1
         },
         "projectMode": {
           "enum": [
@@ -662,7 +661,6 @@
           "dependsOn": {
             "type": "array",
             "uniqueItems": true,
-            "maxItems": 20,
             "items": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9_-]{1,64}$"
@@ -1962,7 +1960,6 @@
                             "dependsOn": {
                               "type": "array",
                               "uniqueItems": true,
-                              "maxItems": 20,
                               "items": {
                                 "type": "string",
                                 "pattern": "^[a-zA-Z0-9_-]{1,64}$"
@@ -1989,8 +1986,7 @@
                           ],
                           "additionalProperties": false
                         },
-                        "minItems": 0,
-                        "maxItems": 20
+                        "minItems": 0
                       },
                       "humanDecision": {
                         "type": [

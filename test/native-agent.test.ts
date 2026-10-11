@@ -157,7 +157,7 @@ test('durable native result recovers without executing or writing files again', 
 test('Claude review repair finishes beyond historical call limit after independent verification', async () => {
   const f = await fixture('review-budget', { maxClaudeCalls: 1 }); const state = await drive(f.store, agents());
   assert.equal(state.phase, 'completed'); assert.equal(state.claudeCalls, 3); assert.equal(state.reworks, 0);
-  assert.equal(state.evidence?.userAccepted, true); assert.equal(state.taskIndex, 1); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
+  assert.equal(state.evidence?.decisionAccepted, true); assert.notEqual(state.evidence?.userAccepted, true); assert.equal(state.taskIndex, 1); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
 });
 test('legacy snapshot: repeated CC review modifications are bounded by repair control across recovery', async () => {
   const f = await fixture('review-repair-loop', {maxClaudeCalls:1,maxReworks:1}), adapter=agents();

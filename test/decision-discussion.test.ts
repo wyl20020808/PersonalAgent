@@ -131,9 +131,9 @@ function localOpenCode(){
    const send=(value:any)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
    if(url.pathname==='/provider')return send({connected:['fixture'],all:[{id:'fixture',name:'Local fixture',models:Object.fromEntries(['m1','m2'].map(id=>[id,{id,name:id,capabilities:{toolcall:true}}]))}],default:{}});
    if(url.pathname==='/global/event'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.write(': local fixture\n\n');streams.push(res);return;}
-   if(url.pathname==='/session'&&req.method==='POST'){const session={id:'ses_'+randomUUID(),directory,title:data.title};sessions.set(session.id,session);return send(session);}
+   if(url.pathname==='/session'&&req.method==='POST'){const session={id:'ses_'+randomUUID(),directory,title:data.title,permission:data.permission};sessions.set(session.id,session);return send(session);}
    const match=url.pathname.match(/^\/session\/([^/]+)(.*)$/),id=match?.[1],tail=match?.[2];
-   if(id&&tail==='')return send(sessions.get(id));
+   if(id&&tail===''){if(req.method==='PATCH')Object.assign(sessions.get(id),data);return send(sessions.get(id));}
    if(id&&tail==='/message'){
     const prompt=JSON.parse(data.parts[0].text);prompts.push({id,model:data.model,prompt});
     const output=prompt.decisionStage==='discussion'?{summary:'Local OpenCode opinion',disagreements:['Fixture alternative'],amendments:['Keep seed']}:prompt.decisionStage?plan:{verdict:'pass',reason:'Local OpenCode review fixture'};
