@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
+import {spawnSync} from 'node:child_process';
+import {build} from 'esbuild';
+const here=path.dirname(fileURLToPath(import.meta.url)),output=path.resolve(here,'../../.v3c3/read-indicator');
+fs.mkdirSync(output,{recursive:true});
+await build({entryPoints:[path.join(here,'read-indicator.tsx')],bundle:true,format:'esm',outfile:path.join(output,'app.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
+fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="app.css"><div id="root"></div><script type="module" src="app.js"></script>');
+const require=createRequire(import.meta.url),env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+const result=spawnSync(require('electron'),[path.join(here,'read-indicator.cjs')],{windowsHide:true,env,stdio:'inherit'});
+if(result.error)throw result.error;process.exitCode=result.status??1;

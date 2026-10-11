@@ -1,3 +1,4 @@
+import {MAX_ATTACHMENT_BYTES} from '../../dist/src/attachment-types.js';
 import {discoverOpencodeExecutionModels} from '../../dist/src/opencode-execution-agent.js';
 import {discoverOpencodeModels} from '../../dist/src/opencode-decision-agent.js';
 import { runUsage } from "../../dist/src/call-observation.js";
@@ -37,7 +38,7 @@ type Registry={profiles:Registered[];reducedMotion:boolean;recentProjects?:Proje
 type ProjectConfig=Config&{projectMode?:'direct'|'isolated';directAuthorization?:{projectPath:string;acknowledgedAt:string}};
 const sha=(v:string|Buffer)=>createHash('sha256').update(v).digest('hex');
 const uuid={type:'string',pattern:'^[0-9a-f-]{36}$'},str={type:'string',minLength:1,maxLength:10000};
-const attachment={type:'object',additionalProperties:false,required:['name','mimeType','size'],properties:{name:{type:'string',minLength:1,maxLength:240},mimeType:{type:'string',maxLength:120},size:{type:'integer',minimum:0,maximum:20971520},content:{type:'string',maxLength:200000},dataUrl:{type:'string',maxLength:3000000}}};
+const attachment={type:'object',additionalProperties:false,required:['name','mimeType','size'],properties:{name:{type:'string',minLength:1,maxLength:240},mimeType:{type:'string',maxLength:120},size:{type:'integer',minimum:0,maximum:MAX_ATTACHMENT_BYTES},content:{type:'string',maxLength:MAX_ATTACHMENT_BYTES},dataUrl:{type:'string',maxLength:Math.ceil(MAX_ATTACHMENT_BYTES/3)*4+64}}};
 const desktopDecisionSchema={oneOf:[{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'codex'},model:{type:'string',pattern:'^[a-zA-Z0-9._:/-]{1,200}$'}}},{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'claude-code'},model:{type:'string',pattern:'^[a-zA-Z0-9._:/-]{1,200}$'}}},{type:'object',additionalProperties:false,required:['backend','opencode'],properties:{backend:{const:'opencode'},opencode:{type:'object',additionalProperties:false,required:['providerID','modelID'],properties:{providerID:str,modelID:str}}}}]};
 const desktopExecutionSchema={oneOf:[{type:'object',additionalProperties:false,required:['backend'],properties:{backend:{const:'codex'}}},desktopDecisionSchema.oneOf[2]]};
 const desktopDiscussionSchema={type:'object',additionalProperties:false,required:['participants','primary','rounds'],properties:{

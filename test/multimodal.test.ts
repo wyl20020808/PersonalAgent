@@ -10,9 +10,19 @@ import {runCodexTurn} from '../src/native-agent.js';
 import {runCodexDecisionTurn} from '../src/codex-decision-turn.js';
 import {ClaudeCodeDecisionAgent} from '../src/claude-code-decision-agent.js';
 import type {Config} from '../src/schema.js';
+import {MAX_ATTACHMENT_BYTES,attachmentRefSchema} from '../src/attachment-types.js';
 
 const root=path.resolve('.validation','multimodal-'+randomUUID());
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+test('100 MiB limit is shared by Run schema and native attachment delivery beyond old caps',async()=>{
+ assert.equal(attachmentRefSchema.properties.size.maximum,100*1024*1024);
+ assert.equal(MAX_ATTACHMENT_BYTES,attachmentRefSchema.properties.size.maximum);
+ const {store}=await fixture(),bytes=Buffer.alloc(10*1024*1024,120);
+ bindRunAttachments(store,[{name:'large.txt',mimeType:'text/plain',bytes}],true);
+ const items=runAttachments(store.load(),store),input=claudeInput('任务',items);
+ assert.ok(Buffer.byteLength(input)>9*1024*1024);
+ const text=JSON.parse(input).message.content.at(-1).text;assert.ok(text.endsWith(bytes.toString()));
+});
 async function fixture(){
  const repo=path.join(root,randomUUID());fs.mkdirSync(repo,{recursive:true});
  const config:Config={mode:'real',projectMode:'direct',executionMode:'native',directAuthorization:{projectPath:repo,acknowledgedAt:new Date().toISOString()},allowedRepositories:[repo],runtimeDir:path.join(root,'runtime'),claudeExecutable:'NEVER-PAID',claudeStreaming:false,timeoutMs:5000,maxLoops:4,maxReworks:1,tests:[],mockScenario:'pass'};

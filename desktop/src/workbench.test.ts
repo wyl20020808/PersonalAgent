@@ -8,12 +8,29 @@ import {setTimeout as sleep} from 'node:timers/promises';
 import {decodeAttachment,attachmentDigest,saveAttachments} from './attachmentStorage.js';
 import {readAttachment} from './attachments.js';
 import {refreshLoop} from './refreshLoop.js';
-import {DesktopService} from './service.js';
+import {DesktopService,validateRequest} from './service.js';
+import {MAX_ATTACHMENT_BYTES} from '../../dist/src/attachment-types.js';
 import {runAttachments} from '../../dist/src/multimodal.js';
 import {chatRoute} from './chatRouting.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const data=path.join(root,'.v3c3','workbench-'+randomUUID());
 const text={name:'a.txt',mimeType:'text/plain',size:3,content:'abc'};
+test('attachment limits allow larger images and text and reject above 100 MiB before reading',async()=>{
+ const content='x'.repeat(3*1024*1024),item={...text,size:content.length,content};
+ assert.equal(decodeAttachment(item).length,content.length);
+ const bytes=Buffer.alloc(3*1024*1024);Buffer.from([137,80,78,71,13,10,26,10]).copy(bytes);
+ const image={name:'large.png',mimeType:'image/png',size:bytes.length,dataUrl:'data:image/png;base64,'+bytes.toString('base64')};
+ assert.equal(decodeAttachment(image).length,bytes.length);
+ const request={operation:'sendSession',sessionId:randomUUID(),messageId:randomUUID(),text:'附件',attachments:[image,item]};
+ assert.doesNotThrow(()=>validateRequest(request));
+ // Schema and File metadata boundaries avoid allocating a 100 MiB fixture.
+ assert.doesNotThrow(()=>validateRequest({...request,attachments:[{...text,size:MAX_ATTACHMENT_BYTES}]}));
+ assert.throws(()=>validateRequest({...request,attachments:[{...text,size:MAX_ATTACHMENT_BYTES+1}]}));
+ let read=false;const file={name:'large.txt',type:'text/plain',size:MAX_ATTACHMENT_BYTES,arrayBuffer:async()=>{read=true;return new ArrayBuffer(0);}} as File;
+ await readAttachment(file);assert.equal(read,true);read=false;
+ await assert.rejects(readAttachment({...file,size:MAX_ATTACHMENT_BYTES+1} as File),/100 MB/);assert.equal(read,false);
+ assert.throws(()=>decodeAttachment({...text,size:MAX_ATTACHMENT_BYTES+1}),/100 MB/);
+});
 test('chat routes from runtime state without treating quoted commands as controls',()=>{
  assert.equal(chatRoute('做一个功能'),'start');
  assert.equal(chatRoute('修改停止按钮',{phase:'executing'}),'queue');
@@ -63,7 +80,7 @@ test('attachment batches reject metadata-only, truncated, binary and forged imag
 test('client reads full UTF-8 content and rejects unsupported or oversized files',async()=>{
  assert.equal((await readAttachment(new File(['hello'],'test.txt'))).content,'hello');
  await assert.rejects(readAttachment(new File(['pdf'],'test.pdf')),/仅支持/);
- await assert.rejects(readAttachment(new File(['a'.repeat(200001)],'large.txt')),/未截断/);
+ assert.equal((await readAttachment(new File(['a'.repeat(200001)],'large.txt'))).content?.length,200001);
  await assert.rejects(readAttachment(new File([new Uint8Array([255])],'bad.txt')),/UTF-8/);
 });
 test('refresh notifications coalesce, never overlap, and stop prevents further reads',async()=>{

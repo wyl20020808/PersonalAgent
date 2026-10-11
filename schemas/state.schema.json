@@ -876,7 +876,7 @@
           "size": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 2097152
+            "maximum": 104857600
           },
           "file": {
             "type": "string",
