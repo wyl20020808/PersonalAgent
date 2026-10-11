@@ -5,7 +5,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { regressionFixture, writeFixture } from '../scripts/context-regression-fixtures.js';
 import { normalizeContractReferences, contextReviewProblems, reviewContractCatalog } from '../src/context-review.js';
-import { drive } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { stampContext } from '../src/project-context.js';
 import { auditRecords } from '../src/context-trust.js';
 import { RealAgents } from '../src/real-agents.js';
@@ -45,10 +45,11 @@ test('ambiguous IDs or duplicate conflicting paths reject; identical baseline/cu
   assert.deepEqual(normalizeContractReferences(['hud'], [...catalog, catalog[0]!]).problems, []);
 });
 
-async function replay(references = original.review.contextReview!.checkedContracts, forge = false) {
+async function replay(references = original.review.contextReview!.checkedContracts, forge = false, userAccept = true) {
   const fixture = await regressionFixture(folder(), 'T1');
   const raw: Review = structuredClone(original.review); raw.contextReview!.checkedContracts = [...references];
-  const result = await drive(fixture.store, {
+  const rawDrive = (await import('../src/controller.js')).drive;
+  const result = await (userAccept ? drive : rawDrive)(fixture.store, {
     executionMode: 'native',
     async plan() { return { humanDecision: null, tasks: [{ id: 'T1-hud-style', moduleIds: ['game-app'], instruction: '固定 Mock 重放历史协议失败，修正 HUD', acceptance: ['外部固定验收通过'] }] }; },
     async execute(state) {
@@ -62,31 +63,33 @@ async function replay(references = original.review.contextReview!.checkedContrac
   return { fixture, result, raw, events: auditRecords(fixture.store.file('audit.jsonl')) };
 }
 
-test('formal Controller accepts original T1 receipt against live bound catalog, saves raw receipt and separate normalization evidence', async () => {
+test('Controller preserves original T1 decision receipt without machine normalization', async () => {
   const before = JSON.stringify(original.review), f = await replay();
-  assert.equal(f.result.phase, 'completed', f.result.reason); assert.equal(f.result.evidence!.passed, true);
-  const saved = f.events.find(e => e.event === 'review')!, normalized = f.events.find(e => e.event === 'context-review-references')!;
+  assert.equal(f.result.phase, 'completed', f.result.reason); assert.equal(f.result.evidence!.userAccepted, true);
+  const saved = f.events.find(e => e.event === 'review')!;
   assert.deepEqual(saved.data, original.review); assert.equal(JSON.stringify(original.review), before);
-  assert.deepEqual(normalized.data.raw, original.review.contextReview!.checkedContracts);
-  assert.deepEqual(normalized.data.checkedContracts, ['hud', 'geometry']); assert.deepEqual(normalized.data.problems, []);
-  assert.ok(normalized.data.catalog.every((entry: any) => entry.valid && entry.contentHash));
-  assert.deepEqual(JSON.parse(fs.readFileSync(normalized.data.receipt, 'utf8')).review, original.review);
+  assert.deepEqual(f.result.evidence!.decisionReview, original.review);
+  assert.equal(f.events.some(e => e.event === 'context-review-references'), false);
+  const normalized = normalizeContractReferences(original.review.contextReview!.checkedContracts, catalog);
+  assert.deepEqual(normalized.checkedContracts, ['hud', 'geometry']); assert.deepEqual(normalized.problems, []);
   // Reading the prior Run does not schedule, resume or rewrite it under new code.
   const oldState = path.join(path.dirname(original.source), 'r/runs', original.runId, 'state.json');
   if (fs.existsSync(oldState)) { const old = JSON.parse(fs.readFileSync(oldState, 'utf8')); assert.equal(old.phase, 'paused'); assert.equal(old.claudeCalls, 2); assert.equal(old.loops, 1); }
 });
 
-test('missing required HUD and unrelated references still veto formal completion', async () => {
+test('missing contract references remain visible for decision and user judgment', async () => {
   for (const references of [[], ['geometry'], ['docs/other/contracts/hud.md']]) {
     const f = await replay(references);
-    assert.equal(f.result.phase, 'paused'); assert.ok(f.events.some(e => e.event === 'review-vetoed'));
+    assert.equal(f.result.phase, 'completed'); assert.ok(!f.events.some(e => e.event === 'review-vetoed'));
     assert.ok(contextReviewProblems(f.result.evidence!.contextReport, f.raw).some(p => p.includes('hud')));
   }
 });
 
-test('forged accepted status cannot pass through exact path compatibility or lose original trust findings', async () => {
-  const f = await replay([catalog[0]!.path], true);
+test('forged document status stays untrusted while decision receipt waits for user acceptance', async () => {
+  const f = await replay([catalog[0]!.path], true, false);
   assert.equal(f.result.phase, 'paused');
+  assert.equal(f.result.evidence!.decisionReview!.verdict,'pass');
+  assert.equal(f.result.evidence!.userAccepted,undefined);
   assert.ok(f.result.evidence!.contextReport!.findings.some(finding => finding.code === 'CONFIRMATION_UNVERIFIABLE' && finding.origin === 'task'));
   assert.ok(contextReviewProblems(f.result.evidence!.contextReport, f.raw).length);
 });

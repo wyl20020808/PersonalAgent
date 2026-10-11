@@ -12,7 +12,8 @@ import { opencodeEnvironment } from '../src/opencode-runtime.js';
 import { applyEdits, runAcceptanceProcess } from '../src/workspace.js';
 import { hookDecision } from '../scripts/codex-interaction-hook.js';
 import { InteractionPolicyPlugin } from '../scripts/opencode-interaction-plugin.js';
-import { createRun, drive } from '../src/controller.js';
+import { drive as controllerDrive, createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { RealAgents } from '../src/real-agents.js';
 import { randomUUID } from 'node:crypto';
 import { publishGuidance } from '../src/steering.js';
@@ -93,15 +94,14 @@ test('Controller model call survives idle to work without aborting Run',()=>scop
   writeUserInteractionMode('idle');const f=await fixture('switch-controller');let ready!:()=>void,finish!:()=>void;const started=new Promise<void>(resolve=>ready=resolve),release=new Promise<void>(resolve=>finish=resolve);
   const agents:any={executionMode:'native',plan:async(_s:any,_store:any,signal:AbortSignal)=>{ready();await release;assert.equal(signal.aborted,false);return{humanDecision:null,tasks:[{id:'core',instruction:'safe development',acceptance:['safe']}]};},execute:async()=>({mode:'native',summary:'fixture'}),review:async()=>({verdict:'pass',reason:'fixture'})};const pending=drive(f.store,agents);await started;writeUserInteractionMode('work');await wait();finish();assert.equal((await pending).phase,'completed');
 }));
-test('GUI pending: independent node continues, dependent waits; explicit idle resume verifies without repeating implementation',()=>scoped(async()=>{
-  writeUserInteractionMode('work');const f=await fixture('deferred-dag',[{executable:process.execPath,args:['-e','console.log("fake GUI, no desktop")'],interaction:{kind:'desktop'}},{executable:process.execPath,args:['-e','console.log("safe check")']}]);f.config.acceptanceStages={gui:[0,1],safe:[1]};f.config.taskStages={gui:'gui',dependent:'safe',independent:'safe'};const initial=f.store.load();initial.config=f.config;f.store.save(initial);
-  const executed:string[]=[],reviewed:string[]=[];const agents:any={executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'gui',instruction:'implement then GUI',acceptance:['GUI required']},{id:'dependent',instruction:'dependent work',acceptance:['safe'],dependsOn:['gui']},{id:'independent',instruction:'independent work',acceptance:['safe']}]}),execute:async(s:any)=>{executed.push(s.tasks[s.taskIndex].id);return{mode:'native',summary:'fixture'};},review:async(s:any)=>{reviewed.push(s.tasks[s.taskIndex].id);return{verdict:'pass',reason:'fixture cannot override pending checks'};}};
-  const pending=await drive(f.store,agents);assert.equal(pending.phase,'paused');assert.deepEqual(executed,['gui','independent']);assert.deepEqual(reviewed,['gui','independent']);assert.deepEqual(pending.completedTaskIds,['independent']);assert.deepEqual(pending.deferredTaskIds,['gui']);const events=audit(f.store);assert.ok(events.some(e=>e.event==='deferred_by_work_mode'));assert.equal(events.find(e=>e.event==='independent-check').data.tests[1].exitCode,0);
-  writeUserInteractionMode('idle');assert.equal((await drive(f.store,agents)).phase,'paused');const done=await drive(f.store,agents,'用户恢复 GUI 夹具验收');assert.equal(done.phase,'completed');assert.deepEqual(executed,['gui','independent','dependent']);assert.deepEqual(done.deferredTaskIds,[]);
-  // The final completed node is index 1, not the last array index. All stages
-  // must still be independently rechecked against its final changes.
-  const checks=audit(f.store).filter(e=>e.event==='independent-check');assert.equal(checks.at(-1).data.tests.length,2);
+test('decision maker reports GUI deferral; Controller waits for user instead of scheduling acceptance',()=>scoped(async()=>{
+  writeUserInteractionMode('work'); const f=await fixture('deferred-dag',[{executable:process.execPath,args:['-e','console.log("fake GUI, no desktop")'],interaction:{kind:'desktop'}}]);
+  let executed=0,reviewed=0;
+  const agents:any={executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'gui',instruction:'implement then GUI',acceptance:['GUI required']},{id:'dependent',instruction:'dependent',acceptance:['safe'],dependsOn:['gui']}]}),execute:async()=>{executed++;return{mode:'native',summary:'fixture'};},review:async(s:any)=>{reviewed++;const checked=await runAcceptanceProcess(s,0,new AbortController().signal,{env:process.env});assert.equal(checked.status,'deferred_by_work_mode');assert.equal(checked.exitCode,-1);return{verdict:'human',reason:'deferred_by_work_mode: GUI validation remains pending'};}};
+  const pending=await controllerDrive(f.store,agents); assert.equal(pending.phase,'paused'); assert.equal(executed,1);assert.equal(reviewed,1);assert.deepEqual(pending.completedTaskIds,[]);assert.equal(pending.evidence!.passed,false);assert.deepEqual(pending.evidence!.tests,[]);assert.match(pending.reason,/deferred_by_work_mode/);
+  writeUserInteractionMode('idle');assert.equal((await controllerDrive(f.store,agents)).phase,'paused');assert.equal(executed,1);assert.equal(reviewed,1);
 }));
+
 test('safe acceptance process continues across mode switch',()=>scoped(async()=>{
   writeUserInteractionMode('idle');const f=await fixture('safe-check-switch');const child=childFixture();let killed=0;const pending=runAcceptanceProcess(f.store.load(),0,new AbortController().signal,{env:process.env},((exe:any,args:any,options:any)=>runProcess(exe,args,options,(()=>child) as any,async()=>{killed++;child.emit('close',0);})) as any);writeUserInteractionMode('work');await wait();assert.equal(killed,0);child.emit('close',0);assert.equal((await pending).exitCode,0);
 }));
@@ -118,7 +118,7 @@ test('pending GUI cannot bypass human/fail Review or a failed safe acceptance ch
   for(const [name,verdict,exit]of [['human','human',0],['fail','fail',0],['safe-failure','pass',1]] as const){
     const f=await fixture('approval-'+name,[{executable:process.execPath,args:['-e','console.log("mock GUI")'],interaction:{kind:'desktop'}},{executable:process.execPath,args:['-e',`process.exit(${exit})`]}]);let executed=0;
     const agents:any={executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'first',instruction:'fixture',acceptance:['safe']},{id:'independent',instruction:'fixture',acceptance:['safe']}]}),execute:async()=>{executed++;return{mode:'native',summary:'fixture'};},review:async()=>({verdict,reason:'fixture approval boundary'})};
-    const state=await drive(f.store,agents);assert.equal(executed,1);assert.equal(state.phase,verdict==='fail'?'failed':'paused');assert.deepEqual(state.deferredTaskIds??[],[]);
+    const state=await controllerDrive(f.store,agents);assert.equal(executed,1);assert.equal(state.phase,verdict==='fail'?'failed':'paused');assert.deepEqual(state.deferredTaskIds??[],[]);
   }
 }));
 test('OpenCode work startup allowed, runtime plugin installed, callback allows bash and defers GUI',()=>scoped(async()=>{

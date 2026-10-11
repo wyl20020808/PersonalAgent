@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stringify } from 'yaml';
-import { createRun } from '../src/controller.js';
+import { createHistoricalRun as createRun } from '../test/helpers/historical-run.js';
 import { git } from '../src/workspace.js';
 import { stampContext, contextHash } from '../src/project-context.js';
 import type { Config, Review } from '../src/schema.js';

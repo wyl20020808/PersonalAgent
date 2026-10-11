@@ -7,7 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { createRun, drive } from '../src/controller.js';
+import { createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { OpenCodeDecisionAgent, discoverOpencodeModels, opencodePublicEvents, supportsStructuredOutput, startOpencodeService, type OpenCodeLauncher } from '../src/opencode-decision-agent.js';
 import { ClaudeCodeDecisionAgent } from '../src/claude-code-decision-agent.js';
 import { assertDecisionState, type DecisionRequest } from '../src/decision-agent.js';
@@ -142,14 +143,14 @@ test('legacy paid budget fields do not block OpenCode; decision usage remains co
   const g=await fixture(false,{globalBudget:{file:budget,limit:1}}),a=new OpenCodeDecisionAgent(g.config,server.launcher);
   await a.structured(request(g));await a.structured(request(g,'review'));assert.equal(server.calls,4);assert.equal(fs.existsSync(budget),false);
 });
-test('formal Controller OpenCode fake backend with native Mock execution preserves Context and independent veto',async()=>{
+test('formal Controller OpenCode fake backend with native Mock execution preserves Context and transported decision',async()=>{
   for(const fail of [false,true]){
     const f=await fixture(true),server=fake(),real=new RealAgents(f.config,undefined,new OpenCodeDecisionAgent(f.config,server.launcher));
     const done=await drive(f.store,{executionMode:'native',plan:real.plan.bind(real),review:real.review.bind(real),async execute(state){fs.writeFileSync(path.join(state.workspace,'core.js'),fail?'wrong\n':'fixed\n');return{mode:'native',summary:'本地 Mock 执行，无付费请求'};}});
-    assert.equal(done.phase,fail?'paused':'completed');assert.equal(done.claudeCalls,2);assert.equal(done.evidence?.passed,!fail);
+    assert.equal(done.phase,'completed');assert.equal(done.claudeCalls,2);assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.userAccepted,true);
     assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),fail?'wrong\n':'fixed\n');
     assert.ok(records(f.store).some(e=>e.event==='context-manifest'));
-    if(fail)assert.ok(records(f.store).some(e=>e.event==='review-vetoed'));
+    assert.ok(!records(f.store).some(e=>e.event==='review-vetoed'));
     assert.equal(server.closes,2);
   }
 });

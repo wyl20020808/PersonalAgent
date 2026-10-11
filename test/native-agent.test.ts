@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Codex, ThreadEvent } from '@openai/codex-sdk';
-import { createRun } from '../src/controller.js';
-import { drive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { createRun as createProductionRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { git, snapshot, nativeAgentEnv } from '../src/workspace.js';
 import { nativeThreadOptions, runCodexTurn } from '../src/native-agent.js';
 import { runProcess } from '../src/process.js';
@@ -24,9 +25,9 @@ async function fixture(name: string, overrides: Partial<Config> = {}) {
   await git(repo, ['init']); fs.writeFileSync(path.join(repo, 'seed.txt'), 'initial\n');
   await git(repo, ['add', '.']); await git(repo, ['-c', 'user.name=Local Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'isolated fixture']);
   const verifier = path.join(dir, 'acceptance.cjs');
-  fs.writeFileSync(verifier, "const fs=require('fs'),a=require('node:assert/strict');a.equal(fs.readFileSync('result.txt','utf8'),'fixed\\n');a.equal(fs.readFileSync('seed.txt','utf8'),'reviewed\\n');console.log('Controller independent acceptance passed');");
+  fs.writeFileSync(verifier, "const fs=require('fs'),a=require('node:assert/strict');a.equal(fs.readFileSync('result.txt','utf8'),'fixed\\n');a.equal(fs.readFileSync('seed.txt','utf8'),'reviewed\\n');console.log('Fixture decision acceptance passed');");
   const config: Config = { allowedRepositories: [repo], runtimeDir: path.join(dir, 'runtime'), mode: 'real', claudeExecutable: 'NEVER-LAUNCH-PAID-AGENT', maxClaudeCalls: 8, timeoutMs: 5000, maxLoops: 4, maxReworks: 2, tests: [{ executable: process.execPath, args: [verifier] }], mockScenario: 'pass', ...overrides };
-  const store = await createRun(config, repo, name);
+  const store = await (name==='limited-observation' ? createProductionRun : createRun)(config, repo, name);
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ service: 'local fixture; no model invocation', source: repo, runId: store.id, audit: store.file('audit.jsonl'), verifier }, null, 2));
   return { store, config, repo, dir };
 }
@@ -36,7 +37,7 @@ function agents(): Agents {
     executionMode: 'native',
     async plan(state, store) { recordClaudeCall(state, store, 'plan'); fs.writeFileSync(path.join(state.workspace, 'plan-note.txt'), '规划阶段实际修改\n'); return { humanDecision: null, tasks: [{ id: 'native', instruction: '修复并验证', acceptance: ['独立验收通过'] }] }; },
     async execute(state, store) { state.codexThreadId ??= 'fixture-thread'; store.save(state); fs.writeFileSync(path.join(state.workspace, 'result.txt'), 'fixed\n'); return { mode: 'native', summary: '本地原生适配器夹具已修改 result.txt' }; },
-    async review(state, store) { recordClaudeCall(state, store, 'review'); fs.writeFileSync(path.join(state.workspace, 'seed.txt'), 'reviewed\n'); return { verdict: 'pass', reason: '本地审查夹具已修复 seed.txt；等待 Controller 独立验收' }; }
+    async review(state, store) { recordClaudeCall(state, store, 'review'); fs.writeFileSync(path.join(state.workspace, 'seed.txt'), 'reviewed\n'); return { verdict: 'pass', reason: '本地审查夹具已修复 seed.txt；等待用户最终确认' }; }
   };
 }
 
@@ -119,7 +120,7 @@ test('legacy snapshot: native controller includes planning, executor and reviewe
   assert.match(state.evidence!.diff, /plan-note.txt/); assert.match(state.evidence!.diff, /reviewed/); assert.match(state.evidence!.diff, /fixed/);
   assert.equal(fs.existsSync(f.store.file('application-1.json')), false);
   const events = audit(f.store.file('audit.jsonl'));
-  assert.deepEqual(events.filter(e => e.event === 'independent-check').map(e => e.data.passed), [false, true]);
+  assert.deepEqual(events.filter(e => e.event === 'fixture-decision-check').map(e => e.data.passed), [false, true]);
   assert.equal(events.filter(e => e.event === 'review-modified-workspace').length, 1);
   assert.ok(events.some(e => e.event === 'agent-finish' && e.data.agent === 'claude' && e.data.role === 'plan' && e.data.changed));
   assert.equal(await git(f.repo, ['status', '--porcelain']), '');
@@ -156,7 +157,7 @@ test('durable native result recovers without executing or writing files again', 
 test('Claude review repair finishes beyond historical call limit after independent verification', async () => {
   const f = await fixture('review-budget', { maxClaudeCalls: 1 }); const state = await drive(f.store, agents());
   assert.equal(state.phase, 'completed'); assert.equal(state.claudeCalls, 3); assert.equal(state.reworks, 0);
-  assert.equal(state.evidence?.passed, true); assert.equal(state.taskIndex, 1); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
+  assert.equal(state.evidence?.userAccepted, true); assert.equal(state.taskIndex, 1); assert.equal(fs.readFileSync(path.join(state.workspace, 'seed.txt'), 'utf8'), 'reviewed\n');
 });
 test('legacy snapshot: repeated CC review modifications are bounded by repair control across recovery', async () => {
   const f = await fixture('review-repair-loop', {maxClaudeCalls:1,maxReworks:1}), adapter=agents();

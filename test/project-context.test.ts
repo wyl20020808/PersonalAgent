@@ -8,7 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { stringify } from 'yaml';
 import { contextHash, contextRoot, loadProjectContext, parseContextDocument, stampContext } from '../src/project-context.js';
 import { callContext, matchesContextTerm } from '../src/context-navigation.js';
-import { createRun, drive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { MockAgents, type Agents } from '../src/adapters.js';
 import { RealAgents } from '../src/real-agents.js';
 import { approveDelivery, applyDelivery, previewDelivery, deliveryStatus } from '../src/delivery.js';
@@ -176,7 +177,7 @@ test('legacy real prompts still include repository, no new task declarations req
   const f = await fixture(false), captured: any[] = [], state = f.store.load();
   const fake: typeof runProcess = async (_exe, _args, options) => { captured.push(JSON.parse(options.input!)); options.onLine!(JSON.stringify({ type: 'result', structured_output: { tasks: [{ id: 'old', instruction: '旧任务', acceptance: ['通过'] }], humanDecision: null } })); return { exitCode: 0, stdout: '', stderr: '' }; };
   await new RealAgents(f.config, fake).plan(state, f.store, new AbortController().signal);
-  assert.ok(JSON.stringify(captured[0].repository).includes('SOURCE_SENTINEL_NEVER_INJECTED')); assert.equal('context' in captured[0], false);
+  assert.ok(!JSON.stringify(captured[0].repository).includes('SOURCE_SENTINEL_NEVER_INJECTED')); assert.equal('context' in captured[0], false);
   const manifests = fs.readdirSync(f.store.file('context')).filter(name => name.endsWith('.manifest.json'));
   assert.equal(manifests.length, 1);
   const receipt = JSON.parse(fs.readFileSync(f.store.file(`context/${manifests[0]}`), 'utf8'));

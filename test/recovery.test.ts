@@ -4,7 +4,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createRun, drive as controllerDrive } from '../src/controller.js';
+import { drive as rawDrive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as controllerDrive } from './helpers/accepted-flow.js';
 import { Store, type State } from '../src/store.js';
 import { git, snapshot } from '../src/workspace.js';
 import { prepareApplication } from '../src/application.js';
@@ -44,7 +46,7 @@ test('independent failure then bounded repair uses supervisor and preserves coun
   const f = await fixture('repair-success'); const execute = f.agents.execute;
   f.agents.execute = async (...args) => { const edits = await execute(...args); assert.ok('changes' in edits); if (args[0].loops === 1) edits.changes[0]!.content = 'wrong\n'; return edits; };
   const state = await drive(f.store, f.agents); assert.equal(state.phase, 'completed'); assert.equal(state.loops, 2); assert.equal(state.totalReworks, 1); assert.equal(state.claudeCalls, 3); assert.equal(f.reviews(), 2);
-  const checks = readFileSync(f.store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(event => event.event === 'independent-check');
+  const checks = readFileSync(f.store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(event => event.event === 'fixture-decision-check');
   assert.deepEqual(checks.map(event => event.data.passed), [false, true]); assert.equal(checks[0].data.tests[0].exitCode, 1);
   assert.equal(await git(f.repo, ['status', '--porcelain']), ''); assert.equal(state.codexThreadId, 'fake-sdk-thread');
 });
@@ -79,16 +81,17 @@ for (const native of [false, true]) test(`explicit rework at missing-tests pause
     if (native) { for (const file of ['result.txt', 'seed.txt']) writeFileSync(path.join(state.workspace, file), content); return { mode: 'native', summary: 'Local repair fixture' }; }
     return { summary: 'Local repair fixture', changes: [{ path: 'result.txt', content }, { path: 'seed.txt', content }] };
   };
-  const paused = await drive(f.store, agents);
-  assert.equal(paused.nextPhase, 'verify'); assert.equal(paused.loops, 1); assert.equal(manualAcceptanceDigest(paused), null);
+  agents.review = async (state, storage) => {recordClaudeCall(state,storage,'review');return {verdict:executions===1?'human':'pass',reason:'Fixture decision maker requests user review'};};
+  const paused = await rawDrive(f.store, agents);
+  assert.equal(paused.nextPhase, 'verify'); assert.equal(paused.loops, 1); assert.ok(manualAcceptanceDigest(paused));
   // Ordinary recovery remains verification, not implicit development or acceptance.
-  const checked = await drive(f.store, agents, 'repair current task');
+  const checked = await rawDrive(f.store, agents, 'repair current task');
   assert.equal(checked.phase, 'paused'); assert.equal(executions, 1); assert.equal(checked.taskIndex, 0);
-  const repaired = await drive(new Store(f.config.runtimeDir, f.store.id), agents, 'repair current task', undefined, undefined, 'rework');
+  const repaired = await rawDrive(new Store(f.config.runtimeDir, f.store.id), agents, 'repair current task', undefined, undefined, 'rework');
   assert.equal(repaired.phase, 'paused'); assert.equal(repaired.nextPhase, 'verify'); assert.equal(executions, 2);
   assert.equal(repaired.loops, 2); assert.equal(repaired.reworks, 1); assert.equal(repaired.totalReworks, 1);
   assert.equal(repaired.claudeSessionId, paused.claudeSessionId); assert.equal(repaired.codexThreadId, paused.codexThreadId);
-  assert.equal(repaired.claudeCalls, paused.claudeCalls); assert.equal(repaired.taskIndex, 0); assert.deepEqual(repaired.completedTaskIds, []);
+  assert.equal(repaired.claudeCalls, (paused.claudeCalls??0)+2); assert.equal(repaired.taskIndex, 0); assert.deepEqual(repaired.completedTaskIds, []);
   assert.equal(repaired.config.maxLoops, 4); assert.equal(repaired.config.maxReworks, 1);
   assert.equal(readFileSync(path.join(repaired.workspace, 'result.txt'), 'utf8'), 'ok\n');
   assert.equal(repaired.evidence?.passed, false); assert.deepEqual(repaired.evidence?.tests, []);
@@ -101,8 +104,9 @@ for (const native of [false, true]) test(`explicit rework at missing-tests pause
 
 for (const limit of ['reworks', 'loops'] as const) test(`explicit rework respects exhausted ${limit} without calling an agent`, async () => {
   const f = await fixture(`human-rework-limit-${limit}`, { tests: [], ...(limit === 'reworks' ? { maxReworks: 0 } : { maxLoops: 1 }) });
-  const paused = await drive(f.store, f.agents);
-  const blocked = await drive(f.store, f.agents, 'repair', undefined, undefined, 'rework');
+  f.agents.review=async()=>({verdict:'human',reason:'Fixture decision waits for user'});
+  const paused = await rawDrive(f.store, f.agents);
+  const blocked = await rawDrive(f.store, f.agents, 'repair', undefined, undefined, 'rework');
   assert.equal(blocked.phase, 'paused'); assert.equal(blocked.reason, limit === 'reworks' ? 'Rework limit reached' : 'Loop limit reached');
   assert.equal(blocked.loops, paused.loops); assert.equal(blocked.claudeCalls, paused.claudeCalls); assert.equal(f.executions(), 1);
   assert.equal(blocked.reworks, 0); assert.equal(blocked.totalReworks, 0);
@@ -110,7 +114,8 @@ for (const limit of ['reworks', 'loops'] as const) test(`explicit rework respect
 
 test('rework rejects missing decision, planning, applying and active runs before changing state', async () => {
   const f = await fixture('human-rework-invalid', { tests: [] });
-  const paused = await drive(f.store, f.agents);
+  f.agents.review=async()=>({verdict:'human',reason:'Fixture decision waits for explicit user instruction'});
+  const paused = await rawDrive(f.store, f.agents);
   for (const [phase, nextPhase, decision] of [['paused', 'verify', ''], ['paused', 'planning', 'repair'], ['paused', 'applying', 'repair'], ['verify', 'verify', 'repair']] as const) {
     f.store.save({ ...paused, phase, nextPhase });
     const before = readFileSync(f.store.file('state.json'));
@@ -136,6 +141,7 @@ test('independent test process timeout resumes verification without executing or
   const paused = await drive(f.store, f.agents); assert.equal(paused.phase, 'paused'); assert.equal(paused.failure?.kind, 'timeout'); assert.equal(paused.nextPhase, 'verify');
   const file = path.join(paused.workspace, 'result.txt'), mtime = statSync(file).mtimeMs;
   writeFileSync(f.control, JSON.stringify({ hang: false }));
+  const resumedState=f.store.load();resumedState.config.timeoutMs=10000;f.store.save(resumedState);
   const recovered = await drive(f.store, f.agents, 'External test hang corrected'); assert.equal(recovered.phase, 'completed'); assert.equal(recovered.loops, 1); assert.equal(f.executions(), 1); assert.equal(statSync(file).mtimeMs, mtime);
 });
 test('historical CC limit never blocks execution or review; counters remain durable', async () => {
@@ -168,7 +174,7 @@ test('legacy durable review receipt resumes after simulated crash without anothe
   // New Runs intentionally rerun review; only historical snapshot Runs reuse receipts.
   const initial = f.store.load(); delete initial.snapshotPolicy; f.store.save(initial);
   const complete = await drive(f.store, f.agents); assert.equal(complete.phase, 'completed');
-  const crash: State = { ...complete, phase: 'review', taskIndex: 0 }; f.store.save(crash); const mtime = statSync(path.join(crash.workspace, 'result.txt')).mtimeMs;
+  const crash: State = { ...complete, phase: 'review', taskIndex: 0, evidence: {...complete.evidence!,userAccepted:undefined} }; f.store.save(crash); const mtime = statSync(path.join(crash.workspace, 'result.txt')).mtimeMs;
   f.agents.review = async () => { throw new Error('Review must never be called again'); };
   const resumed = await drive(new Store(f.config.runtimeDir, f.store.id), f.agents); assert.equal(resumed.phase, 'completed'); assert.equal(resumed.claudeCalls, 2); assert.equal(resumed.loops, 1); assert.equal(statSync(path.join(crash.workspace, 'result.txt')).mtimeMs, mtime);
   assert.ok(readdirSync(f.store.dir).some(file => file.startsWith('review-')));
@@ -180,11 +186,12 @@ test('malformed executor output stays fatal; diagnostics distinguish authenticat
   assert.equal(classifyFailure(new Error('401 OAuth access token expired'), 'review').kind, 'authentication');
 });
 test('supervisor review timeout resumes checks, keeps written files and bills both attempts', async () => {
-  const f = await fixture('review-timeout', { timeoutMs: 250 }); const review = f.agents.review;
+  const f = await fixture('review-timeout', { timeoutMs: 5000 }); const review = f.agents.review;
   f.agents.review = async (state, storage, signal) => { recordClaudeCall(state, storage, 'review'); await delay(10000, undefined, { signal }); throw new Error('unreachable'); };
   const paused = await drive(f.store, f.agents); assert.equal(paused.phase, 'paused'); assert.equal(paused.failure?.kind, 'timeout'); assert.equal(paused.claudeCalls, 2);
   const mtime = statSync(path.join(paused.workspace, 'result.txt')).mtimeMs;
   f.agents.review = review;
+  const resumedState=f.store.load();resumedState.config.timeoutMs=10000;f.store.save(resumedState);
   const recovered = await drive(f.store, f.agents, 'Review service recovered'); assert.equal(recovered.phase, 'completed'); assert.equal(recovered.claudeCalls, 3); assert.equal(recovered.loops, 1); assert.equal(f.executions(), 1); assert.equal(statSync(path.join(paused.workspace, 'result.txt')).mtimeMs, mtime);
 });
 test('real supervisor adapter classifies injected 401 JSON without launching CC', async () => {

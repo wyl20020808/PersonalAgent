@@ -6,11 +6,12 @@ import { pathToFileURL } from 'node:url';
 import { regressionFixture, fixtureReview, geometry, requirements, writeFixture, type RegressionTask } from './context-regression-fixtures.js';
 import { RealAgents } from '../src/real-agents.js';
 import { drive } from '../src/controller.js';
+import { acceptManual, manualAcceptanceDigest } from '../src/manual-acceptance.js';
 import { runUsage } from '../src/call-observation.js';
 import { auditRecords } from '../src/context-trust.js';
 import { stampContext, contextHash } from '../src/project-context.js';
 import { readProject } from '../src/project-files.js';
-import type { runProcess } from '../src/process.js';
+import { runProcess } from '../src/process.js';
 
 export async function runFixedRegression(directory: string, task: RegressionTask, version: 'main' | 'dev' = 'main', useGit = true) {
   const fixture = await regressionFixture(directory, task, version, useGit), original = readProject(fixture.source).digest;
@@ -35,8 +36,12 @@ export async function runFixedRegression(directory: string, task: RegressionTask
         assert.equal(prompt.context.freshness.length, version === 'dev' ? 1 : 0);
       }
       if (task === 'T2' && phase === 'review') { assert.deepEqual(prompt.evidence.contextReport.expandedModules, ['world']); assert.ok(prompt.evidence.contextReport.contracts.some((doc: any) => doc.id === 'geometry' && doc.content.includes(geometry))); }
-      const result = phase === 'plan' ? { humanDecision: null, tasks: [{ id: task, instruction: requirements[task], moduleIds: [task === 'T1' ? 'game-app' : 'combat'], acceptance: ['固定独立源码/行为断言通过，关键契约与当前版本正确'] }] } : fixtureReview(prompt.evidence.contextReport);
-      // The deliberately wrong T2 candidate even receives a Mock pass; independent verification vetoes it.
+      let result = phase === 'plan' ? { humanDecision: null, tasks: [{ id: task, instruction: requirements[task], moduleIds: [task === 'T1' ? 'game-app' : 'combat'], acceptance: ['固定独立源码/行为断言通过，关键契约与当前版本正确'] }] } : fixtureReview(prompt.evidence.contextReport);
+      if (phase === 'review') {
+        const checks = await Promise.all(fixture.config.tests.map(check => runProcess(check.executable, check.args, { cwd: state.workspace, timeoutMs: fixture.config.timeoutMs })));
+        fixture.store.audit('fixture-decision-check', { tests: checks, passed: checks.every(check => check.exitCode === 0) });
+        if (checks.some(check => check.exitCode !== 0)) result = { verdict: 'rework', reason: 'Fixture decision maker verified the candidate and requests correction' };
+      }
       emit({ type: 'result', is_error: false, usage: { input_tokens: phase === 'plan' ? 90 : 100090, output_tokens: phase === 'plan' ? 12 : 100012, cache_read_input_tokens: 20, cache_creation_input_tokens: 4 }, structured_output: result });
     } else {
       emit({ type: 'thread', id: 'fixture-codex-thread' });
@@ -59,14 +64,17 @@ export async function runFixedRegression(directory: string, task: RegressionTask
     }
     return { exitCode: 0, stdout: '', stderr: '' };
   };
-  const state = await drive(fixture.store, new RealAgents(fixture.config, injected));
+  let state = await drive(fixture.store, new RealAgents(fixture.config, injected));
+  assert.equal(state.phase, 'paused', state.reason);
+  assert.equal(state.evidence?.decisionReview?.verdict, 'pass');
+  state = await acceptManual(fixture.store, manualAcceptanceDigest(state)!, 'Explicit local fixture user accepts the reviewed result');
   assert.equal(state.phase, 'completed', state.reason); assert.equal(readProject(fixture.source).digest, original);
   const events = auditRecords(fixture.store.file('audit.jsonl')), usage = runUsage(fixture.store);
   const manifests = received.map(call => JSON.parse(fs.readFileSync(fixture.store.file(`context/${call.callId}.manifest.json`), 'utf8')));
   const reads = received.flatMap(call => fs.readFileSync(fixture.store.file(`context/${call.callId}.reads.jsonl`), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)));
   const result = { task, version, label: 'deterministic-injected-Mock-no-paid-agent', runId: state.id, directory, source: fixture.source, workspace: state.workspace, verifier: fixture.config.tests[0]!.args[0], durationMs: Date.now() - started,
-    metrics: { finalIndependentPass: state.evidence!.passed, finalConstraintFailures: 0, wrongVersionReferences: 0, contextCausedReworks: 0, injectedCandidateReworks: task === 'T2' ? state.totalReworks ?? 0 : 0, modelConstraintOmissions: null, actualPaidCalls: 0, controllerClaudeCalls: state.claudeCalls, controllerCodexCalls: state.loops, nativeReadEvents: reads.filter(row => row.kind === 'confirmed-read').length, shellCommands: reads.filter(row => row.kind === 'shell-command').length },
-    candidateOrigins: events.filter(event => event.event === 'regression-candidate-origin').map(event => event.data), independentChecks: events.filter(event => event.event === 'independent-check').map(event => ({ passed: event.data.passed, tests: event.data.tests, contextReport: event.data.contextReport })),
+    metrics: { finalIndependentPass: events.filter(event => event.event === 'fixture-decision-check').at(-1)?.data.passed === true, finalConstraintFailures: 0, wrongVersionReferences: 0, contextCausedReworks: 0, injectedCandidateReworks: task === 'T2' ? state.totalReworks ?? 0 : 0, modelConstraintOmissions: null, actualPaidCalls: 0, controllerClaudeCalls: state.claudeCalls, controllerCodexCalls: state.loops, nativeReadEvents: reads.filter(row => row.kind === 'confirmed-read').length, shellCommands: reads.filter(row => row.kind === 'shell-command').length },
+    candidateOrigins: events.filter(event => event.event === 'regression-candidate-origin').map(event => event.data), independentChecks: events.filter(event => event.event === 'fixture-decision-check').map(event => ({ passed: event.data.passed, tests: event.data.tests, contextReport: event.data.contextReport })),
     received, manifests: manifests.map(manifest => ({ callId: manifest.callId, phase: manifest.phase, workspace: manifest.targetWorkspace, version: manifest.version, prompt: manifest.prompt, attached: manifest.attached })), usage,
     evidence: { audit: fixture.store.file('audit.jsonl'), finalDiff: state.evidence?.taskDiff ?? state.evidence?.diff, finalPlan: state.tasks, reviews: events.filter(event => event.event === 'review').map(event => event.data) } };
   writeFixture(directory, 'result.json', JSON.stringify(result, null, 2));

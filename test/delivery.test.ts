@@ -4,7 +4,8 @@ import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, statSync, wr
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createRun, drive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { Store } from '../src/store.js';
 import { git, snapshot } from '../src/workspace.js';
 import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from '../src/delivery.js';
@@ -56,7 +57,7 @@ test('unapproved apply and wrong or empty approval never modify target', async (
 test('incomplete state and missing independent or supervisor proof cannot preview', async () => {
   const f = await fixture('proof'); const original = f.store.load();
   f.store.save({ ...original, phase: 'paused' }); await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /lacks completed/);
-  f.store.save({ ...original, evidence: { ...original.evidence!, passed: false } }); await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /lacks completed/);
+  f.store.save({ ...original, evidence: { ...original.evidence!, userAccepted: false } }); await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /lacks completed/);
   const legacy = { ...original, evidence: { ...original.evidence! } }; delete legacy.evidence.acceptanceRulesHash; f.store.save(legacy);
   await assert.rejects(previewDelivery(f.store, f.target, 'delivery-dev'), /fingerprints/); f.store.save(original);
   const audit = f.store.file('audit.jsonl'); writeFileSync(audit, readFileSync(audit, 'utf8').replace('Independent evidence', 'Forged review'));

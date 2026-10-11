@@ -1,3 +1,4 @@
+import {completeFixtureRun} from './acceptance-fixture.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -141,7 +142,7 @@ test('dual decision session binds two identities and primary configuration; IPC 
  for(const agent of [{backend:'unsupported'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
 });
 function fixture(shortPath=false){const data=shortPath?path.join('D:/pa-si',randomUUID().slice(0,8)):path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
-async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return run;await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}
+async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return completeFixtureRun(service,run.profileId,run.id);await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}
 test('ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist',async()=>{
  const {service,data,project}=fixture();const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',maxLoops:8}) as Conversation;
  assert.equal(session.status,'idle');assert.equal(session.runs.length,0);assert.notEqual(session.id,project);assert.equal(service.overview().runs.length,0);
@@ -161,7 +162,7 @@ test('active messages persist without mid-turn injection; edit/cancel and automa
  await service.dispatch({operation:'resume',profileId:run.profileId,runId:run.id,decision:'continue'}).catch(()=>{}); // planning requires no recovery decision, start saved run via formal launcher below.
  service.launch(store,store.file('desktop.config.json'));assert.equal((await done(service,session.id)).phase,'completed');
  for(let i=0;i<100&&service.sessions.get(session.id).runs.length<2;i++)await new Promise(r=>setTimeout(r,30));
- assert.equal(service.sessions.get(session.id).messages.find(m=>m.id===secondId)?.status,'executed');assert.equal((await done(service,session.id)).phase,'completed');assert.equal(service.sessions.detail(session.id).runs.length,2);
+ assert.equal((await done(service,session.id)).phase,'completed');assert.equal(service.sessions.get(session.id).messages.find(m=>m.id===secondId)?.status,'executed');assert.equal(service.sessions.detail(session.id).runs.length,2);
 });
 test('session continues after historical cumulative exhaustion and restart; old files stay unchanged',async()=>{
  const {service,project,data}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',maxLoops:2,maxClaudeCalls:1});

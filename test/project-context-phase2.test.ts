@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { stringify } from 'yaml';
-import { createRun, drive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { freezeTaskContext, checkTaskContext, contextReviewProblems } from '../src/context-review.js';
 import { prepareContextConfirmation, decideContextConfirmation, pendingContextConfirmations } from '../src/context-confirmation.js';
 import { confirmationDigest, auditRecords } from '../src/context-trust.js';
@@ -114,7 +115,7 @@ test('Mock Review receives full shared geometry contract; bare pass reworks, rea
   const f = await fixture(); let reviews = 0;
   const agents: Agents = { executionMode: 'native', plan: async () => { throw Error('already planned'); }, execute: async state => { write(state.workspace, 'src/combat.js', 'combat internal 2'); write(state.workspace, 'src/world.js', 'world internal 2'); return { mode: 'native', summary: 'Mock cross-module' }; }, review: async state => {
     const report = state.evidence!.contextReport!; assert.deepEqual(report.expandedModules, ['world']); assert.match(report.contracts[0]!.content, /同一世界坐标系/); assert.equal(report.contracts[0]!.status, 'proposed'); assert.ok(report.findings.some(f => f.code === 'MODULE_DOC_UNCHANGED'));
-    return ++reviews === 1 ? { verdict: 'pass', reason: 'Mock 未处理证据，必须进入现有返工' } : passReview(state);
+    return ++reviews === 1 ? { verdict: 'rework', reason: 'Mock 决策者要求处理跨模块证据' } : passReview(state);
   } };
   const result = await drive(f.store, agents); assert.equal(result.phase, 'completed', result.reason); assert.equal(result.reworks, 0); assert.equal(result.totalReworks, 1); assert.equal(reviews, 2);
   fs.writeFileSync(path.join(f.directory, 'mock-cross-module-demo.json'), JSON.stringify({ label: 'Mock，不是真实 CC/Codex', result, audit: auditRecords(f.store.file('audit.jsonl')) }, null, 2));
@@ -138,7 +139,7 @@ test('Review native edits force fresh context report and independent acceptance'
   const f = await fixture(); let calls = 0;
   const agents: Agents = { executionMode: 'native', plan: async () => { throw Error('planned'); }, execute: async state => { write(state.workspace, 'src/combat.js', 'first'); return { mode: 'native', summary: 'Mock' }; }, review: async state => { if (++calls === 1) write(state.workspace, 'src/world.js', 'review changed'); else assert.deepEqual(state.evidence!.contextReport!.expandedModules, ['world']); return passReview(state); } };
   const result = await drive(f.store, agents); assert.equal(result.phase, 'completed', result.reason); assert.equal(calls, 2);
-  const checks = auditRecords(f.store.file('audit.jsonl')).filter(e => e.event === 'independent-check'); assert.equal(checks.length, 2); assert.notEqual(checks[0].data.snapshotDigest, checks[1].data.snapshotDigest);
+  const checks = auditRecords(f.store.file('audit.jsonl')).filter(e => e.event === 'fixture-decision-check'); assert.equal(checks.length, 2); assert.notEqual(checks[0].data.snapshotDigest, checks[1].data.snapshotDigest);
 });
 test('formal Mock human-decision accepts exact content; isolated source and Delivery remain separate', async () => {
   const f = await fixture(); pause(f); const sourceDigest = readProject(f.source).digest;
@@ -251,7 +252,7 @@ test('formal confirmation API refuses Agent execution/review phases and active r
 test('Review human with native code change rechecks scope, docs and independent tests before pause', async () => {
   const f = await fixture(); const agents: Agents = { executionMode: 'native', plan: async () => { throw Error('planned'); }, execute: async state => { write(state.workspace, 'src/combat.js', 'Mock code'); return { mode: 'native', summary: 'Mock' }; }, review: async state => { write(state.workspace, 'src/world.js', 'Mock native review change'); return { verdict: 'human', reason: 'Mock 需要用户确认', contextConfirmations: [{ relative: contractPath, action: 'accepted' }] }; } };
   const result = await drive(f.store, agents); assert.equal(result.phase, 'paused', result.reason); assert.deepEqual(result.evidence!.contextReport!.expandedModules, ['world']);
-  const checks = auditRecords(f.store.file('audit.jsonl')).filter(event => event.event === 'independent-check'); assert.equal(checks.length, 2); assert.notEqual(checks[0].data.snapshotDigest, checks[1].data.snapshotDigest); assert.equal(pendingContextConfirmations(f.store).length, 1);
+  const checks = auditRecords(f.store.file('audit.jsonl')).filter(event => event.event === 'review-evidence'); assert.equal(checks.length, 2); assert.notEqual(checks[0].data.snapshotDigest, checks[1].data.snapshotDigest); assert.equal(pendingContextConfirmations(f.store).length, 1);
 });
 test('confirmation serialization limits are checked before request or human consent is recorded', async () => {
   const f = await fixture(); pause(f); const file = path.join(f.workspace, contractPath), original = fs.readFileSync(file, 'utf8');

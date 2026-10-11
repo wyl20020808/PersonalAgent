@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Store, type State } from './store.js';
 import { collectEvidence } from './workspace.js';
 import { lockProject } from './project-files.js';
+import { pendingGuidance, processingGuidance } from './steering.js';
 
 export function manualAcceptanceDigest(state: State): string | null {
   if (state.phase !== 'paused' || state.nextPhase !== 'verify' || state.evidence?.acceptanceMode !== 'decision-user' || !['pass', 'human'].includes(state.evidence.decisionReview?.verdict ?? '') || state.evidence.userAccepted) return null;
@@ -16,6 +17,7 @@ export async function acceptManual(store: Store, digest: string, observations: s
     if(!observations.trim() || !digest || manualAcceptanceDigest(state)!==digest) throw new Error('Manual acceptance requires exact current digest and observations');
     const evidence=await collectEvidence(state,new AbortController().signal,false,true);
     evidence.decisionReview=state.evidence!.decisionReview;
+    evidence.contextReport=state.evidence!.contextReport;
     evidence.taskDiff=state.evidence!.taskDiff; evidence.roundDiff=state.evidence!.roundDiff;
     const checked={...state,evidence};
     if(manualAcceptanceDigest(checked)!==digest) throw new Error('Manual acceptance observed evidence or rules changed');
@@ -27,7 +29,8 @@ export async function acceptManual(store: Store, digest: string, observations: s
     state.taskIndex=state.tasks.findIndex(task=>!state.completedTaskIds!.includes(task.id));
     if(state.taskIndex<0)state.taskIndex=state.tasks.length;
     state.reworks=0;state.reviewRepairs=0;state.reworkPending=false;state.failure=null;
-    state.phase=state.taskIndex===state.tasks.length?'completed':'paused';state.nextPhase='execute';
+    const awaitingGuidance=pendingGuidance(store).length>0||processingGuidance(store).length>0;
+    state.phase=state.taskIndex===state.tasks.length&&!awaitingGuidance?'completed':'paused';state.nextPhase='execute';
     state.reason=state.phase==='completed'?'人工验收完成；决策者审查及用户确认已记录，Controller 未判定成果或执行验收测试':'当前任务已人工验收；提交恢复决策后开发下一任务';
     store.save(state);store.audit('transition',{phase:state.phase,reason:state.reason,taskIndex:state.taskIndex});return state;
   } finally {release?.();unlock();}

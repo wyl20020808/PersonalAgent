@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { regressionFixture, writeFixture, initialFiles, fixtureReview } from '../scripts/context-regression-fixtures.js';
 import { assertT2ReviewStage } from '../scripts/context-regression-review.js';
-import { drive } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { stampContext } from '../src/project-context.js';
 import { auditRecords } from '../src/context-trust.js';
 
@@ -44,7 +44,7 @@ async function replay(kind: 'restored' | 'different' | 'missing-contract' | 'ind
         if (kind === 'independent-failure') writeFixture(state.workspace, 'combat/core.js', 'export const reach = 4;\nexport const unit = "m";\n');
         stampContext(state.workspace, 'combat', ['combat/core.js']); stampContext(state.workspace, 'world', ['world/geometry.js']);
       }
-      return fixtureReview(state.evidence!.contextReport!);
+      if(reviews>1 && !state.evidence!.passed)return {verdict:'rework',reason:'Fixture decision maker requests repair of failed checks'};return fixtureReview(state.evidence!.contextReport!);
     }
   });
   return { result, stages, reviews, events: auditRecords(fixture.store.file('audit.jsonl')) };
@@ -54,7 +54,7 @@ test('T2 restored world permits empty expansion after CC repair; independent rec
   const f = await replay('restored'); assert.equal(f.result.phase, 'completed', f.result.reason);
   assert.equal(f.reviews, 2); assert.equal(f.stages[0]!.stage, 'test-injected-candidate');
   assert.equal(f.stages[1]!.worldRestored, true); assert.deepEqual(f.stages[1]!.expandedModules, []);
-  assert.equal(f.result.evidence!.passed, true); assert.equal(f.events.filter(e => e.event === 'independent-check').length, 2);
+  assert.equal(f.result.evidence!.userAccepted, true); assert.equal(f.events.filter(e => e.event === 'fixture-decision-check').length, 2);
   assert.equal(f.events.filter(e => e.event === 'review').length, 2);
 });
 
@@ -74,5 +74,5 @@ test('T2 restored world cannot omit required geometry contract', async () => {
 test('T2 Review pass cannot bypass failed independent recheck after repair', async () => {
   const f = await replay('independent-failure'); assert.notEqual(f.result.phase, 'completed');
   assert.equal(f.reviews, 2); assert.equal(f.result.evidence!.passed, false);
-  assert.ok(f.events.some(e => e.event === 'review-vetoed')); assert.equal(f.result.totalReworks ?? 0, 0);
+  assert.ok(f.events.some(e => e.event === 'review' && e.data.verdict==='rework')); assert.equal(f.result.totalReworks ?? 0, 0);
 });

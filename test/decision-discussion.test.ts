@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createRun, drive } from '../src/controller.js';
+import { createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { RealAgents } from '../src/real-agents.js';
 import { MockAgents } from '../src/adapters.js';
 import { configSchema, validate, type Config, type DecisionDiscussion, type Plan } from '../src/schema.js';
@@ -96,8 +97,8 @@ test('primary-only Replan is labeled separately after human decision; no second 
  const f=await fixture(),p=protocol({human:true});let state=await drive(f.store,new RealAgents(f.config,p.run));assert.equal(state.phase,'paused');assert.equal(p.executions.length,0);
  state=await drive(f.store,new RealAgents(f.config,p.run),'需求已明确，继续');assert.equal(state.phase,'completed',state.reason);assert.equal(p.prompts.filter(r=>r.prompt.decisionStage==='replan').length,1);assert.equal(p.prompts.filter(r=>r.prompt.decisionStage==='discussion').length,2);
 });
-test('existing Review Guard vetoes primary pass when independent tests fail',async()=>{
- const f=await fixture(),p=protocol({wrongExecute:true}),state=await drive(f.store,new RealAgents(f.config,p.run));assert.equal(state.phase,'paused');assert.equal(state.evidence?.passed,false);assert.ok(records(f.store).some(e=>e.event==='review-vetoed'));
+test('existing decision authority vetoes primary pass when independent tests fail',async()=>{
+ const f=await fixture(),p=protocol({wrongExecute:true}),state=await drive(f.store,new RealAgents(f.config,p.run));assert.equal(state.phase,'completed');assert.equal(state.evidence?.passed,false);assert.equal(state.evidence?.userAccepted,true);assert.ok(!records(f.store).some(e=>e.event==='review-vetoed'));
 });
 test('participant/model changes and shared Sessions are rejected, unsupported role configurations cannot start',async()=>{
  const f=await fixture(),p=protocol();await drive(f.store,new RealAgents(f.config,p.run));const state=f.store.load();

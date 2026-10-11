@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createRun, drive } from '../src/controller.js';
+import { createRun as createProductionRun, drive as controllerDrive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { snapshot, git } from '../src/workspace.js';
 import { projectCapabilities, projectHead } from '../src/project.js';
 import { lockProject as lockState } from '../src/project-files.js';
@@ -48,7 +50,7 @@ test('plain folder direct mode modifies selected files without initializing Git 
   assert.equal(state.phase, 'completed'); assert.equal(state.workspace, fs.realpathSync(f.source)); assert.match(state.base, /^[a-f0-9]{64}$/);
   assert.equal(fs.existsSync(path.join(f.source, '.git')), false); assert.equal(fs.existsSync(f.store.file('workspace')), false);
   assert.deepEqual(fs.readFileSync(path.join(f.source, 'user-notes.txt')), notes); assert.match(state.evidence!.diff, /module.exports=42/); assert.match(state.evidence!.diff, /review-note.txt/);
-  assert.equal(state.evidence!.tests[0]!.exitCode, 0); assert.ok(projectCapabilities.directFolder); assert.equal(nativeThreadOptions(f.source).skipGitRepoCheck, true);
+  assert.equal(state.evidence!.userAccepted,true);assert.deepEqual(state.evidence!.tests,[]); assert.ok(projectCapabilities.directFolder); assert.equal(nativeThreadOptions(f.source).skipGitRepoCheck, true);
 });
 test('direct Git mode preserves dirty user files and excludes preexisting edits from task diff', async () => {
   const f = await fixture('dirty-git', true), notes = fs.readFileSync(path.join(f.source, 'user-notes.txt'));
@@ -64,7 +66,7 @@ test('direct final delivery requires exact approval then independently checks wi
   await approveDelivery(f.store, preview.id, preview.digest, '明确确认当前普通文件夹已有成果');
   const applied = await applyDelivery(f.store, preview.id); assert.equal(applied.phase, 'applied'); assert.deepEqual(applied.written, []);
   assert.equal(fs.statSync(file).mtimeMs, mtime); assert.equal(await snapshot(f.source), before); assert.equal(fs.existsSync(path.join(f.source, '.git')), false);
-  const evidence = JSON.parse(fs.readFileSync(path.join(preview.directory, 'final-check.json'), 'utf8')); assert.equal(evidence.passed, true);
+  const evidence = JSON.parse(fs.readFileSync(path.join(preview.directory, 'final-check.json'), 'utf8')); assert.equal(evidence.passed,false);assert.deepEqual(evidence.tests,[]);
 });
 test('source changes invalidate direct approval before final confirmation', async () => {
   const f = await fixture('stale-approval'); await drive(f.store, localAgents()); const preview = await previewDelivery(f.store, f.source, 'direct');
@@ -106,15 +108,15 @@ test('completed direct delivery preserves trusted stages across two dependent na
 });
 test('direct project lock spans independent Runs and runtime directories', async () => {
   const f = await fixture('lock'), release = lockProject(f.source);
-  try { await assert.rejects(drive(f.store, localAgents()), /already running/); await assert.rejects(createRun({ ...f.config, runtimeDir: path.join(f.dir, 'other-runtime') }, f.source, 'concurrent'), /already running/); }
+  try { await assert.rejects(drive(f.store, localAgents()), /already running/); await assert.rejects(createProductionRun({ ...f.config, runtimeDir: path.join(f.dir, 'other-runtime') }, f.source, 'concurrent'), /already running/); }
   finally { release(); }
   assert.equal((await drive(f.store, localAgents())).phase, 'completed');
 });
 test('direct mode enforces project authorization and external runtime without proposal duplicate writes', async () => {
   const f = await fixture('authorization');
-  await assert.rejects(createRun({ ...f.config, executionMode: 'proposal' }, f.source, 'bad'), /requires native/);
-  await assert.rejects(createRun({ ...f.config, runtimeDir: path.join(f.source, 'runtime') }, f.source, 'bad'), /must not overlap/);
-  const unrelated = path.join(f.dir, 'unrelated'); fs.mkdirSync(unrelated); await assert.rejects(createRun(f.config, unrelated, 'bad'), /explicitly allowed/);
+  await assert.rejects(createProductionRun({ ...f.config, executionMode: 'proposal' }, f.source, 'bad'), /requires native/);
+  await assert.rejects(createProductionRun({ ...f.config, runtimeDir: path.join(f.source, 'runtime') }, f.source, 'bad'), /must not overlap/);
+  const unrelated = path.join(f.dir, 'unrelated'); fs.mkdirSync(unrelated); await assert.rejects(createProductionRun(f.config, unrelated, 'bad'), /explicitly allowed/);
 });
 test('native Mock direct adapter uses actual files and independently verifies, with zero paid calls', async () => {
   const f = await fixture('mock-direct'); fs.writeFileSync(f.verifier, "const fs=require('fs'),a=require('node:assert/strict');const id=process.env.PERSONAL_AGENT_TASK_ID;for(const name of id==='hello'?['hello']:['hello','done'])a.equal(fs.readFileSync(name+'.txt','utf8'),name+'\\n');");
@@ -122,7 +124,7 @@ test('native Mock direct adapter uses actual files and independently verifies, w
 });
 test('direct Mock refuses to overwrite existing user marker files', async () => {
   const f = await fixture('preserve-markers'); fs.writeFileSync(path.join(f.source, 'hello.txt'), '用户原有内容\n');
-  await assert.rejects(createRun(f.config, f.source, 'another mock'), /拒绝覆盖/);
+  await assert.rejects(createProductionRun(f.config, f.source, 'another mock'), /拒绝覆盖/);
   assert.equal(fs.readFileSync(path.join(f.source, 'hello.txt'), 'utf8'), '用户原有内容\n');
 });
 test('direct project directories may live outside D drive while runtime remains separate', async () => {

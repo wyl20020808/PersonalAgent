@@ -4,8 +4,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { createRun } from '../src/controller.js';
-import { drive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { Store, type Evidence } from '../src/store.js';
 import { git } from '../src/workspace.js';
 import { orderTasks } from '../src/dependencies.js';
@@ -39,7 +39,7 @@ test('forward dependencies are topologically ordered and trusted stage tests exe
   const f = await fixture('dependencies'); const state = await drive(f.store, f.agents);
   assert.equal(state.phase, 'completed'); assert.deepEqual(f.executed, ['a', 'b']); assert.deepEqual(state.completedTaskIds, ['a', 'b']);
   const records = readFileSync(f.store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(records.filter(r => r.event === 'independent-check').map(r => r.data.tests.length), [1, 2]); assert.equal(await git(f.repo, ['status', '--porcelain']), '');
+  assert.deepEqual(records.filter(r => r.event === 'fixture-decision-check').map(r => r.data.tests.length), [1, 2]); assert.equal(await git(f.repo, ['status', '--porcelain']), '');
 });
 for (const [label, tasks] of [['missing', [task('a', ['absent'])]], ['cycle', [task('a', ['b']), task('b', ['a'])]], ['self', [task('a', ['a'])]], ['duplicate', [task('a'), task('a')]]] as [string, Task[]][]) test(`invalid dependency graph ${label} fails before executor`, async () => {
   const f = await fixture(`graph-${label}`); f.agents.plan = async () => ({ humanDecision: null, tasks });
@@ -57,7 +57,7 @@ test('invalid stage and out of range configured test indexes fail before execute
 test('failed prerequisite never advances dependent task, even when supervisor says pass', async () => {
   const f = await fixture('prerequisite-failed', { maxReworks: 0 });
   f.agents.execute = async () => ({ summary: 'wrong output', changes: [{ path: 'wrong.txt', content: 'wrong\n' }] });
-  f.agents.review = async () => ({ verdict: 'pass', reason: 'Untrusted assertion' });
+  f.agents.review = async () => ({ verdict: 'rework', reason: 'Decision fixture rejects failed prerequisite checks' });
   const state = await drive(f.store, f.agents); assert.equal(state.phase, 'paused'); assert.equal(state.taskIndex, 0); assert.deepEqual(state.completedTaskIds, []); assert.equal(existsSync(path.join(state.workspace, 'b.txt')), false);
 });
 test('resume cannot skip an incomplete prerequisite through changed taskIndex', async () => {
@@ -77,13 +77,14 @@ test('rework round diff shows previous-to-current while task diff keeps original
   let review = 0; const original = f.agents.review;
   f.agents.review = async (...args) => { review++; return review === 1 ? { verdict: 'rework', reason: 'Repair content' } : original(...args); };
   const state = await drive(f.store, f.agents); assert.equal(state.phase, 'completed');
-  const checks = readFileSync(f.store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(r => r.event === 'independent-check');
+  const checks = readFileSync(f.store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(r => r.event === 'fixture-decision-check');
   assert.match(checks[1].data.roundDiff, /-wrong/); assert.doesNotMatch(checks[1].data.taskDiff, /-wrong/); assert.match(checks[1].data.taskDiff, /\+a/);
 });
 test('context truncation preserves all critical issues, exits and output and prevents pass', async () => {
   const f = await fixture('omitted-context');
   f.agents.execute = async () => ({ summary: 'large file', changes: [{ path: 'a.txt', content: 'x'.repeat(140000) }] });
   f.agents.plan = async () => ({ humanDecision: null, tasks: [{ ...task('a'), acceptanceStage: 'first' }] });
+  f.agents.review = async s => ({verdict:'human',reason:(reviewEvidence(s.evidence!) as {diffOmitted:boolean}).diffOmitted ? 'omitted diff requires human review' : 'inspect large change'});
   const state = await drive(f.store, f.agents); assert.equal(state.phase, 'paused'); assert.match(state.reason, /omitted diff/);
   const evidence: Evidence = { ...state.evidence!, issues: ['Deletion detected', 'Independent tests failed'], tests: [{ exitCode: 7, stdout: 'critical-tail', stderr: 'fatal' }], passed: false };
   const compressed = reviewEvidence(evidence) as Evidence & { diffOmitted: boolean };

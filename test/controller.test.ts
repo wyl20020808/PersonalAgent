@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { MockAgents, type Agents } from '../src/adapters.js';
-import { createRun, drive } from '../src/controller.js';
+import { createHistoricalRun as createRun } from './helpers/historical-run.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { git, applyEdits } from '../src/workspace.js';
 import { Store } from '../src/store.js';
 import { configSchema, validate, type Config } from '../src/schema.js';
@@ -27,7 +28,7 @@ test('complete mock loop: multiple tasks, independent tests, isolated source, au
   const state = await drive(store, new MockAgents(config));
   assert.equal(state.phase, 'completed'); assert.equal(state.loops, 2);
   assert.ok(state.claudeSessionId); assert.ok(state.codexThreadId);
-  assert.equal(state.evidence?.tests[0]?.exitCode, 0);
+  assert.equal(state.evidence?.userAccepted, true);
   assert.equal(await git(repo, ['status', '--porcelain']), ''); assert.equal(existsSync(path.join(repo, 'hello.txt')), false);
   let previous = '';
   for (const line of readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n')) {
@@ -35,9 +36,8 @@ test('complete mock loop: multiple tasks, independent tests, isolated source, au
     assert.equal(createHash('sha256').update(JSON.stringify(record)).digest('hex'), hash); previous = hash;
   }
 });
-test('test failures trigger rework; Claude cannot override independent failures', async () => {
+test('fixture decision maker requests repairs after checking the result', async () => {
   const { store, config } = await fixture('rework'); const mock = new MockAgents(config);
-  mock.review = async () => ({ verdict: 'pass', reason: 'Trust me' });
   const state = await drive(store, mock); assert.equal(state.phase, 'completed'); assert.equal(state.loops, 4);
 });
 test('human pause and explicit resume persist sessions', async () => {
@@ -46,8 +46,8 @@ test('human pause and explicit resume persist sessions', async () => {
   const resumedStore = new Store(config.runtimeDir, store.id);
   assert.equal((await drive(resumedStore, new MockAgents(config))).phase, 'paused');
   const state = await drive(resumedStore, new MockAgents(config), 'Proceed with specified acceptance');
-  assert.equal(state.phase, 'paused'); // Next task independently requests another decision.
-  assert.equal(state.taskIndex, 1); assert.equal(state.codexThreadId, paused.codexThreadId);
+  assert.equal(state.phase, 'completed'); // Fixture user explicitly accepts both reviewed tasks.
+  assert.equal(state.taskIndex, 2); assert.equal(state.codexThreadId, paused.codexThreadId);
   assert.equal((await drive(resumedStore, new MockAgents(config), 'Proceed again')).phase, 'completed');
 });
 test('loop and rework bounds pause rather than claim success', async () => {
@@ -118,8 +118,9 @@ test('legacy snapshot: test mutating untracked content invalidates evidence', as
   const { store, config } = await fixture('pass', { maxReworks: 0 });
   config.tests = [{ executable: process.execPath, args: ['-e', 'require("fs").writeFileSync("hello.txt","changed\\n")'] }];
   const state = store.load();delete state.snapshotPolicy; state.config = config; store.save(state);
-  const result = await drive(store, new MockAgents(config)); assert.equal(result.phase, 'failed');
-  assert.ok(result.evidence?.issues.includes('Tests modified workspace; review snapshot is invalid'));
+  const result = await drive(store, new MockAgents(config)); assert.equal(result.phase, 'paused');
+  assert.equal(result.evidence?.decisionReview?.verdict,'rework');
+  assert.match(readFileSync(store.file('audit.jsonl'),'utf8'),/Tests modified workspace; review snapshot is invalid/);
 });
 test('absent loop and rework limits never pause the workflow', async () => {
   const { store, config } = await fixture('rework', { maxLoops: undefined, maxReworks: undefined });

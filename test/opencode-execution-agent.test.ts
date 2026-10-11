@@ -6,7 +6,8 @@ import {randomUUID} from 'node:crypto';
 import {createServer, type ServerResponse} from 'node:http';
 import {once} from 'node:events';
 import {createOpencodeClient} from '@opencode-ai/sdk/v2';
-import {createRun, drive} from '../src/controller.js';
+import { createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import {OpenCodeDecisionAgent, type OpenCodeLauncher} from '../src/opencode-decision-agent.js';
 import {OpenCodeExecutionAgent, assertExecutionState, executionPermissions, discoverOpencodeExecutionModels} from '../src/opencode-execution-agent.js';
 import {RealAgents} from '../src/real-agents.js';
@@ -152,8 +153,8 @@ test('Controller durable result recovery does not replay confirmed task',async()
  const recovered=await drive(f.store,real(f,server));assert.equal(recovered.phase,'completed');assert.equal(server.prompts,calls+1); // only Review repeated
  assert.ok(records(f.store).some(e=>e.event==='native-result-recovered'));
 });
-test('Controller Review Guard rejects permissive review and failed independent tests',async()=>{
- const f=await fixture({maxReworks:0}),server=fake({failTest:true}),done=await drive(f.store,real(f,server));assert.equal(done.phase,'paused');assert.equal(done.evidence?.passed,false);assert.ok(records(f.store).some(e=>e.event==='review-vetoed'));
+test('Controller transports decision verdict and fixture user acceptance without a machine test veto',async()=>{
+ const f=await fixture({maxReworks:0}),server=fake({failTest:true}),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.userAccepted,true);assert.ok(records(f.store).some(e=>e.event==='manual-acceptance'));
  await assert.rejects(()=>previewDelivery(f.store,f.source,''));
 });
 test('persisted execution model immutable; sessions cannot alias decision roles or other Run',async()=>{

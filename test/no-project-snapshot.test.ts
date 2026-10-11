@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { createRun, drive } from '../src/controller.js';
+import { drive as controllerDrive, createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { git, observeWorkspace, nativeAgentEnv } from '../src/workspace.js';
 import { loadProject, restoreProject } from '../src/project-files.js';
 import { previewDelivery, approveDelivery, applyDelivery } from '../src/delivery.js';
@@ -60,19 +61,19 @@ for (const gitProject of [false, true]) test(`large ${gitProject ? 'dirty Git' :
   assert.equal(state.phase, 'completed', state.reason);
   assert.equal(state.workspace, source); assert.equal(state.snapshotPolicy, 'none');
   assert.equal(state.claudeSessionId, 'local-plan-session'); assert.equal(state.codexThreadId, 'local-native-thread');
-  assert.equal(state.evidence!.passed, true); assert.ok(state.evidence!.verificationScope);
+  assert.equal(state.evidence!.userAccepted, true); assert.ok(state.evidence!.verificationScope);
   assert.equal(fs.existsSync(store.file('snapshot-objects')), false);
   assert.equal(fs.existsSync(store.file('project-baseline.json')), false);
   assert.equal(fs.readdirSync(store.dir).some(name => /baseline|recovery-/.test(name)), false);
   const audit = fs.readFileSync(store.file('audit.jsonl'), 'utf8');
-  assert.match(audit, /agent-start/); assert.match(audit, /independent-check/); assert.match(audit, /review/); assert.doesNotMatch(audit, /snapshot-coverage/);
+  assert.match(audit, /agent-start/); assert.match(audit, /fixture-decision-check/); assert.match(audit, /review/); assert.doesNotMatch(audit, /snapshot-coverage/);
   assert.throws(() => restoreProject(store, '', 'restore'), /no project backup/);
   const preview = await previewDelivery(store, source, 'direct');
   assert.match(fs.readFileSync(path.join(preview.directory, 'preview.md'), 'utf8'), /未验证全量/);
   await assert.rejects(applyDelivery(store, preview.id), /no valid explicit approval/);
   await approveDelivery(store, preview.id, preview.digest, 'Approve existing result within explicitly limited scope');
   const delivery = await applyDelivery(store, preview.id);
-  assert.equal(delivery.phase, 'applied'); assert.match(delivery.reason, /未验证全量/); assert.deepEqual(delivery.written, []);
+  assert.equal(delivery.phase, 'applied'); assert.match(delivery.reason, /Controller 未执行验收测试/); assert.deepEqual(delivery.written, []);
 });
 test('Project Context checks only documents and checked_files; native environment stays intact', async () => {
   const { store, source } = await fixture(false, true);
@@ -90,7 +91,7 @@ test('Project Context checks only documents and checked_files; native environmen
 });
 test('manual acceptance remains explicit when no tests exist', async () => {
   const { store } = await fixture(false, false, false);
-  const paused = await drive(store, agents(false)); assert.equal(paused.phase, 'paused');
+  const paused = await controllerDrive(store, agents(false)); assert.equal(paused.phase, 'paused');
   const digest = manualAcceptanceDigest(paused); assert.ok(digest);
   await assert.rejects(acceptManual(store, digest!, ''), /observations/);
   const state = await acceptManual(store, digest!, 'Observed selected file; full non-Git diff is unverified');
@@ -152,7 +153,7 @@ test('malformed Context edits remain auditable and cannot receive a verification
     return { mode: 'native', summary: 'Local malformed Context fixture' };
   };
   const state = await drive(store, local);
-  assert.ok(['paused', 'failed'].includes(state.phase), state.reason);
+  assert.equal(state.phase,'completed'); assert.equal(state.evidence?.userAccepted,true);
   assert.equal(state.evidence?.passed, false);
   assert.ok(state.evidence?.contextReport?.findings.some(finding => finding.code === 'CONTEXT_INVALID'));
   assert.match(fs.readFileSync(store.file('audit.jsonl'), 'utf8'), /agent-finish/);

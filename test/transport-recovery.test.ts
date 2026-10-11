@@ -5,7 +5,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import type { Codex, ThreadEvent } from '@openai/codex-sdk';
-import { createRun, drive } from '../src/controller.js';
+import { createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { Store } from '../src/store.js';
 import { RealAgents } from '../src/real-agents.js';
 import { recoverTransport } from '../src/transport-recovery.js';
@@ -130,5 +131,5 @@ test('Controller retries executor within one loop then independently verifies',a
     assert.match(request.prompt,/先检查已有修改/);fs.writeFileSync(path.join(request.workspace,'result.txt'),'ok');options.onLine!(JSON.stringify({type:'result',data:{mode:'native',summary:'local fixture'}}));return {exitCode:0,stdout:'',stderr:''};
   });
   const result=await drive(store,{executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'one',instruction:'local',acceptance:['result is ok']}]}),execute:real.execute.bind(real),review:async()=>({verdict:'pass',reason:'local fixture'})});
-  assert.equal(result.phase,'completed');assert.equal(result.loops,1);assert.equal(result.reworks,0);assert.equal(result.evidence?.passed,true);assert.deepEqual(ids,[null,'owned']);
+  assert.equal(result.phase,'completed');assert.equal(result.loops,1);assert.equal(result.reworks,0);assert.equal(result.evidence?.userAccepted, true);assert.deepEqual(ids,[null,'owned']);
 });

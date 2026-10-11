@@ -137,7 +137,7 @@ export class SessionStore {
   this.inFlight.add(session.id);
   try{return await this.sendLocked(r,process);}finally{this.inFlight.delete(session.id);release();}
  }
- /** Only a successful, owned child completion advances queued work. Reads/restarts never replay it. */
+ /** Owned completion or explicit final user acceptance advances queued work. Reads/restarts never replay it. */
  async drainCompleted(runId:string){
   const session=this.read().find(s=>!s.legacy&&s.runs.at(-1)?.id===runId);
   if(!session||this.draining.has(session.id))return;

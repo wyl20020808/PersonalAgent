@@ -1,3 +1,4 @@
+import {completeFixtureRun} from './acceptance-fixture.js';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -51,7 +52,7 @@ test('paid no-test project remains configurable without launching any paid servi
 test('ordinary folder direct GUI service confirms exact approved result without duplicate writes',async()=>{
  const folder=path.join(data,'direct');fs.mkdirSync(folder,{recursive:true});fs.writeFileSync(path.join(folder,'user.txt'),'保留用户成果\n');
  const run=await service.dispatch({operation:'startProject',projectPath:folder,goal:'local Mock only',projectMode:'direct',mode:'mock',directAcknowledged:true,maxClaudeCalls:5,maxLoops:4,maxReworks:1}) as any;
- const done=await terminal(run.profileId,run.id);assert.equal(done.phase,'completed');assert.equal(done.claudeCalls,0);assert.equal(done.projectMode,'direct');
+ const done=await completeFixtureRun(service,run.profileId,run.id);assert.equal(done.phase,'completed');assert.equal(done.claudeCalls,0);assert.equal(done.projectMode,'direct');
  const base={profileId:run.profileId,runId:run.id},mtime=fs.statSync(path.join(folder,'hello.txt')).mtimeMs;
  const preview=await service.dispatch({...base,operation:'preview',target:folder,branch:'direct'}) as any;
  await service.dispatch({...base,operation:'approve',deliveryId:preview.id,digest:preview.digest,decision:'仅确认本次新建 Mock 夹具成果'});
@@ -71,6 +72,6 @@ test('manual service acceptance is durable per task, does not approve delivery, 
   if(index===0)await service.dispatch({...base,operation:'resume',decision:'继续下一本地夹具任务，不调用真实 Agent'});
  }
  const done=service.detail(profile.id,run.id).run;assert.equal(done.manualAccepted,true);assert.equal(done.evidence?.passed,false);assert.deepEqual(done.evidence?.tests,[]);assert.equal(done.claudeCalls,0);
- assert.equal((await service.deliveries(profile.id,run.id)).length,0);await assert.rejects(service.dispatch({...base,operation:'preview',target:folder,branch:'direct'}),/lacks completed verification/);
+ assert.equal((await service.deliveries(profile.id,run.id)).length,0);const preview=await service.dispatch({...base,operation:'preview',target:folder,branch:'direct'}) as any;await assert.rejects(service.dispatch({...base,operation:'apply',deliveryId:preview.id}),/approval/);
  service.register(configFile,true);await assert.rejects(service.dispatch({...base,operation:'manualAccept',digest:'0'.repeat(64),decision:'replay'}),/只读/);
 });

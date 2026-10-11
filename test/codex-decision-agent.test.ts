@@ -8,7 +8,8 @@ import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { createRun, drive } from '../src/controller.js';
+import { createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { RealAgents } from '../src/real-agents.js';
 import { CodexDecisionAgent } from '../src/codex-decision-agent.js';
 import { runCodexDecisionTurn, codexOutputSchema, restoreOptionalFields, type CodexDecisionTurn } from '../src/codex-decision-turn.js';
@@ -160,8 +161,8 @@ test('ownership rejects mixed execution/decision Threads, shared dual Sessions a
   const shared = dual.store.load(); shared.discussion!.participants[1]!.session = shared.discussion!.participants[0]!.session; assert.throws(() => assertDiscussion(shared), /share/);
   const collision = await fixture(), cp = protocol({ shared: true }), stopped = await drive(collision.store, new RealAgents(collision.config, cp.run)); assert.equal(stopped.phase, 'failed'); assert.match(stopped.reason, /share/);
 });
-test('Codex pass cannot bypass Review Guard; Mock stays local and unique executor configuration stays enforced', async () => {
-  const f = await fixture(), p = protocol({ wrongExecute: true }), state = await drive(f.store, new RealAgents(f.config, p.run)); assert.equal(state.phase, 'paused'); assert.equal(state.evidence?.passed, false); assert.match(fs.readFileSync(f.store.file('audit.jsonl'), 'utf8'), /review-vetoed/);
+test('Codex pass cannot bypass decision authority; Mock stays local and unique executor configuration stays enforced', async () => {
+  const f = await fixture(), p = protocol({ wrongExecute: true }), state = await drive(f.store, new RealAgents(f.config, p.run)); assert.equal(state.phase, 'completed'); assert.equal(state.evidence?.passed, false); assert.equal(state.evidence?.userAccepted,true); assert.doesNotMatch(fs.readFileSync(f.store.file('audit.jsonl'), 'utf8'), /review-vetoed/);
   for (const extra of [{ executionAgent: { backend: 'unsupported' } }, { executionAgents: [{ backend: 'codex' }, { backend: 'codex' }] }, { decisionAgent: { backend: 'codex', model: 'bad model' } }]) assert.throws(() => validate(configSchema, { ...f.config, ...extra }));
 });
 

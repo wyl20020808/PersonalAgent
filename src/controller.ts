@@ -176,7 +176,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       if (stop.signal.aborted) throw new Error('Stopped');
       // User guidance reaches the decision maker before any new model call, including rework.
       if(['execute','verify','review','planning'].includes(state.phase)&&!state.guidancePending){
-        state.completedTaskIds??=state.tasks.slice(0,state.taskIndex).map(task=>task.id);
+        state.completedTaskIds??=state.tasks.some(task=>task.dependsOn?.length)?[]:state.tasks.slice(0,state.taskIndex).map(task=>task.id);
         const message=claimGuidance(store,(state.guidanceHistory??[]).map(message=>message.id));
         if(message){
           state.guidancePending=message;state.nextPhase='planning';
@@ -302,6 +302,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
             const roundDiff = await baselineDiff(store, state, `round-${state.loops}-baseline.json`, stop.signal);
             if (taskDiff !== undefined) state.evidence.taskDiff = taskDiff;
             if (roundDiff !== undefined) state.evidence.roundDiff = roundDiff;
+            state.evidence.decisionReview = review;
             store.audit('review-evidence', state.evidence);
             state.nextPhase = 'verify'; checkpoint('paused', review.reason);
             for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
@@ -343,7 +344,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         if(!inputs.length)throw new FlowError('interrupted','引导交接消息不可用；保留现场');
         state.guidancePending=inputs[0];
         for(const input of inputs)if(!state.goal.includes('[用户追加要求 '+input.id+']'))state.goal+='\n\n[用户追加要求 '+input.id+']\n'+input.text;
-        state.completedTaskIds??=state.tasks.slice(0,state.taskIndex).map(task=>task.id);
+        state.completedTaskIds??=state.tasks.some(task=>task.dependsOn?.length)?[]:state.tasks.slice(0,state.taskIndex).map(task=>task.id);
         state.feedback=[state.feedback,'用户要求及时介入。原调用已退出，保留工作区修改和Session；检查已有成果，仅继续剩余操作。未验收任务仍须独立验收。追加需求不等于取消原目标；若有方向冲突，优先最新用户要求。先由决策者重新规划，再派发执行者。'].filter(Boolean).join('\n');
         state.failure=null;state.reworkPending=false;state.evidence=null;state.nextPhase='planning';
         if(state.discussion)state.discussion.closed=true;

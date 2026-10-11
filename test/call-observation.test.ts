@@ -126,7 +126,7 @@ test('partial progress survives missing finish; old Runs and calls remain separa
   const file = f.store.file('audit.jsonl'); fs.appendFileSync(file, '{"event":"agent-usage","data":{}}\n'); assert.throws(() => runUsage(f.store), /审计|Audit|integrity/);
 });
 
-for (const task of ['T1', 'T2', 'T3'] as const) test(`${task} repeatable fixed task uses actual Diff, full contracts and Controller acceptance (injected Mock)`, async () => {
+for (const task of ['T1', 'T2', 'T3'] as const) test(`${task} repeatable fixed task uses actual Diff, full contracts and decision/user acceptance (injected Mock)`, async () => {
   const f = await runFixedRegression(folder(), task);
   assert.equal(f.result.metrics.actualPaidCalls, 0); assert.equal(f.result.metrics.finalIndependentPass, true);
   assert.equal(f.result.usage.calls.length, task === 'T2' ? 5 : 3);
@@ -137,7 +137,7 @@ for (const task of ['T1', 'T2', 'T3'] as const) test(`${task} repeatable fixed t
   if (task === 'T2') {
     assert.deepEqual(f.result.independentChecks.map(check => check.passed), [false, true]); assert.equal(f.result.metrics.injectedCandidateReworks, 1);
     assert.equal(f.result.candidateOrigins[0]!.autonomousModelError, false);
-    assert.ok(auditRecords(f.store.file('audit.jsonl')).some(event => event.event === 'review-vetoed'));
+    assert.ok(auditRecords(f.store.file('audit.jsonl')).some(event => event.event === 'review' && event.data.verdict === 'rework'));
     assert.ok(f.reads.some(row => row.kind === 'supplied' && row.jsonPointer.includes('/contracts/')));
     assert.ok(!f.reads.some(row => row.kind === 'confirmed-read' && row.agent === 'codex'));
   }

@@ -19,10 +19,21 @@ DEV 原汽车任务的执行结果被 `tests: []` 阻断，没有到达决策者
 
 证据位于本任务 `.validation/` 及 `D:/PersonalAgent-data/decision-user-acceptance-20261011-real/`。当前未做可见 Electron GUI 验收，也未恢复或修改 DEV 原汽车 Run。
 
-## 验证范围
+## 完整自动回归（本轮补充）
 
-以上是新职责契约的定向回归与独立真实小场景验证。旧全量用例中要求 Controller 自动测试、自动否决或自动完成任务的断言与用户的新要求相冲突；不声明旧全量回归通过。后续完整回归需要将这些历史用例迁移到决策者验收和明确用户确认的契约。
+- Controller 全量：460/460，通过；失败、取消、跳过均为 0。命令为 `node --import ./scripts/regression-policy.mjs --test --test-concurrency=8 dist/test/*.test.js`。
+- Desktop 全量：132/132，通过；失败、取消、跳过均为 0。命令为 `npm test --prefix desktop`。
+- 最终源码的根构建、桌面类型检查与桌面构建通过。构建保留已有依赖 use-client 与 chunk-size 提示。
+- 日志：本任务 `.validation/full-root7.log`、`.validation/full-desktop7.log`、`.validation/full-validation-result.json`。
 
-## 集成状态
+历史用例保留原覆盖目标，迁移为显式本地决策者运行检查、夹具用户逐项调用正式确认 API。`test/helpers/accepted-flow.ts` 仅服务测试；新职责契约测试继续直接调用真实 Controller，证明它不执行配置检查、不自动通过、不自动否决。旧快照恢复和交付用例通过 `test/helpers/historical-run.ts` 明确重建历史本地夹具，不恢复生产代码的自动项目复制或扫描。
 
-任务实现提交：`bef844b`；已合入最新 TEST `194fa23`，组合提交为 `0a38806`。TEST 工作区存在其他任务的未跟踪 `validation/chat-compaction-ui/`，不满足 V2.1 的目标干净条件；保留该目录，暂缓回合并 TEST。DEV 仍为 `cfc8271494bfc45061f0f22b576f417c36333ea2`，未替换源码、构建、运行实例或原汽车 Run。
+回归发现并修复：用户最终确认后继续处理排队消息与已授权追加需求；保留 Context 观察报告；决策者修改成果并要求人工决定时保留最终审查结论；带依赖的历史 Run 不因 taskIndex 变化而推断前置任务已验收。
+
+这是全量自动回归通过，不代表真实 Electron 窗口交互、汽车现场或 DEV 升级验收。原真实小仓库证据保留原 human 结论，未冒充通过。
+
+## 本地 TEST 整合
+
+实现提交 `bef844b`，已在任务分支整合 TEST `194fa23`，组合提交 `0a38806`。用户本轮明确授权测试完成后合并本地 TEST，并清理了 TEST 的其他任务产物。以最新 TEST 提交和干净状态为条件，取得共享 `personalagent-test-integration.lock` 后正常整合，保留历史；实际成功记录见本任务 `.validation/test-integration-result.json` 与 Git 历史。该文件只在合并后树内容核对、类型检查及专用验收契约回归成功时写出。
+
+DEV 保持 `cfc8271494bfc45061f0f22b576f417c36333ea2`；不替换构建或运行实例，不修改原汽车 Run，不推送或发布。GUI 与汽车实地验收仍待后续安排。

@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
-import {createRun,drive} from '../src/controller.js';
+import { createRun } from '../src/controller.js';
+import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import {publishGuidance,processingGuidance,guidanceStatus,cancelGuidance} from '../src/steering.js';
 import {withGuidanceHandoff,guidanceTool,GuidanceHandoff,blockGuidanceHandoff} from '../src/guidance-handoff.js';
 import type {Config} from '../src/schema.js';
@@ -84,5 +85,5 @@ test('guidance during independent verification hands off at command exit before 
  const poll=setInterval(()=>{if(!published&&fs.existsSync(path.join(repo,'verifying.txt'))){published=true;publishGuidance(store,message);}},25);
  const agents:Agents={executionMode:'native',async plan(state){if(state.guidancePending){assert.deepEqual(state.completedTaskIds,[]);assert.equal(state.evidence,null);order.push('decision');return{tasks:[task('adjusted')],humanDecision:null};}return{tasks:[task('original')],humanDecision:null};},async execute(state){const id=state.tasks[state.taskIndex]!.id;order.push('execute-'+id);fs.writeFileSync(path.join(repo,'partial.txt'),'preserved');fs.writeFileSync(path.join(repo,'result.txt'),id);return{mode:'native',summary:id};},async review(){order.push('review');return{verdict:'pass',reason:'adjusted verification passed'};}};
  let done;try{done=await drive(store,agents);}finally{clearInterval(poll);}
- assert.equal(done.phase,'completed',done.reason);assert.equal(published,true);assert.deepEqual(order,['execute-original','decision','execute-adjusted','review']);assert.deepEqual(done.completedTaskIds,['adjusted']);
+ assert.equal(done.phase,'completed',done.reason);assert.equal(published,true);assert.deepEqual(order,['execute-original','review','decision','execute-adjusted','review']);assert.deepEqual(done.completedTaskIds,['adjusted']);
 });
