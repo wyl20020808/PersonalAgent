@@ -17,14 +17,15 @@ import {EventGroup,Message,TimelineTime,latestCopyIds} from './src/GroupWorkspac
 import {groupMessages} from './src/threadGrouping.ts';
 import './src/chat-messages.css';
 window.testLatestCopyIds=latestCopyIds;
+Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{document.body.dataset.copied=text;}}});
 window.personalAgent={invoke:async request=>{document.body.dataset.contextRequest=JSON.stringify(request);return 'view';}};
 const message=(i,extra={})=>({id:String(i),timelineIndex:i,time:'2026-10-11T10:00:00Z',role:'codex',participantRole:'执行者',decisionStage:'execute',title:'Codex 执行事件',text:'echo test\\ncompleted · exit_code=0',kind:'tool',category:'commands',status:'success',runId:'run',taskId:'task',loop:1,scope:'execute:1',source:'audit',details:{protocol:'codex-sdk-runStreamed'},...extra});
 const files=message(10,{kind:'tests',details:{paths:['a.ts','b.ts','c.ts','d.ts','e.ts']}});
 const raw=[message(0),message(1,{title:'Codex 文件操作',category:'files',text:'completed\\n[{"path":"a.ts"}]'}),message(2,{kind:'output',category:'output',text:'修改完成 [诊断报告](<D:/Demo/report.md>) 和 \`src/code.ts\` [网页](https://example.com)'}),message(3),message(4,{kind:'output',category:'output',text:''}),message(5,{status:'fail',text:'false\\nfailed · exit_code=1\\nfailed output'})];
-function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} copyIds={latestCopyIds(raw)} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}<TimelineTime time={raw.at(-1)?.time}/></section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button><button id="append-many" onClick={()=>setStream(value=>[...value,...Array.from({length:60},(_,i)=>message(100+i,{timelineIndex:200+i}))])}>追加长列表</button></section><section id="empty-command"><Message message={message(20)}/></section><section id="timed-command"><EventGroup group={groupMessages([message(90,{text:JSON.stringify({tool:'bash',input:{command:'echo timed'},status:'completed',durationMs:2200}),details:{protocol:'claude-cli-stream-json'}})],true)[0]} expanded={true} onToggle={()=>{}}/></section></FilePreviewContext.Provider>}
+function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} copyIds={latestCopyIds(raw)} timeMessageId="2" expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}</section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button><button id="append-many" onClick={()=>setStream(value=>[...value,...Array.from({length:60},(_,i)=>message(100+i,{timelineIndex:200+i}))])}>追加长列表</button></section><section id="empty-command"><Message message={message(20)}/></section><section id="timed-command"><EventGroup group={groupMessages([message(90,{text:JSON.stringify({tool:'bash',input:{command:'echo timed'},status:'completed',durationMs:2200}),details:{protocol:'claude-cli-stream-json'}})],true)[0]} expanded={true} onToggle={()=>{}}/></section></FilePreviewContext.Provider>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `},bundle:true,format:'esm',outfile:path.join(output,'fixture.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
-fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="fixture.css"><div id="root" class="chat-feed"></div><script type="module" src="fixture.js"></script>');
+fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="fixture.css"><div class="group-workspace"><div id="root" class="chat-feed"></div></div><script type="module" src="fixture.js"></script>');
 fs.writeFileSync(path.join(output,'test.cjs'),`
 const {app,BrowserWindow,session}=require('electron');
 const path=require('node:path');
@@ -51,6 +52,8 @@ app.whenReady().then(async()=>{
    const group=document.querySelector('#events .group-toggle');
    assert(group.querySelector('span').textContent==='编辑了文件 · 运行了 1 条命令','mixed actions show command count');
    assert(document.querySelector('#events .compact-event-group > .person-icon'),'group avatar retained');
+   assert(parseFloat(getComputedStyle(document.querySelector('#events .person-icon')).width)===42,'avatar enlarged: '+getComputedStyle(document.querySelector('#events .person-icon')).width);
+   assert(getComputedStyle(document.querySelector('#events .compact-event-group .message-content')).borderTopWidth==='1px','commands have thin bubble border');
    assert(!document.querySelector('#events .message-meta'),'all role and name headers removed');
    assert(!group.querySelector('time')&&group.querySelector('.lucide-square-terminal'),'group time removed and terminal icon retained');
    assert(getComputedStyle(group.querySelector('span')).fontWeight==='600','group summary uses darker bold text');
@@ -79,9 +82,15 @@ app.whenReady().then(async()=>{
    assert(document.body.dataset.opened==='D:/Demo/report.md','view menu action opens preview');
    cards()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));await wait();assert(JSON.parse(document.body.dataset.contextRequest).file==='a.ts','cards share file context menu');
    assert(!publicMessage.querySelector('.message-meta time'),'timestamp removed from header');
-   assert(!publicMessage.querySelector('time'),'per-message timestamp omitted');
-   assert(document.querySelectorAll('#events time').length===1&&document.querySelector('#events > .timeline-time'),'one timestamp at end of timeline');
+   assert(publicMessage.querySelector('.message-actions time'),'last body message has time in footer');
+   assert(document.querySelectorAll('#events time').length===1&&publicMessage.querySelector('.message-actions .timeline-time'),'one timestamp at end of timeline');
    assert(document.querySelectorAll('#events .copy-message').length===1&&publicMessage.querySelector('.copy-message'),'only latest agent prose has copy control');
+   const actions=publicMessage.querySelector('.message-actions'),copy=actions.querySelector('.copy-message'),time=actions.querySelector('time');
+   assert(copy.querySelector('svg')&&!copy.textContent,'copy uses icon only');
+   assert(actions.compareDocumentPosition(publicMessage.querySelector('.message-content'))&Node.DOCUMENT_POSITION_PRECEDING,'actions follow message body');
+   assert(time.getBoundingClientRect().right<=copy.getBoundingClientRect().left,'time is left of copy icon');
+   copy.click();await wait();assert(document.body.dataset.copied.includes('修改完成 [诊断报告]'),'copy writes public body');
+   assert(copy.title==='已复制','icon copy confirms success');
    const copyMessage=(id,role,kind='output')=>({id,role,kind,text:'content'});
    const ids=window.testLatestCopyIds([copyMessage('old','codex'),copyMessage('decision','claude'),copyMessage('last','codex'),copyMessage('tool','codex','tool'),copyMessage('user','user')]);
    assert(ids.size===2&&ids.has('decision')&&ids.has('last'),'copy controls limited to latest prose per agent');

@@ -53,3 +53,6 @@
 .chat-feed .compact-group-toggle{color:#273548;font-weight:600}.chat-feed .compact-group-toggle>span{font-size:13px;color:inherit;font-weight:600}.chat-feed .compact-group-time{font-size:10px;font-weight:400;color:#8592a5;margin-left:8px;white-space:nowrap}.chat-feed .compact-operation>summary{color:#44546b}
 
 .chat-feed .timeline-time{display:block;margin:0 0 8px;text-align:right;font-size:10px;font-weight:400;color:#94a0b0}
+
+.group-workspace .chat-feed .group-message>.person-icon{width:42px;height:42px;flex-basis:42px;border-radius:12px}.group-workspace .chat-feed .group-message>.person-icon svg,.group-workspace .chat-feed .group-message>.person-icon img{width:28px;height:28px}
+.group-workspace .chat-feed .group-message .message-content{border:1px solid #e8ecf1;border-radius:12px;padding:12px 14px;box-shadow:none}.chat-feed .message-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;margin-top:7px;min-height:24px}.chat-feed .message-actions .timeline-time{margin:0;color:#8d99aa}.chat-feed .message-actions .copy-message{position:static;float:none;margin:0;padding:4px;border:0;background:transparent;display:grid;place-items:center;color:#8d99aa;opacity:1;cursor:pointer}.chat-feed .message-actions .copy-message:hover{color:#43556d;background:#f3f5f8;border-radius:4px}
