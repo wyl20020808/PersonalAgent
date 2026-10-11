@@ -19,13 +19,23 @@ test('consecutive public outputs and summaries remain separate',()=>{
 test('compact skips blank execution records but keeps failures, active work and evidence',()=>{
  const blank=message(1,{kind:'output',text:' \n'}),raw=[message(0),blank,message(2)];
  assert.deepEqual(groupMessages(raw,true).flatMap(g=>g.messages).map(m=>m.id),['0','2']);
- assert.equal(groupMessages(raw,true).length,2);
+ assert.equal(groupMessages(raw,true).length,1);
  assert.deepEqual(groupMessages(raw).flatMap(g=>g.messages),raw);
  assert.equal(groupMessages([message(0,{kind:'output',text:JSON.stringify({role:'execution',phase:'execute',receipt:''}),details:{protocol:'opencode-sdk'}})],true).length,0);
  for(const extra of [{status:'fail'},{status:'running'},{details:{paths:['a.ts']}},{details:{diff:'NEW FILE a.ts'}},{attachments:[{name:'a.txt',mimeType:'text/plain',size:1,content:'a'}]}])assert.equal(groupMessages([message(0,{kind:'output',text:'',...extra})],true).length,1);
 });
-test('compact keeps failures, lifecycle and ownership boundaries visible',()=>{
- for(const extra of [{status:'fail'}, {kind:'error'}, {kind:'stage'}, {kind:'session'}, {role:'controller' as const}, {participantId:'b'}, {runId:'other'}, {taskId:'other'}, {loop:2}, {scope:'execute:2'}, {timelineIndex:3}])assert.equal(groupMessages([message(0),message(1,extra)],true).length,2);
- assert.notEqual(groupMessages([message(0,{status:'fail'})],true)[0].category,'执行操作');
+test('compact keeps lifecycle and ownership boundaries while failures stay explicit in the summary',()=>{
+ for(const extra of [{kind:'error'}, {kind:'stage'}, {kind:'session'}, {role:'controller' as const}, {participantId:'b'}, {runId:'other'}, {taskId:'other'}, {loop:2}, {scope:'execute:2'}])assert.equal(groupMessages([message(0),message(1,extra)],true).length,2);
+ const failed=groupMessages([message(0),message(1,{status:'fail'}),message(2)],true);
+ assert.equal(failed.length,1);assert.equal(failed[0].status,'fail');assert.equal(failed[0].messages.length,3);
  assert.equal(groupMessages([message(0,{role:'claude',participantRole:'决策者',decisionStage:'plan'}),message(1,{role:'claude',participantRole:'决策者',decisionStage:'plan',category:'files'})],true).length,2);
+});
+test('audit gaps no longer fragment an execution burst; public output starts a new stable group',()=>{
+ const raw=[message(0,{timelineIndex:10,status:'running'}),message(1,{timelineIndex:12}),message(2,{timelineIndex:20,category:'files'}),message(3,{timelineIndex:21,kind:'output',category:'output',text:'公开回复'}),message(4,{timelineIndex:30})];
+ assert.deepEqual(groupMessages(raw,true).map(g=>g.messages.length),[3,1,1]);
+ assert.equal(groupMessages(raw,true)[0].status,'success');
+ assert.equal(groupMessages(raw,false).length,5);
+ const first=groupMessages(raw.slice(0,2),true)[0],appended=groupMessages(raw.slice(0,3),true)[0];
+ assert.equal(first.id,appended.id);assert.equal(first.messages.length,2);assert.equal(appended.messages.length,3);
+ assert.deepEqual(appended.messages,raw.slice(0,3));
 });
