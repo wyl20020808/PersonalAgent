@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {DesktopService,validateRequest,redact} from './service.js';
+import {DesktopService,validateRequest,redact} from './test-service.js';
 import {git} from '../../dist/src/workspace.js';
 import {createRun} from '../../dist/src/controller.js';
 import {mockContextDocuments,loadProjectContext} from '../../dist/src/project-context.js';

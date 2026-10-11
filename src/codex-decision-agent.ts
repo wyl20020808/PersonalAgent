@@ -7,11 +7,13 @@ import { runProcess } from './process.js';
 import { validate, type Config } from './schema.js';
 import { activityRecorder, redact } from './telemetry.js';
 import { agentRules } from './native-agent.js';
+import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { nativeAgentEnv } from './workspace.js';
 
 export class CodexDecisionAgent implements DecisionAgent {
   constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionRequest(request);
     const { state, store, role, prompt, schema, signal, context } = request;
     if (state.decisionAgent?.backend !== 'codex') throw new FlowError('safety', 'Codex Decision backend mismatch');
@@ -26,9 +28,9 @@ export class CodexDecisionAgent implements DecisionAgent {
     let output: unknown, seenResult = false, ownedThread: string | null = null, completed = false, turnCompleted = false;
     try {
       const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
-        cwd: store.dir, env: nativeAgentEnv(), signal, timeoutMs: request.timeoutMs, streamOutput: true,
+        cwd: store.dir, env: nativeAgentEnv(), signal, interaction: { kind: 'model' }, timeoutMs: request.timeoutMs, streamOutput: true,
         input: JSON.stringify({ ...scope, participantId: scope.participantId ?? undefined, discussionStage: scope.discussionStage ?? undefined,
-          threadId, attachments:runAttachments(state,store), model: state.decisionAgent.model, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules,
+          threadId, attachments:runAttachments(state,store), model: state.decisionAgent.model, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules + interactionAgentRules,
             decisionPermissions: 'Decision role only. Inspect project using read-only native tools; return the requested structured result. Do not implement, modify files, submit, merge, deliver or change shared settings.' }) }),
         onLine(line) {
           if (!line.trim()) return;

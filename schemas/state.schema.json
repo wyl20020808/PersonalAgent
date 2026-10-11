@@ -91,6 +91,35 @@
                   "type": "string"
                 },
                 "maxItems": 50
+              },
+              "interaction": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "shell",
+                      "browser",
+                      "desktop",
+                      "system",
+                      "resource"
+                    ]
+                  },
+                  "capability": {
+                    "enum": [
+                      "BACKGROUND_SAFE",
+                      "DESKTOP_INTERACTIVE",
+                      "SYSTEM_HIGH_RISK",
+                      "RESOURCE_HEAVY"
+                    ]
+                  },
+                  "headless": {
+                    "type": "boolean"
+                  },
+                  "isolatedBrowser": {
+                    "type": "boolean"
+                  }
+                }
               }
             },
             "required": [
@@ -738,6 +767,19 @@
                   },
                   "stderr": {
                     "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "deferred_by_work_mode",
+                      "requires_system_authorization"
+                    ]
+                  },
+                  "classification": {
+                    "type": "string"
+                  },
+                  "testIndex": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "required": [
@@ -774,6 +816,13 @@
           "additionalProperties": false
         }
       ]
+    },
+    "deferredTaskIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
     },
     "snapshotPolicy": {
       "const": "none"

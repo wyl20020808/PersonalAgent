@@ -1,5 +1,6 @@
 import {runAttachments} from './multimodal.js';
 import { realpathSync } from 'node:fs';
+import { assertOperationPolicy } from './interaction-policy.js';
 import { assertDecisionState, type DecisionAgent } from './decision-agent.js';
 import { CodexDecisionAgent } from './codex-decision-agent.js';
 import { ClaudeCodeDecisionAgent } from './claude-code-decision-agent.js';
@@ -42,6 +43,7 @@ export class RealAgents implements Agents {
     return recoverTransport(state, store, signal, role, () => state.decisionSession?.sessionId, operation);
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionState(state, this.config);
     if (state.discussion) return discussPlan(state, store, signal, (id, stage, schema, exchange) => withParticipant(state, store, id, stage, (view, scoped) => this.planCall(view, scoped, AbortSignal.any([signal, timeoutSignal(state.config.timeoutMs)]), stage, schema, exchange)));
     return this.planCall(state, store, signal);
@@ -56,6 +58,7 @@ export class RealAgents implements Agents {
     return this.claude(state, store, signal, schema, prompt, 'plan', context);
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
+    assertOperationPolicy({ kind: 'model' });
     if (this.config.executionAgent?.backend === 'opencode') return this.executeAttempt(state, store, signal);
     return recoverTransport(state, store, signal, 'execute', () => state.codexThreadId,
       retry => this.executeAttempt(state, store, signal, retry));
@@ -76,7 +79,7 @@ export class RealAgents implements Agents {
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
-      cwd: store.dir, env, signal, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode }),
+      cwd: store.dir, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode }),
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };
@@ -96,6 +99,7 @@ export class RealAgents implements Agents {
     } finally { observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
   async review(state: State, store: Store, signal: AbortSignal): Promise<Review> {
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionState(state, this.config);
     const context = await callContext(state, store, 'review', signal);
     const evidence = reviewEvidence(state.evidence);

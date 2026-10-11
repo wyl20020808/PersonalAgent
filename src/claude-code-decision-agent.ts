@@ -1,4 +1,6 @@
 import { nativeAgentEnv } from './workspace.js';
+import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
+import { fileURLToPath } from 'node:url';
 import { agentRules } from './native-agent.js';
 import { runProcess } from './process.js';
 import { validate, type Config } from './schema.js';
@@ -13,13 +15,17 @@ import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type De
 export class ClaudeCodeDecisionAgent implements DecisionAgent {
   constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionRequest(request);
     const {state, store, signal, schema, prompt, role, context} = request;
     const env = nativeAgentEnv();
     const attachments=runAttachments(state,store);
     const input=attachments.length?claudeInput(prompt,attachments):prompt;
     const streaming = this.config.claudeStreaming !== false || attachments.length>0;
-    const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules];
+    const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules];
+    // Invocation-local settings preserve the user's files and existing hooks.
+    const hookScript = fileURLToPath(new URL('../scripts/codex-interaction-hook.js', import.meta.url));
+    args.push('--settings', JSON.stringify({ disableAllHooks: false, hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
     if (this.config.decisionAgent?.backend === 'claude-code' && this.config.decisionAgent.model) args.push('--model', this.config.decisionAgent.model);
     const resumed = !!state.claudeSessionId;
     let confirmed = !!state.decisionSession;
@@ -53,7 +59,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
         if (Date.now() - lastProgress > 1000) { lastProgress = Date.now(); record({key: `delta:${characters}`, kind: 'receiving', title: 'Claude 输出接收中', text: `已接收 ${characters} 个公开文本或结构化字符；尚未通过 Schema 校验`}); }
       }
     } : undefined;
-    const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, timeoutMs: state.config.timeoutMs, input, onLine, streamOutput: streaming });
+    const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, input, onLine, streamOutput: streaming });
     let envelope: { is_error?: boolean; session_id?: string; structured_output?: unknown; result?: string; errors?: string[] };
     try { const parsed=streamedResult ?? JSON.parse(streaming ? result.stdout.trim().split(/\r?\n/).at(-1)! : result.stdout);if(streaming&&parsed.type!=='result')throw Error('Missing Claude final result');envelope=parsed; }
     catch {

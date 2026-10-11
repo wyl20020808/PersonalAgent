@@ -1,5 +1,6 @@
 import {runAttachments,opencodeParts} from './multimodal.js';
 import { spawn } from 'node:child_process';
+import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -30,6 +31,7 @@ export function resolveOpencodeExecutable(explicit?: string): string {
 }
 // Port 0 is assigned atomically by the owned server. Never probe or reuse another service.
 export async function startOpencodeService(executable: string | undefined, directory: string, signal: AbortSignal, runtimeDirectory?: string, spawnChild: typeof spawn = spawn): Promise<OpenCodeService> {
+  assertOperationPolicy({ kind: 'model' });
   signal.throwIfAborted();
   const password = randomUUID();
   const child = spawnChild(resolveOpencodeExecutable(executable), ['serve','--hostname','127.0.0.1','--port','0'], {
@@ -119,6 +121,7 @@ export function opencodePublicEvents(event: any, directory: string, sessionID: s
 export class OpenCodeDecisionAgent implements DecisionAgent {
   constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startOpencodeService) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
+    assertOperationPolicy({ kind: 'model' });
     assertDecisionRequest(request); const identity = assertDecisionState(request.state,this.config);
     if (identity.backend !== 'opencode') throw new FlowError('safety','OpenCode adapter backend mismatch');
     const { state,store,role,prompt,schema,workspace } = request;
@@ -162,7 +165,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       } })();
       eventTask.catch(() => {});
       await ready;
-      const result = await client.session.prompt({sessionID,directory:workspace,model:{providerID:identity.providerID,modelID:identity.modelID},system:agentRules,format:{type:'json_schema',schema:schema as Record<string,unknown>,retryCount:0},parts},options);
+      const result = await client.session.prompt({sessionID,directory:workspace,model:{providerID:identity.providerID,modelID:identity.modelID},system:agentRules + interactionAgentRules,format:{type:'json_schema',schema:schema as Record<string,unknown>,retryCount:0},parts},options);
       if (result.data?.info.sessionID !== sessionID || result.data.info.role !== 'assistant' || result.data.info.path?.cwd !== workspace) throw new FlowError('safety','OpenCode response Session/workspace mismatch');
       // Final native parts also carry public tool/text receipts. Capture them
       // even when the HTTP result overtakes the tail of the volatile SSE stream.

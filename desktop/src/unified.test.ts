@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {DesktopService,validateRequest} from './service.js';
+import {DesktopService,validateRequest} from './test-service.js';
 import {createRun} from '../../dist/src/controller.js';
 import {git} from '../../dist/src/workspace.js';
 import {GitError} from '../../dist/src/git-process.js';

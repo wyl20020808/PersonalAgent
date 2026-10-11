@@ -1,0 +1,15 @@
+{
+  "root": "D:/pa-oc-policy-3b1gec",
+  "paidModelCalls": 0,
+  "requests": 6,
+  "safeShell": true,
+  "desktopDeferred": true,
+  "phase": "completed",
+  "reason": "",
+  "independentPassed": true,
+  "runId": "bc1cf5d4-e9a2-4238-812f-c66ec698e1cf",
+  "passed": true,
+  "installedRuntimeVersion": null,
+  "sourceEvidence": "D:/pa-oc-policy-3b1gec/evidence.json",
+  "sourceSha256": "2761d6eb56646c075d09b780f458b031b67e713ade5ea1f9ed0e087a008626d5"
+}

@@ -27,6 +27,7 @@ export interface State {
   claudeCalls?: number;
   reviewRepairs?: number;
   completedTaskIds?: string[];
+  deferredTaskIds?: string[];
   failure?: Failure | null; reworkPending?: boolean; totalReworks?: number;
   version: 1; id: string; goal: string; source: string; workspace: string; base: string;
   config: Config; phase: Phase; nextPhase: Phase; tasks: Task[]; taskIndex: number; loops: number; reworks: number;
@@ -35,14 +36,14 @@ export interface State {
 }
 const str = { type: 'string' }, nullable = { type: ['string', 'null'] }, integer = { type: 'integer', minimum: 0 };
 const phases = ['planning', 'execute', 'executing', 'applying', 'verify', 'review', 'paused', 'stopped', 'failed', 'completed'];
-const resultSchema = { type: 'object', properties: { exitCode: { type: 'integer' }, stdout: str, stderr: str }, required: ['exitCode', 'stdout', 'stderr'], additionalProperties: false };
+const resultSchema = { type: 'object', properties: { exitCode: { type: 'integer' }, stdout: str, stderr: str, status: { enum: ['deferred_by_work_mode','requires_system_authorization'] }, classification: str, testIndex: integer }, required: ['exitCode', 'stdout', 'stderr'], additionalProperties: false };
 const stateProperties = {
   version: { const: 1 }, id: { type: 'string', pattern: '^[0-9a-f-]{36}$' }, goal: str, source: str, workspace: str, base: str, config: configSchema,
   phase: { enum: phases }, nextPhase: { enum: phases }, tasks: { type: 'array', items: taskSchema }, taskIndex: integer, loops: integer, reworks: integer,
   claudeSessionId: nullable, codexThreadId: nullable, feedback: str, reason: str, updatedAt: str, beforeExecution: str, executorExitCode: { type: 'integer' },
   evidence: { anyOf: [{ type: 'null' }, { type: 'object', properties: { verificationScope: str, contextReport: { type: 'object', required: ['taskId','snapshot','baselineDigest','reportPath'], properties: { taskId: str, snapshot: str, baselineDigest: str, reportPath: str } }, screenshots: { type: 'array', maxItems: 240, items: { type: 'object', additionalProperties: false, required: ['id','path','source','width','height','hash','time','runId','taskId','loop','testIndex','name'], properties: {id:str,path:str,source:str,width:integer,height:integer,hash:str,time:str,runId:str,taskId:nullable,loop:integer,testIndex:integer,name:str} } }, diff: str, acceptanceRulesHash: str, taskDiff: str, roundDiff: str, status: str, head: str, snapshotDigest: str, tests: { type: 'array', items: resultSchema }, executorExitCode: { type: 'integer' }, passed: { type: 'boolean' }, issues: { type: 'array', items: str } }, required: ['diff', 'status', 'head', 'snapshotDigest', 'tests', 'executorExitCode', 'passed', 'issues'], additionalProperties: false }] }
 };
-export const stateSchema = { type: 'object', properties: { ...stateProperties, snapshotPolicy: { const: 'none' }, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
+export const stateSchema = { type: 'object', properties: { ...stateProperties, deferredTaskIds: { type: 'array', uniqueItems: true, items: str }, snapshotPolicy: { const: 'none' }, purpose: { const: 'context-onboarding' }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
   guidancePending: guidanceSchema,
   guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},

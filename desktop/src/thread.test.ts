@@ -6,7 +6,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {projectMessages,messagePage} from './thread.js';
 import {runTiming,timingTotals,durationLabel} from './runTiming.js';
-import {DesktopService,validateRequest} from './service.js';
+import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 const event=(hash:string,event:string,data:any,time='2026-10-08T01:00:00.000Z')=>({hash,event,data,time});

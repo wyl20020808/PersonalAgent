@@ -5,7 +5,7 @@ import {git} from '../../dist/src/workspace.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {DesktopService,validateRequest} from './service.js';
+import {DesktopService,validateRequest} from './test-service.js';
 import {groupMessages} from './threadGrouping.js';
 import {projectMessages} from './thread.js';
 import type {ChatMessage,Conversation} from './types.js';

@@ -1,6 +1,7 @@
 import { ownedCodexEvents } from './codex-stream.js';
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
 import {codexInput,type NativeAttachment} from './multimodal.js';
+import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { codexPublicEvent } from './telemetry.js';
 import { codexObservation } from './call-observation.js';
 import { editSchema, nativeResultSchema, validate, type ExecutionResult } from './schema.js';
@@ -13,13 +14,16 @@ export function nativeThreadOptions(workspace: string): ThreadOptions {
 }
 export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
 export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
+  assertOperationPolicy({ kind: 'model' });
   const native = request.executionMode !== 'proposal';
   const options = nativeThreadOptions(request.workspace);
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
-  const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), native ? {} : { outputSchema: editSchema });
+  const stop = new AbortController();
+  const { events } = await thread.runStreamed(codexInput(request.prompt + interactionAgentRules,request.attachments), native ? { signal: stop.signal } : { outputSchema: editSchema, signal: stop.signal });
   let final = '', completed = false, lastError = '';
   try { for await (const event of ownedCodexEvents(events)) {
     if (event.type !== 'error') lastError = '';
+    stop.signal.throwIfAborted();
     const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
     const activity = codexPublicEvent(event); if (activity) emit({ type: 'activity', data: activity });
     if (event.type === 'thread.started') emit({ type: 'thread', id: event.thread_id });

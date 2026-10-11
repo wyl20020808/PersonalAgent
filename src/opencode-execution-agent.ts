@@ -7,6 +7,7 @@ import type { State, Store } from './store.js';
 import { CallObservation } from './call-observation.js';
 import { activityRecorder, redact } from './telemetry.js';
 import { agentRules } from './native-agent.js';
+import { interactionAgentRules } from './interaction-policy.js';
 import { timeoutSignal } from './timeout.js';
 import { transportErrorDetails } from './opencode-transport.js';
 import { models, opencodePublicEvents, resolvedSchema, startOpencodeService, supportsStructuredOutput, type ModelDiscovery, type OpenCodeLauncher, type OpenCodeService } from './opencode-decision-agent.js';
@@ -143,7 +144,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       state.executionAttempt = { loop: state.loops, taskId: task.id, status: 'running' }; store.save(state); dispatched = true;
       store.audit('opencode-execute-dispatch', { callId: observation.usage.callId, runId: state.id, taskId: task.id, loop: state.loops, workspace, sessionId: sessionID, providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, role: 'execution', mode: state.config.mode });
       const response = await Promise.race([
-        client.session.prompt({ sessionID, directory: workspace, agent: 'build', model: { providerID: choice.opencode.providerID, modelID: choice.opencode.modelID }, system: agentRules + ' 你是执行者，仅实施 Controller 派发的当前任务；不能更改 Plan、角色配置或执行历史已完成任务。工作目录绑定当前 workspace；禁止后台写入进程。', format: { type: 'json_schema', schema: nativeResultSchema, retryCount: 0 }, parts }, options),
+        client.session.prompt({ sessionID, directory: workspace, agent: 'build', model: { providerID: choice.opencode.providerID, modelID: choice.opencode.modelID }, system: agentRules + interactionAgentRules + ' 你是执行者，仅实施 Controller 派发的当前任务；不能更改 Plan、角色配置或执行历史已完成任务。工作目录绑定当前 workspace；禁止后台写入进程。', format: { type: 'json_schema', schema: nativeResultSchema, retryCount: 0 }, parts }, options),
         eventTask.then(() => { throw new FlowError('interrupted', 'OpenCode Execute event stream ended before confirmed result'); })
       ]);
       const data = response.data;
