@@ -1,5 +1,7 @@
 # V0.3C 统一执行契约
 
+**默认开发规则（2026-10-11 补充）：PersonalAgent 自身的新开发任务，用户未明确指定基线时，默认从最新 `test` 的明确提交创建独立任务分支和 Worktree，完成后先按审批整合回 `test`。** 不根据当前目录、当前检出分支或发起软件版本改用 DEV/MAIN，也不直接在 TEST 集成工作区改源码。TEST 不可用时报告并核对，不静默回退 DEV/MAIN。仅明确的 DEV 紧急修复从 DEV 创建，MAIN 紧急 hotfix 从 MAIN 创建；用户明确指定的其他基线另行记录。此默认仅适用于 PersonalAgent 自身，其他项目遵循其自身分支规则。
+
 实现与验收来源见 `V03C_UNIFIED_VALIDATION.md`。两份契约文件采用相同定义。
 
 PersonalAgent 自身开发另须全文遵循 [三分支治理规则 V2](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md)：MAIN 暂留稳定版本，DEV 执行真实任务，TEST 持续集成和试用。新功能和普通修复从 TEST 创建独立任务 Worktree，先交付 TEST；完整候选验收和正式审批后在安全节点更新 DEV。DEV 紧急修复从 DEV 创建并同步 TEST；MAIN hotfix 从 MAIN 创建并同步必要修复到 DEV、TEST。当前可由外部 Codex 承接，不要求 MAIN 发起。此规则不表示 TEST 启动或三实例隔离已经实现，也不改变其他项目自身的分支规则及以下执行模式契约。
