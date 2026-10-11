@@ -11,16 +11,16 @@ import type {Config} from '../src/schema.js';
 import type {Agents} from '../src/adapters.js';
 
 const root=path.resolve('.validation/handoff-'+randomUUID());fs.mkdirSync(root,{recursive:true});
-async function fixture(decision:'claude-code'|'codex'|'opencode'='claude-code',execution:'codex'|'opencode'='codex'){
+async function fixture(decision:'claude-code'|'codex'|'opencode'='claude-code',execution:'claude-code'|'codex'|'opencode'='codex'){
  const directory=path.join(root,randomUUID()),repo=path.join(directory,'repo');fs.mkdirSync(repo,{recursive:true});
  const verifier=path.join(directory,'verify.cjs');fs.writeFileSync(verifier,"const fs=require('fs');if(fs.readFileSync('partial.txt','utf8')!=='preserved'||fs.readFileSync('result.txt','utf8')!=='adjusted')process.exit(1);");
- const config:Config={allowedRepositories:[repo],runtimeDir:path.join(directory,'runtime'),mode:'mock',mockScenario:'pass',projectMode:'direct',directAuthorization:{projectPath:repo,acknowledgedAt:new Date().toISOString()},executionMode:'native',claudeExecutable:'never-launch-model',timeoutMs:5000,tests:[{executable:process.execPath,args:[verifier]}],decisionAgent:decision==='opencode'?{backend:'opencode',opencode:{providerID:'fixture',modelID:'fixture'}}:{backend:decision},executionAgent:execution==='opencode'?{backend:'opencode',opencode:{providerID:'fixture',modelID:'fixture'}}:{backend:'codex'}};
+ const config:Config={allowedRepositories:[repo],runtimeDir:path.join(directory,'runtime'),mode:'mock',mockScenario:'pass',projectMode:'direct',directAuthorization:{projectPath:repo,acknowledgedAt:new Date().toISOString()},executionMode:'native',claudeExecutable:'never-launch-model',timeoutMs:5000,tests:[{executable:process.execPath,args:[verifier]}],decisionAgent:decision==='opencode'?{backend:'opencode',opencode:{providerID:'fixture',modelID:'fixture'}}:{backend:decision},executionAgent:execution==='opencode'?{backend:'opencode',opencode:{providerID:'fixture',modelID:'fixture'}}:{backend:execution}};
  const store=await createRun(config,repo,'keep existing work and follow direction');
  const message={id:randomUUID(),sessionId:randomUUID(),runId:store.id,text:'prioritize adjusted direction',time:new Date().toISOString(),attachments:[]};
  return{store,repo,message};
 }
 const task=(id:string)=>({id,instruction:id,acceptance:['preserve partial and write adjusted result']});
-for(const decision of ['claude-code','codex','opencode'] as const)for(const execution of ['codex','opencode'] as const)test(`${decision} decision / ${execution} execution: guidance stops at tool boundary, then decision, then execution (local Controller fixture)`,async()=>{
+for(const decision of ['claude-code','codex','opencode'] as const)for(const execution of ['claude-code','codex','opencode'] as const)test(`${decision} decision / ${execution} execution: guidance stops at tool boundary, then decision, then execution (local Controller fixture)`,async()=>{
  const {store,repo,message}=await fixture(decision,execution),order:string[]=[];
  let exited=false,publishedAt=0,receivedAt=0;
  const agents:Agents={executionMode:'native',

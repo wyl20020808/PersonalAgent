@@ -65,3 +65,22 @@
 .second-decision .field-help{font-size:11px;line-height:1.6}
 .discussion-options{display:flex;gap:12px;flex-wrap:wrap}
 .discussion-options label{flex:1;min-width:120px}
+.model-dialog-backdrop{position:fixed;inset:0;z-index:1200;background:rgba(20,32,49,.28);backdrop-filter:blur(4px);display:grid;place-items:center;padding:24px;text-align:left}
+.model-dialog{width:min(460px,100%);max-height:calc(100dvh - 48px);overflow:auto;background:#fff;border:1px solid #e4e9f0;border-radius:20px;box-shadow:0 24px 80px rgba(18,34,56,.2);color:#26374c}
+.model-dialog>header{display:flex;align-items:center;gap:12px;padding:24px 24px 18px;border-bottom:1px solid #edf0f4}
+.model-dialog>header>div{flex:1;min-width:0}
+.model-dialog h3{margin:0;font-size:17px;line-height:1.5;font-weight:650}
+.model-dialog header p{margin:3px 0 0;font-size:12px;color:#758395}
+.model-dialog header .agent-logo{width:40px;height:40px;border-radius:12px}
+.model-dialog-body{padding:20px 24px}
+.model-dialog label{display:grid;gap:8px;margin:0 0 18px;font-size:12px;font-weight:550;color:#526277}
+.model-dialog select,.model-dialog input{box-sizing:border-box;display:block;width:100%;margin:0;padding:11px 12px;min-height:44px;border:1px solid #dde4ed;border-radius:10px;background:#fafbfd;color:#26374c;font:inherit;font-size:13px;outline:none}
+.model-dialog select:focus,.model-dialog input:focus{border-color:#7e9dcd;box-shadow:0 0 0 3px #eaf0fa}
+.model-catalog-status{display:flex;align-items:center;gap:10px;color:#768397;font-size:11px;font-weight:400;line-height:1.6}
+.model-catalog-status>span{flex:1;overflow-wrap:anywhere}
+.model-dialog-note{font-size:12px;line-height:1.7;color:#68798d;background:#f5f7fa;border-radius:10px;padding:12px;margin:16px 0 0}
+.model-dialog>footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 24px;border-top:1px solid #edf0f4}
+.model-dialog .button{font-size:12px;min-height:38px;border-radius:9px}
+.decision-model-button{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #dde4ed;background:#fafbfd;border-radius:9px;padding:10px 12px;color:#526277;font-size:12px;text-align:left;cursor:pointer}
+.decision-model-button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:520px){.model-dialog-backdrop{padding:14px}.model-dialog{max-height:calc(100dvh - 28px)}.model-dialog>header,.model-dialog-body{padding:18px}.model-dialog>footer{padding:14px 18px}}

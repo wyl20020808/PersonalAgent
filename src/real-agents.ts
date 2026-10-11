@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs';
 import { assertOperationPolicy } from './interaction-policy.js';
 import { assertDecisionState, type DecisionAgent } from './decision-agent.js';
 import { CodexDecisionAgent } from './codex-decision-agent.js';
-import { ClaudeCodeDecisionAgent } from './claude-code-decision-agent.js';
+import { ClaudeCodeDecisionAgent, ClaudeCodeExecutionAgent } from './claude-code-decision-agent.js';
 import { OpenCodeDecisionAgent } from './opencode-decision-agent.js';
 import { OpenCodeExecutionAgent, type ExecutionAgent } from './opencode-execution-agent.js';
 import { nativeAgentEnv, repositoryContext } from './workspace.js';
@@ -61,7 +61,7 @@ export class RealAgents implements Agents {
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
     assertOperationPolicy({ kind: 'model' });
-    if (this.config.executionAgent?.backend === 'opencode') return this.executeAttempt(state, store, signal);
+    if (this.config.executionAgent?.backend === 'opencode' || this.config.executionAgent?.backend === 'claude-code') return this.executeAttempt(state, store, signal);
     return recoverTransport(state, store, signal, 'execute', () => state.codexThreadId,
       retry => this.executeAttempt(state, store, signal, retry));
   }
@@ -77,11 +77,12 @@ export class RealAgents implements Agents {
     const prompt = JSON.stringify({ action: action + (retry ? ' 前次调用因连接失败已结束；续接同一 Thread。先检查已有修改和工具结果，不重复已完成操作；只完成剩余工作并验证。' : '') + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
     recordContextPrompt(store, context, prompt);
     if (this.config.executionAgent?.backend === 'opencode') return this.execution.execute(state, store, signal, prompt, context);
+    if (this.config.executionAgent?.backend === 'claude-code') return new ClaudeCodeExecutionAgent(this.config, this.run).execute(state, store, signal, prompt, context);
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.codexThreadId);
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
-      cwd: store.dir, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode }),
+      cwd: store.dir, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode, ...(this.config.executionAgent?.backend === 'codex' && this.config.executionAgent.model ? { model: this.config.executionAgent.model } : {}) }),
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };

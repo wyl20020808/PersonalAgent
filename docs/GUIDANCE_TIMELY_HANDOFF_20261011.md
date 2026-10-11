@@ -48,3 +48,15 @@ Controller 每 250 毫秒检查消息。没有活动工具时立即开始交接�
 `node desktop/verify-queued-edit.mjs` 使用生产 React 组件、明确标注的桥接数据，在独立用户数据目录的 offscreen Electron 窗口验证菜单可见、取消、空白禁止保存、保存失败保留内容、保存成功、主草稿与附件保留、不新增消息、Escape 取消。全部通过；这是实际渲染与交互检查，数据桥为 fixture，没有 Agent 调用，不是完整产品 GUI 验收。记录在 `.validation/queued-edit-ui/evidence.json`。桌面类型检查和构建通过；三个队列／领取／编辑冲突后端测试通过。
 
 外部开发会话按上述明确用户授权进行 Git 集成，不制造 PersonalAgent 业务 Run 或 Controller 独立验收记录。TEST 当前有后续更新，须先整合并验证最终组合，再交付 TEST。正在运行的 DEV 保持不变。
+
+## 最新 TEST 组合验证
+
+最终组合基线为 `9d069b1615440db16a2cb9ce00234d8b163769e5`，保留 TEST 新增的 Claude Code 执行端、模型设置、文件折叠、面板尺寸和 TEST 启动入口。Claude CLI 决策与执行共用事件协议，均按工具结束边界交接；分别保留 Session。合并冲突同时保留取消前未确认 Session 的清理，以及 TEST 的执行 Session 隔离。Claude 执行端只有匹配原调用轮次的引导中断记录并且决策者已应用新计划，才能恢复；未知失败仍需明确人工恢复。
+
+最终验证：根构建、桌面构建与类型检查通过；五个流程文件 59/59 通过，Claude/OpenCode 两个执行文件 21/21 通过；桌面三个领取／编辑测试通过；合并后 offscreen Electron 编辑交互再次通过。Controller 注入代理的引导组合扩展为三种决策端乘三种执行端，共九种，全部通过。外部 Codex 进行了代码核对，不将该核对称为独立模型审查或 Controller 独立验收。
+
+新增真实 Claude Code 决策 / Claude Code 执行验证：Run `8d5cc7a6-e2f9-4698-b5d0-fd213fcab394`，正常工具边界交接 5778 ms，决策与执行 Session 不同，Run 完成、追加需求应用、独立文件检查通过。目录 `.validation/real-handoff-claude-code-claude-code-dd981527-8dc3-475c-9cdf-ba99b40b8e0a`。初始固定计划的限制与前三组相同。
+
+此前 Codex / Claude Code 探针的旧触发器只识别 Codex/OpenCode 命令记录，未投递引导；已明确停止该探针并保留其记录，不能记为引导通过。探针现同时识别隔离命令实际生成的 `partial.txt`，重跑上述 Claude / Claude 组合成功。产品实现未依赖该探针触发器。
+
+用户授权满足本会话成果经测试后合入 TEST 的条件；整合使用正常 Git 历史，TEST 必须干净、无关联写入进程，提交来源可追溯。仅更新 TEST，不推送、不发布、不更新 DEV 或 MAIN。

@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {createRun,drive} from '../dist/src/controller.js';
+import {RealAgents} from '../dist/src/real-agents.js';
+import {runUsage} from '../dist/src/call-observation.js';
+import {assertExecutionState} from '../dist/src/opencode-execution-agent.js';
+const directory=path.resolve('validation/claude-executor-model-dialog/real-'+randomUUID().slice(0,8)),source=path.join(directory,'source');fs.mkdirSync(source,{recursive:true});
+fs.writeFileSync(path.join(source,'README.md'),'Isolated real Claude Code execution acceptance. Only create marker.txt. No Git commits, other project changes, GUI, or background writers.\n');
+const verify=path.join(directory,'verify.cjs');fs.writeFileSync(verify,"require('node:assert/strict').equal(require('node:fs').readFileSync('marker.txt','utf8'),'claude-executor-ok\\n');console.log('trusted marker acceptance passed')");
+const config={allowedRepositories:[source],runtimeDir:path.join(directory,'runtime'),mode:'real',projectMode:'direct',directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},executionMode:'native',claudeExecutable:'C:/Users/WYL20/.local/bin/claude.exe',claudeStreaming:true,timeoutMs:180000,maxLoops:1,maxReworks:0,minTasks:1,tests:[{executable:process.execPath,args:[verify]}],mockScenario:'pass',decisionAgent:{backend:'claude-code',model:'sonnet'},executionAgent:{backend:'claude-code',model:process.argv[2]??'sonnet'},transportRetryDelaysMs:[]};
+const store=await createRun(config,source,'真实 Claude 执行适配验收：只规划一个任务，用原生工具创建 marker.txt，内容精确为 claude-executor-ok 加换行。仅可修改 marker.txt；不要修改 README.md，不提交、不合并、不推送、不打开 GUI、不留后台进程。执行者完成后由 Controller 运行独立测试，决策者只审查。保持输出简短。');
+console.log(JSON.stringify({event:'real-run-created',runId:store.id,directory}));
+const state=await drive(store,new RealAgents(config)),usage=runUsage(store),events=fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+if(state.executionSession)assertExecutionState(state);
+const result={scope:'Real Claude CLI Plan / Execute / independent test / Review via Controller; isolated acceptance project only',runId:state.id,phase:state.phase,reason:state.reason,workspace:state.workspace,decisionSession:state.decisionSession,executionSession:state.executionSession,executorExitCode:state.executorExitCode,evidence:state.evidence?{passed:state.evidence.passed,issues:state.evidence.issues,tests:state.evidence.tests.map(t=>({exitCode:t.exitCode,stdout:t.stdout}))}:null,calls:usage.calls.map(c=>({phase:c.phase,agent:c.agent,model:c.model,models:c.models,status:c.status,resumed:c.resumed})),nativeTools:events.filter(e=>e.event==='agent-activity'&&e.data.phase==='execute'&&e.data.kind==='tool').map(e=>({title:e.data.title,text:e.data.text})),failure:state.failure};
+fs.writeFileSync(path.join(directory,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify({phase:state.phase,reason:state.reason,runId:state.id,result:path.join(directory,'result.json')}));if(state.phase!=='completed'||!state.evidence?.passed||state.decisionSession?.sessionId===state.executionSession?.sessionId)process.exitCode=1;

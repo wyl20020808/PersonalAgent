@@ -49,9 +49,11 @@ export function assertExecutionState(state: State, config = state.config): void 
   const session = state.executionSession;
   if (!session) return;
   const directory = realpathSync(state.workspace);
-  const decisionIds = [state.decisionSession?.sessionId, ...state.discussion?.participants.map(p => p.session?.sessionId) ?? []];
-  if (choice.backend !== 'opencode' || session.backend !== 'opencode' || session.providerID !== choice.opencode.providerID || session.modelID !== choice.opencode.modelID ||
-    session.runId !== state.id || session.workspace !== directory || session.directory !== directory || decisionIds.includes(session.sessionId)) throw new FlowError('safety', 'OpenCode Execution Session ownership or role isolation mismatch');
+  const decisionIds = [state.claudeSessionId, state.decisionSession?.sessionId, ...state.discussion?.participants.map(p => p.session?.sessionId) ?? []];
+  const modelMatches = choice.backend === 'opencode' && session.backend === 'opencode'
+    ? session.providerID === choice.opencode.providerID && session.modelID === choice.opencode.modelID
+    : choice.backend === 'claude-code' && session.backend === 'claude-code' && session.model === choice.model && session.sessionId === state.claudeExecutionSessionId;
+  if (!modelMatches || session.runId !== state.id || session.workspace !== directory || session.directory !== directory || decisionIds.includes(session.sessionId)) throw new FlowError('safety', 'Execution Session ownership or role isolation mismatch');
 }
 /** User-requested recovery: rebind a halted Run to another execution backend/model. Workspace changes stay; the next Execute opens a fresh Session. */
 export function switchExecutionAgent(store: Store, choice: NonNullable<Config['executionAgent']>): State {
@@ -63,7 +65,7 @@ export function switchExecutionAgent(store: Store, choice: NonNullable<Config['e
     if (JSON.stringify(previous) === JSON.stringify(choice)) return state;
     state.config = validate<Config>(configSchema, { ...state.config, executionAgent: choice });
     const previousSession = state.executionSession?.sessionId ?? state.codexThreadId ?? null;
-    delete state.executionSession; state.codexThreadId = null;
+    delete state.executionSession; delete state.claudeExecutionSessionId; state.codexThreadId = null;
     store.save(state, { executionSwitch: true }); store.audit('execution-agent-switched', { from: previous, to: choice, previousSession, loop: state.loops, taskId: state.tasks[state.taskIndex]?.id ?? null });
     return state;
   } finally { unlock(); }

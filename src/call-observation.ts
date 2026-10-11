@@ -58,7 +58,7 @@ export class CallObservation {
   private initModel: string | null = null;
   private freshModelUsage = false;
 
-  constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'opencode' | 'codex') {
+  constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'claude' | 'opencode' | 'codex') {
     const callId = navigation?.callId ?? randomUUID(), agent = phase === 'execute' ? decisionBackend ?? 'codex' : decisionBackend ?? 'claude';
     mkdirSync(store.file('context'), { recursive: true });
     const manifestPath = store.file(`context/${callId}.manifest.json`);

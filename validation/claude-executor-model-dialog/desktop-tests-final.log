@@ -1,0 +1,706 @@
+TAP version 13
+# Subtest: unified diff counts content only and retains old/new line numbers
+ok 1 - unified diff counts content only and retains old/new line numbers
+  ---
+  duration_ms: 2.5517
+  type: 'test'
+  ...
+# Subtest: quoted paths, deletion, new files, snapshot wrapper and multiple files
+ok 2 - quoted paths, deletion, new files, snapshot wrapper and multiple files
+  ---
+  duration_ms: 0.8156
+  type: 'test'
+  ...
+# Subtest: Git fallback supports a registered project inside a parent repository
+ok 3 - Git fallback supports a registered project inside a parent repository
+  ---
+  duration_ms: 1204.6491
+  type: 'test'
+  ...
+# Subtest: file cards associate only the same Run, Agent invocation and loop
+ok 4 - file cards associate only the same Run, Agent invocation and loop
+  ---
+  duration_ms: 0.344
+  type: 'test'
+  ...
+# Subtest: chat file IPC validates event membership, isolates workspace, preserves history and supports deleted files
+ok 5 - chat file IPC validates event membership, isolates workspace, preserves history and supports deleted files
+  ---
+  duration_ms: 182.113
+  type: 'test'
+  ...
+# Subtest: missing historical diff uses actual current Git HEAD delta, including untracked files
+ok 6 - missing historical diff uses actual current Git HEAD delta, including untracked files
+  ---
+  duration_ms: 1653.6342
+  type: 'test'
+  ...
+# Subtest: user mode IPC validates exact enum, shares policy across isolated instances, logs inline without dialogs
+ok 7 - user mode IPC validates exact enum, shares policy across isolated instances, logs inline without dialogs
+  ---
+  duration_ms: 174.5922
+  type: 'test'
+  ...
+# Subtest: paused single decision IPC preserves Session Run, switches settings and rejects active or collaborative switches
+ok 8 - paused single decision IPC preserves Session Run, switches settings and rejects active or collaborative switches
+  ---
+  duration_ms: 526.6447
+  type: 'test'
+  ...
+# Subtest: MAIN cannot acquire writable profiles inside claimed DEV data, including junction aliases; history remains read-only
+ok 9 - MAIN cannot acquire writable profiles inside claimed DEV data, including junction aliases; history remains read-only
+  ---
+  duration_ms: 27.6788
+  type: 'test'
+  ...
+# Subtest: DEV rejects writable external runtimes while explicit historical replay remains read-only
+ok 10 - DEV rejects writable external runtimes while explicit historical replay remains read-only
+  ---
+  duration_ms: 15.6591
+  type: 'test'
+  ...
+# Subtest: formal document decision service binds request, rejects stale digest and preserves isolated Delivery boundary
+ok 11 - formal document decision service binds request, rejects stale digest and preserves isolated Delivery boundary
+  ---
+  duration_ms: 1179.1334
+  type: 'test'
+  ...
+# Subtest: document decision IPC schema rejects extra approval fields and unsupported status actions
+ok 12 - document decision IPC schema rejects extra approval fields and unsupported status actions
+  ---
+  duration_ms: 0.2994
+  type: 'test'
+  ...
+# Subtest: ordinary project detection reads scripts without executing them and requires direct permission without paid authorization
+ok 13 - ordinary project detection reads scripts without executing them and requires direct permission without paid authorization
+  ---
+  duration_ms: 3.0975
+  type: 'test'
+  ...
+# Subtest: Mock refuses preexisting user marker contents before config creation or Agent launch
+ok 14 - Mock refuses preexisting user marker contents before config creation or Agent launch
+  ---
+  duration_ms: 2.5138
+  type: 'test'
+  ...
+# Subtest: automatic config starts authorized non-Git Direct and explicitly fails unavailable isolation without fallback
+ok 15 - automatic config starts authorized non-Git Direct and explicitly fails unavailable isolation without fallback
+  ---
+  duration_ms: 1713.5619
+  type: 'test'
+  ...
+# Subtest: IPC rejects generic shell, extra fields, path-shaped IDs and malformed approval digests
+ok 16 - IPC rejects generic shell, extra fields, path-shaped IDs and malformed approval digests
+  ---
+  duration_ms: 2.4987
+  type: 'test'
+  ...
+# Subtest: sensitive diagnostics are redacted before entering Renderer
+ok 17 - sensitive diagnostics are redacted before entering Renderer
+  ---
+  duration_ms: 0.2912
+  type: 'test'
+  ...
+# Subtest: configuration import accepts optional D path but never bypasses native trust confirmation
+ok 18 - configuration import accepts optional D path but never bypasses native trust confirmation
+  ---
+  duration_ms: 0.9814
+  type: 'test'
+  ...
+# Subtest: create authorized Direct Mock profile without touching delivered games
+ok 19 - create authorized Direct Mock profile without touching delivered games
+  ---
+  duration_ms: 462.7306
+  type: 'test'
+  ...
+# Subtest: trusted upper limits and repository whitelist cannot be expanded by GUI
+ok 20 - trusted upper limits and repository whitelist cannot be expanded by GUI
+  ---
+  duration_ms: 4.3248
+  type: 'test'
+  ...
+# Subtest: native CLI executes full Mock cycle, returns actual tests and durable session IDs
+ok 21 - native CLI executes full Mock cycle, returns actual tests and durable session IDs
+  ---
+  duration_ms: 8450.2717
+  type: 'test'
+  ...
+# Subtest: Direct Delivery requires explicit approval and preserves current files
+ok 22 - Direct Delivery requires explicit approval and preserves current files
+  ---
+  duration_ms: 488.7177
+  type: 'test'
+  ...
+# Subtest: separate digest-bound approval acknowledges Direct result without rewriting files
+ok 23 - separate digest-bound approval acknowledges Direct result without rewriting files
+  ---
+  duration_ms: 1668.2636
+  type: 'test'
+  ...
+# Subtest: changed registered configuration is refused rather than silently trusted
+ok 24 - changed registered configuration is refused rather than silently trusted
+  ---
+  duration_ms: 1.906
+  type: 'test'
+  ...
+# Subtest: read-only historic profiles cannot start, stop, resume or approve
+ok 25 - read-only historic profiles cannot start, stop, resume or approve
+  ---
+  duration_ms: 22.6506
+  type: 'test'
+  ...
+# Subtest: preferences persist across service restarts
+ok 26 - preferences persist across service restarts
+  ---
+  duration_ms: 16.8317
+  type: 'test'
+  ...
+# Subtest: real mode creates Run without paid acknowledgement or ledger (launch locally intercepted)
+ok 27 - real mode creates Run without paid acknowledgement or ledger (launch locally intercepted)
+  ---
+  duration_ms: 128.6568
+  type: 'test'
+  ...
+# Subtest: audit tampering blocks UI detail instead of displaying forged evidence
+ok 28 - audit tampering blocks UI detail instead of displaying forged evidence
+  ---
+  duration_ms: 4.5518
+  type: 'test'
+  ...
+# Subtest: concurrent delivery polling is serialized without bypassing Controller locks
+ok 29 - concurrent delivery polling is serialized without bypassing Controller locks
+  ---
+  duration_ms: 2116.9714
+  type: 'test'
+  ...
+# Subtest: desktop real resume forwards unlimited duration without rewriting historical sessions
+ok 30 - desktop real resume forwards unlimited duration without rewriting historical sessions
+  ---
+  duration_ms: 235.9143
+  type: 'test'
+  ...
+# Subtest: CLI unlimited resume persists zero and finite Mock profile remains unchanged
+ok 31 - CLI unlimited resume persists zero and finite Mock profile remains unchanged
+  ---
+  duration_ms: 635.221
+  type: 'test'
+  ...
+# Subtest: Claude and Codex executor models persist through IPC, Session restart, project reopen and halted recovery
+ok 32 - Claude and Codex executor models persist through IPC, Session restart, project reopen and halted recovery
+  ---
+  duration_ms: 442.8679
+  type: 'test'
+  ...
+# Subtest: P3C executor selection is independent, validated and durable; history defaults to Codex
+ok 33 - P3C executor selection is independent, validated and durable; history defaults to Codex
+  ---
+  duration_ms: 1704.4987
+  type: 'test'
+  ...
+# Subtest: Codex single/dual models and primary persist across Desktop restart; Mock routes locally with separate identity
+ok 34 - Codex single/dual models and primary persist across Desktop restart; Mock routes locally with separate identity
+  ---
+  duration_ms: 7166.4333
+  type: 'test'
+  ...
+# Subtest: decision backend: dynamic sanitized discovery, latest selection validation, immutable Run and restart persistence
+ok 35 - decision backend: dynamic sanitized discovery, latest selection validation, immutable Run and restart persistence
+  ---
+  duration_ms: 1805.0775
+  type: 'test'
+  ...
+# Subtest: dual decision session binds two identities and primary configuration; IPC refuses unsupported roles and executable injection
+ok 36 - dual decision session binds two identities and primary configuration; IPC refuses unsupported roles and executable injection
+  ---
+  duration_ms: 1948.583
+  type: 'test'
+  ...
+# Subtest: ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist
+ok 37 - ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist
+  ---
+  duration_ms: 3113.5749
+  type: 'test'
+  ...
+# Subtest: active messages persist without mid-turn injection; edit/cancel and automatic completion handoff
+ok 38 - active messages persist without mid-turn injection; edit/cancel and automatic completion handoff
+  ---
+  duration_ms: 3589.2877
+  type: 'test'
+  ...
+# Subtest: session continues after historical cumulative exhaustion and restart; old files stay unchanged
+ok 39 - session continues after historical cumulative exhaustion and restart; old files stay unchanged
+  ---
+  duration_ms: 3451.9187
+  type: 'test'
+  ...
+# Subtest: removed budget authorization IPC cannot mutate a session or approve delivery
+ok 40 - removed budget authorization IPC cannot mutate a session or approve delivery
+  ---
+  duration_ms: 12.6639
+  type: 'test'
+  ...
+# Subtest: stale project message locks recover safely after process exit; messages and budgets remain intact
+ok 41 - stale project message locks recover safely after process exit; messages and budgets remain intact
+  ---
+  duration_ms: 29.8017
+  type: 'test'
+  ...
+# Subtest: user credentials are redacted in session lists, detail and pending projections
+ok 42 - user credentials are redacted in session lists, detail and pending projections
+  ---
+  duration_ms: 142.454
+  type: 'test'
+  ...
+# Subtest: real session creates Run without paid authorization; direct project permission still required
+ok 43 - real session creates Run without paid authorization; direct project permission still required
+  ---
+  duration_ms: 127.1986
+  type: 'test'
+  ...
+# Subtest: chat continuation reaches the real Controller launcher and preserves the existing Run
+ok 44 - chat continuation reaches the real Controller launcher and preserves the existing Run
+  ---
+  duration_ms: 1758.2352
+  type: 'test'
+  ...
+# Subtest: chat resumes the saved Run without changing limits or approving delivery
+ok 45 - chat resumes the saved Run without changing limits or approving delivery
+  ---
+  duration_ms: 334.9654
+  type: 'test'
+  ...
+# Subtest: idempotent send, concurrent send and rename/search state do not duplicate a run
+ok 46 - idempotent send, concurrent send and rename/search state do not duplicate a run
+  ---
+  duration_ms: 1688.3044
+  type: 'test'
+  ...
+# Subtest: isolated rounds require formal application of previous result; history stays unchanged
+ok 47 - isolated rounds require formal application of previous result; history stays unchanged
+  ---
+  duration_ms: 10114.7147
+  type: 'test'
+  ...
+# Subtest: historical Run is imported once with separate session ID; no automatic paid continuation
+ok 48 - historical Run is imported once with separate session ID; no automatic paid continuation
+  ---
+  duration_ms: 1123.9545
+  type: 'test'
+  ...
+# Subtest: new IPC schemas forbid project switching, budget override, approvals and malformed IDs in messages
+ok 49 - new IPC schemas forbid project switching, budget override, approvals and malformed IDs in messages
+  ---
+  duration_ms: 0.3546
+  type: 'test'
+  ...
+# Subtest: formal new session ignores stale Mock project settings and dispatches a fresh real configuration without launching paid agents
+ok 50 - formal new session ignores stale Mock project settings and dispatches a fresh real configuration without launching paid agents
+  ---
+  duration_ms: 243.878
+  type: 'test'
+  ...
+# Subtest: session reads original profile/runtime through restart and unrelated project/profile changes; no cross-runtime UUID fallback
+ok 51 - session reads original profile/runtime through restart and unrelated project/profile changes; no cross-runtime UUID fallback
+  ---
+  duration_ms: 518.8473
+  type: 'test'
+  ...
+# Subtest: changed profile runtime recovers only through registered read-only original provenance, preserves references and blocks writes
+ok 52 - changed profile runtime recovers only through registered read-only original provenance, preserves references and blocks writes
+  ---
+  duration_ms: 178.6011
+  type: 'test'
+  ...
+# Subtest: prepare failure remains durable, linked to the exact message, and never starts agents
+ok 53 - prepare failure remains durable, linked to the exact message, and never starts agents
+  ---
+  duration_ms: 86.6391
+  type: 'test'
+  ...
+# Subtest: large project session preparation preserves original runtime provenance without paid agents
+ok 54 - large project session preparation preserves original runtime provenance without paid agents
+  ---
+  duration_ms: 120.5149
+  type: 'test'
+  ...
+# Subtest: Mock completion projection explicitly denies completion of the real development goal
+ok 55 - Mock completion projection explicitly denies completion of the real development goal
+  ---
+  duration_ms: 0.1873
+  type: 'test'
+  ...
+# Subtest: old implicit Mock sessions cannot dispatch new development tasks; explicit real cannot use a Mock profile
+ok 56 - old implicit Mock sessions cannot dispatch new development tasks; explicit real cannot use a Mock profile
+  ---
+  duration_ms: 364.3913
+  type: 'test'
+  ...
+# Subtest: same agent/category/run/task/round consecutive events group and retain originals
+ok 57 - same agent/category/run/task/round consecutive events group and retain originals
+  ---
+  duration_ms: 0.3878
+  type: 'test'
+  ...
+# Subtest: group boundary: category
+ok 58 - group boundary: category
+  ---
+  duration_ms: 0.0718
+  type: 'test'
+  ...
+# Subtest: group boundary: agent
+ok 59 - group boundary: agent
+  ---
+  duration_ms: 0.099
+  type: 'test'
+  ...
+# Subtest: group boundary: run
+ok 60 - group boundary: run
+  ---
+  duration_ms: 0.0551
+  type: 'test'
+  ...
+# Subtest: group boundary: task
+ok 61 - group boundary: task
+  ---
+  duration_ms: 0.0739
+  type: 'test'
+  ...
+# Subtest: group boundary: round
+ok 62 - group boundary: round
+  ---
+  duration_ms: 0.0311
+  type: 'test'
+  ...
+# Subtest: group boundary: dispatch
+ok 63 - group boundary: dispatch
+  ---
+  duration_ms: 0.0214
+  type: 'test'
+  ...
+# Subtest: group boundary: invisibleBoundary
+ok 64 - group boundary: invisibleBoundary
+  ---
+  duration_ms: 0.0211
+  type: 'test'
+  ...
+# Subtest: group boundary: error
+ok 65 - group boundary: error
+  ---
+  duration_ms: 0.0198
+  type: 'test'
+  ...
+# Subtest: group boundary: decision
+ok 66 - group boundary: decision
+  ---
+  duration_ms: 0.0197
+  type: 'test'
+  ...
+# Subtest: commands never merge across intervening changes or important events, even after role filtering
+ok 67 - commands never merge across intervening changes or important events, even after role filtering
+  ---
+  duration_ms: 0.1217
+  type: 'test'
+  ...
+# Subtest: incremental append, replay and stable first ID preserve every event without duplicates
+ok 68 - incremental append, replay and stable first ID preserve every event without duplicates
+  ---
+  duration_ms: 2.6355
+  type: 'test'
+  ...
+# Subtest: 10000 events with long outputs group in linear time without losing output
+ok 69 - 10000 events with long outputs group in linear time without losing output
+  ---
+  duration_ms: 7.8647
+  type: 'test'
+  ...
+# Subtest: projection distinguishes files/tools and running/failure, preserves same-time audit order
+ok 70 - projection distinguishes files/tools and running/failure, preserves same-time audit order
+  ---
+  duration_ms: 0.8438
+  type: 'test'
+  ...
+# Subtest: complete long output is fetched by stable event ID and verified against audit hash
+ok 71 - complete long output is fetched by stable event ID and verified against audit hash
+  ---
+  duration_ms: 916.7771
+  type: 'test'
+  ...
+# Subtest: thread projection cache avoids re-reading unchanged audit and invalidates on append or tampering
+ok 72 - thread projection cache avoids re-reading unchanged audit and invalidates on append or tampering
+  ---
+  duration_ms: 877.4995
+  type: 'test'
+  ...
+# Subtest: promote queued input with image/file into the owned Run without touching Controller state/audit; cancel before claim
+ok 73 - promote queued input with image/file into the owned Run without touching Controller state/audit; cancel before claim
+  ---
+  duration_ms: 240.4217
+  type: 'test'
+  ...
+# Subtest: claimed guidance rejects deletion/edit and projects adjusting; accepted guidance projects executed
+ok 74 - claimed guidance rejects deletion/edit and projects adjusting; accepted guidance projects executed
+  ---
+  duration_ms: 268.6751
+  type: 'test'
+  ...
+# Subtest: editing promoted but unclaimed message withdraws its old content before requeue
+ok 75 - editing promoted but unclaimed message withdraws its old content before requeue
+  ---
+  duration_ms: 243.2409
+  type: 'test'
+  ...
+# Subtest: Claude executor remains on the execution lane even when Codex decides
+ok 76 - Claude executor remains on the execution lane even when Codex decides
+  ---
+  duration_ms: 9.9945
+  type: 'test'
+  ...
+# Subtest: durable role clocks exclude paused/verification time and retain totals across switches and Runs
+ok 77 - durable role clocks exclude paused/verification time and retain totals across switches and Runs
+  ---
+  duration_ms: 1.1318
+  type: 'test'
+  ...
+# Subtest: Codex decision and executor messages retain official identity and distinct role; dual Codex A/B never group
+ok 78 - Codex decision and executor messages retain official identity and distinct role; dual Codex A/B never group
+  ---
+  duration_ms: 0.5568
+  type: 'test'
+  ...
+# Subtest: dual audit output keeps same-backend instances separate, mixed brands accurate, and Controller statuses distinct
+ok 79 - dual audit output keeps same-backend instances separate, mixed brands accurate, and Controller statuses distinct
+  ---
+  duration_ms: 0.3567
+  type: 'test'
+  ...
+# Subtest: historical agent identity uses immutable Run first, trusted config second, never message text
+ok 80 - historical agent identity uses immutable Run first, trusted config second, never message text
+  ---
+  duration_ms: 0.3268
+  type: 'test'
+  ...
+# Subtest: messages sorted and deduplicated by persistent audit hash
+ok 81 - messages sorted and deduplicated by persistent audit hash
+  ---
+  duration_ms: 0.1258
+  type: 'test'
+  ...
+# Subtest: task, loop and source associations survive historical replay
+ok 82 - task, loop and source associations survive historical replay
+  ---
+  duration_ms: 0.1548
+  type: 'test'
+  ...
+# Subtest: plan, tests, paths and public activity are redacted before Renderer
+ok 83 - plan, tests, paths and public activity are redacted before Renderer
+  ---
+  duration_ms: 0.2113
+  type: 'test'
+  ...
+# Subtest: unknown audit events do not invent Agent chat or progress
+ok 84 - unknown audit events do not invent Agent chat or progress
+  ---
+  duration_ms: 0.2429
+  type: 'test'
+  ...
+# Subtest: native tool, file diff and independent checks retain actual agent/task/loop associations
+ok 85 - native tool, file diff and independent checks retain actual agent/task/loop associations
+  ---
+  duration_ms: 0.5104
+  type: 'test'
+  ...
+# Subtest: cursor pagination reconnects without duplicates and invalid cursor resets
+ok 86 - cursor pagination reconnects without duplicates and invalid cursor resets
+  ---
+  duration_ms: 1.2829
+  type: 'test'
+  ...
+# Subtest: notes are explicitly pending and never represented as executed decisions
+ok 87 - notes are explicitly pending and never represented as executed decisions
+  ---
+  duration_ms: 0.1037
+  type: 'test'
+  ...
+# Subtest: new IPC operations reject unsafe paths, extra parameters and malformed visual proof
+ok 88 - new IPC operations reject unsafe paths, extra parameters and malformed visual proof
+  ---
+  duration_ms: 31.7344
+  type: 'test'
+  ...
+# Subtest: Mock fixture uses formal Controller and zero paid services
+ok 89 - Mock fixture uses formal Controller and zero paid services
+  ---
+  duration_ms: 9929.2905
+  type: 'test'
+  ...
+# Subtest: pending note idempotence, persistence and no Controller state or audit mutation
+ok 90 - pending note idempotence, persistence and no Controller state or audit mutation
+  ---
+  duration_ms: 22.6608
+  type: 'test'
+  ...
+# Subtest: read-only replay and GUI notes do not authorize resume or delivery
+ok 91 - read-only replay and GUI notes do not authorize resume or delivery
+  ---
+  duration_ms: 23.5521
+  type: 'test'
+  ...
+# Subtest: same backend decision and execution activity retain distinct roles after P3A/P3C integration
+ok 92 - same backend decision and execution activity retain distinct roles after P3A/P3C integration
+  ---
+  duration_ms: 0.6239
+  type: 'test'
+  ...
+# Subtest: tampered audit blocks group history and screenshot queries
+ok 93 - tampered audit blocks group history and screenshot queries
+  ---
+  duration_ms: 5.2996
+  type: 'test'
+  ...
+# Subtest: visual intent requires current-stage trusted proof; stale task and replaced file rejected
+ok 94 - visual intent requires current-stage trusted proof; stale task and replaced file rejected
+  ---
+  duration_ms: 58.1874
+  type: 'test'
+  ...
+# Subtest: rework and execution counters never refuse a user-requested rework
+ok 95 - rework and execution counters never refuse a user-requested rework
+  ---
+  duration_ms: 15.5047
+  type: 'test'
+  ...
+# Subtest: legacy rework-limit pause resumes from a plain chat decision
+ok 96 - legacy rework-limit pause resumes from a plain chat decision
+  ---
+  duration_ms: 14.9229
+  type: 'test'
+  ...
+# Subtest: resume can switch the execution model, dropping the old execution session and keeping usage
+ok 97 - resume can switch the execution model, dropping the old execution session and keeping usage
+  ---
+  duration_ms: 48.6778
+  type: 'test'
+  ...
+# Subtest: desktop rework reaches CLI and Controller at missing-tests pause instead of repeating verify
+ok 98 - desktop rework reaches CLI and Controller at missing-tests pause instead of repeating verify
+  ---
+  duration_ms: 6760.5006
+  type: 'test'
+  ...
+# Subtest: Git preparation failure is visible in GUI detail and audited chat; no child Agent launched
+ok 99 - Git preparation failure is visible in GUI detail and audited chat; no child Agent launched
+  ---
+  duration_ms: 668.4193
+  type: 'test'
+  ...
+# Subtest: GUI and audit preserve complete long Git stdout/stderr diagnostics
+ok 100 - GUI and audit preserve complete long Git stdout/stderr diagnostics
+  ---
+  duration_ms: 75.17
+  type: 'test'
+  ...
+# Subtest: canonical and legacy project IPC agree; conflicting modes and proposal tool escape are rejected
+ok 101 - canonical and legacy project IPC agree; conflicting modes and proposal tool escape are rejected
+  ---
+  duration_ms: 0.3514
+  type: 'test'
+  ...
+# Subtest: recent settings migrate from workspaceMode and conflicting persisted choices fail
+ok 102 - recent settings migrate from workspaceMode and conflicting persisted choices fail
+  ---
+  duration_ms: 7.2363
+  type: 'test'
+  ...
+# Subtest: paid no-test project remains configurable without launching any paid service
+ok 103 - paid no-test project remains configurable without launching any paid service
+  ---
+  duration_ms: 28.2139
+  type: 'test'
+  ...
+# Subtest: ordinary folder direct GUI service confirms exact approved result without duplicate writes
+ok 104 - ordinary folder direct GUI service confirms exact approved result without duplicate writes
+  ---
+  duration_ms: 2436.2781
+  type: 'test'
+  ...
+# Subtest: manual service acceptance is durable per task, does not approve delivery, and never fabricates test passes
+ok 105 - manual service acceptance is durable per task, does not approve delivery, and never fabricates test passes
+  ---
+  duration_ms: 1610.2108
+  type: 'test'
+  ...
+# Subtest: attachment limits allow larger images and text and reject above 100 MiB before reading
+ok 106 - attachment limits allow larger images and text and reject above 100 MiB before reading
+  ---
+  duration_ms: 54.6865
+  type: 'test'
+  ...
+# Subtest: chat routes from runtime state without treating quoted commands as controls
+ok 107 - chat routes from runtime state without treating quoted commands as controls
+  ---
+  duration_ms: 0.4721
+  type: 'test'
+  ...
+# Subtest: chat resume is idempotent, preserves Run and attaches new verified input; failures remain visible
+ok 108 - chat resume is idempotent, preserves Run and attaches new verified input; failures remain visible
+  ---
+  duration_ms: 308.2502
+  type: 'test'
+  ...
+# Subtest: queued chat drains after completion, pauses do not replay, and stop holds queued work
+ok 109 - queued chat drains after completion, pauses do not replay, and stop holds queued work
+  ---
+  duration_ms: 381.7743
+  type: 'test'
+  ...
+# Subtest: attachment batches reject metadata-only, truncated, binary and forged images
+ok 110 - attachment batches reject metadata-only, truncated, binary and forged images
+  ---
+  duration_ms: 2.4494
+  type: 'test'
+  ...
+# Subtest: client reads full UTF-8 content and rejects unsupported or oversized files
+ok 111 - client reads full UTF-8 content and rejects unsupported or oversized files
+  ---
+  duration_ms: 0.9094
+  type: 'test'
+  ...
+# Subtest: refresh notifications coalesce, never overlap, and stop prevents further reads
+ok 112 - refresh notifications coalesce, never overlap, and stop prevents further reads
+  ---
+  duration_ms: 49.0483
+  type: 'test'
+  ...
+# Subtest: failed refresh retries; stopping during an in-flight read cancels follow-up
+ok 113 - failed refresh retries; stopping during an in-flight read cancels follow-up
+  ---
+  duration_ms: 78.5933
+  type: 'test'
+  ...
+# Subtest: file browser handles directories, rejects escapes, unknown roots and binary previews; SVG stays text
+ok 114 - file browser handles directories, rejects escapes, unknown roots and binary previews; SVG stays text
+  ---
+  duration_ms: 15.9923
+  type: 'test'
+  ...
+# Subtest: idempotent session sends bind both text and attachment bytes
+ok 115 - idempotent session sends bind both text and attachment bytes
+  ---
+  duration_ms: 40.1221
+  type: 'test'
+  ...
+# Subtest: Session binds verified attachment bytes into its Run before launch; restart preserves manifest
+ok 116 - Session binds verified attachment bytes into its Run before launch; restart preserves manifest
+  ---
+  duration_ms: 123.7344
+  type: 'test'
+  ...
+1..116
+# tests 116
+# suites 0
+# pass 116
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 89719.7276
