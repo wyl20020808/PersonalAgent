@@ -13,14 +13,15 @@ await build({stdin:{resolveDir:directory,loader:'tsx',contents:`
 import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {FileCards,FilePreviewContext} from './src/FilePreview.tsx';
-import {EventGroup,Message} from './src/GroupWorkspace.tsx';
+import {EventGroup,Message,TimelineTime,latestCopyIds} from './src/GroupWorkspace.tsx';
 import {groupMessages} from './src/threadGrouping.ts';
 import './src/chat-messages.css';
+window.testLatestCopyIds=latestCopyIds;
 window.personalAgent={invoke:async request=>{document.body.dataset.contextRequest=JSON.stringify(request);return 'view';}};
 const message=(i,extra={})=>({id:String(i),timelineIndex:i,time:'2026-10-11T10:00:00Z',role:'codex',participantRole:'执行者',decisionStage:'execute',title:'Codex 执行事件',text:'echo test\\ncompleted · exit_code=0',kind:'tool',category:'commands',status:'success',runId:'run',taskId:'task',loop:1,scope:'execute:1',source:'audit',details:{protocol:'codex-sdk-runStreamed'},...extra});
 const files=message(10,{kind:'tests',details:{paths:['a.ts','b.ts','c.ts','d.ts','e.ts']}});
 const raw=[message(0),message(1,{title:'Codex 文件操作',category:'files',text:'completed\\n[{"path":"a.ts"}]'}),message(2,{kind:'output',category:'output',text:'修改完成 [诊断报告](<D:/Demo/report.md>) 和 \`src/code.ts\` [网页](https://example.com)'}),message(3),message(4,{kind:'output',category:'output',text:''}),message(5,{status:'fail',text:'false\\nfailed · exit_code=1\\nfailed output'})];
-function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}</section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button><button id="append-many" onClick={()=>setStream(value=>[...value,...Array.from({length:60},(_,i)=>message(100+i,{timelineIndex:200+i}))])}>追加长列表</button></section><section id="empty-command"><Message message={message(20)}/></section></FilePreviewContext.Provider>}
+function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} copyIds={latestCopyIds(raw)} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}<TimelineTime time={raw.at(-1)?.time}/></section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button><button id="append-many" onClick={()=>setStream(value=>[...value,...Array.from({length:60},(_,i)=>message(100+i,{timelineIndex:200+i}))])}>追加长列表</button></section><section id="empty-command"><Message message={message(20)}/></section><section id="timed-command"><EventGroup group={groupMessages([message(90,{text:JSON.stringify({tool:'bash',input:{command:'echo timed'},status:'completed',durationMs:2200}),details:{protocol:'claude-cli-stream-json'}})],true)[0]} expanded={true} onToggle={()=>{}}/></section></FilePreviewContext.Provider>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `},bundle:true,format:'esm',outfile:path.join(output,'fixture.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
 fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="fixture.css"><div id="root" class="chat-feed"></div><script type="module" src="fixture.js"></script>');
@@ -50,8 +51,8 @@ app.whenReady().then(async()=>{
    const group=document.querySelector('#events .group-toggle');
    assert(group.querySelector('span').textContent==='编辑了文件 · 运行了 1 条命令','mixed actions show command count');
    assert(document.querySelector('#events .compact-event-group > .person-icon'),'group avatar retained');
-   assert(document.querySelector('#events .compact-event-group .message-meta').textContent.includes('Codex'),'group executor name retained');
-   assert(group.querySelector('time')&&group.querySelector('.lucide-square-terminal'),'group time and terminal icon retained');
+   assert(!document.querySelector('#events .message-meta'),'all role and name headers removed');
+   assert(!group.querySelector('time')&&group.querySelector('.lucide-square-terminal'),'group time removed and terminal icon retained');
    assert(getComputedStyle(group.querySelector('span')).fontWeight==='600','group summary uses darker bold text');
    assert(getComputedStyle(group).flexWrap==='nowrap'&&getComputedStyle(group.querySelector('span')).whiteSpace==='nowrap','operation summary stays on one line');
    assert(group.getAttribute('aria-expanded')==='false','execution group starts folded');
@@ -59,7 +60,7 @@ app.whenReady().then(async()=>{
    assert(!document.querySelector('#events .group-children .person-icon,#events .group-children .message-title,#events .group-children .copy-message,#events .group-children .source-reference,#events .group-children .tool-heading,#events .group-children .tool-raw,#events .group-children .command-details'),'expanded operations omit repeated chrome');
    assert(!document.querySelector('#events .compact-operation time'),'operation timestamps omitted');
    const operation=document.querySelector('#events .compact-operation');assert(!operation.open,'operation starts as one line');
-   assert(operation.querySelector('summary').textContent.includes('echo test'),'one line command preview');
+   assert(operation.querySelector('summary').textContent.includes('已运行 echo test'),'command preview has executed prefix');
    operation.querySelector('summary').click();await wait();assert(operation.open,'operation expands on click');
    const scroll=document.querySelector('#events .compact-children');assert(getComputedStyle(scroll).overflowY==='auto'&&parseFloat(getComputedStyle(scroll).maxHeight)<=420,'expanded group has bounded vertical scrolling');
    assert(document.querySelector('#events .compact-command').textContent==='echo test','actual command shown directly');
@@ -78,12 +79,18 @@ app.whenReady().then(async()=>{
    assert(document.body.dataset.opened==='D:/Demo/report.md','view menu action opens preview');
    cards()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));await wait();assert(JSON.parse(document.body.dataset.contextRequest).file==='a.ts','cards share file context menu');
    assert(!publicMessage.querySelector('.message-meta time'),'timestamp removed from header');
-   assert(publicMessage.querySelector('.message-time')&&getComputedStyle(publicMessage.querySelector('.message-time')).textAlign==='right','timestamp displayed in bottom right footer');
+   assert(!publicMessage.querySelector('time'),'per-message timestamp omitted');
+   assert(document.querySelectorAll('#events time').length===1&&document.querySelector('#events > .timeline-time'),'one timestamp at end of timeline');
+   assert(document.querySelectorAll('#events .copy-message').length===1&&publicMessage.querySelector('.copy-message'),'only latest agent prose has copy control');
+   const copyMessage=(id,role,kind='output')=>({id,role,kind,text:'content'});
+   const ids=window.testLatestCopyIds([copyMessage('old','codex'),copyMessage('decision','claude'),copyMessage('last','codex'),copyMessage('tool','codex','tool'),copyMessage('user','user')]);
+   assert(ids.size===2&&ids.has('decision')&&ids.has('last'),'copy controls limited to latest prose per agent');
    assert(!document.querySelector('#events [data-message-id="4"]'),'empty output hidden');
    const failureGroup=document.querySelectorAll('#events .group-toggle')[1];
    assert(failureGroup.querySelector('span').textContent==='运行了 2 条命令','summary shows command count');
    failureGroup.click();await wait();assert(document.querySelector('#events [data-message-id="5"] .compact-output').textContent==='failed output','failure output shown directly after expand');
    assert(!document.querySelector('#empty-command .tool-output'),'empty command output omitted');
+   assert(document.querySelector('#timed-command .compact-operation summary').textContent.includes('已在 3 秒内运行 echo timed'),'measured duration is shown when available');
    const stream=document.querySelector('#stream .group-toggle');stream.click();await wait();
    const streamId=document.querySelector('#stream article').dataset.groupId;
    document.querySelector('#append-operation').click();await wait();
@@ -95,7 +102,7 @@ app.whenReady().then(async()=>{
    document.querySelector('#append-many').click();await wait();
    const longScroll=document.querySelector('#stream .compact-children');assert(longScroll.scrollHeight>longScroll.clientHeight,'long operation list scrolls inside bounded group');
    assert(longScroll.clientHeight<=420,'long list height bounded');longScroll.scrollTop=longScroll.scrollHeight;assert(longScroll.scrollTop>0,'operation list can scroll to later rows');
-   return 'PASS: compact operation details without repeated chrome; compact summary with executor/count/time; no repeated row metadata; commands/failure/output retained; dynamic append';
+   return 'PASS: compact operation details without repeated chrome; compact summary with avatar/count and one final timestamp; no repeated row metadata; commands/failure/output retained; dynamic append';
   }}).toString()+')()'
  ).then(console.log);
  clearTimeout(timer);app.exit(0);

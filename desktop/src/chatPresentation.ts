@@ -10,7 +10,7 @@ export function messageLane(message:ChatMessage):'user'|'decision'|'execution'|'
 }
 
 type Activity={kind:string;text:string;title?:string;source?:string};
-type ToolView={label:string;command?:string;paths?:string[];output?:string;status:string;exitCode?:number};
+type ToolView={label:string;command?:string;paths?:string[];output?:string;status:string;exitCode?:number;durationMs?:number};
 const object=(value:unknown):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const statusOf=(status:unknown)=>status==='completed'?'success':status==='failed'||status==='error'?'fail':['pending','running','in_progress'].includes(String(status))?'running':'recorded';
 
@@ -35,7 +35,9 @@ export function toolPresentation(data:Activity):ToolView|null {
   const output=receipt.error??receipt.output??receipt.content??receipt.result;
   const exitCode=data.source==='opencode-sdk'&&receipt.tool==='bash'&&Number.isInteger(receipt.metadata?.exit)?receipt.metadata.exit:undefined;
   const failed=receipt.is_error===true||(receipt.error!==undefined&&receipt.error!==null&&receipt.error!=='')||(exitCode!==undefined&&exitCode!==0);
-  return {label:typeof receipt.tool==='string'?receipt.tool:data.title??'工具记录',command:typeof input.command==='string'?input.command:undefined,paths:typeof path==='string'?[path]:undefined,output:output===undefined?undefined:typeof output==='string'?output:JSON.stringify(output,null,2),exitCode,status:failed?'fail':receipt.is_error===false?'success':statusOf(receipt.status)};
+  const measured=receipt.durationMs??receipt.metadata?.durationMs;
+  const durationMs=typeof measured==='number'&&Number.isFinite(measured)&&measured>=0?measured:undefined;
+  return {label:typeof receipt.tool==='string'?receipt.tool:data.title??'工具记录',command:typeof input.command==='string'?input.command:undefined,paths:typeof path==='string'?[path]:undefined,output:output===undefined?undefined:typeof output==='string'?output:JSON.stringify(output,null,2),exitCode,durationMs,status:failed?'fail':receipt.is_error===false?'success':statusOf(receipt.status)};
  }catch{return null;}
 }
 
