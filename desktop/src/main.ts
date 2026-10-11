@@ -1,5 +1,5 @@
 import {chatRoute} from './chatRouting.js';
-import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen} from 'electron';
+import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen,shell} from 'electron';
 import {restoreWindowBounds,ensureWindowOnDisplay,watchWindowDisplays} from './windowPlacement.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -52,6 +52,10 @@ if(locked)app.whenReady().then(async()=>{
      if(session.settings.projectMode==='direct'&&!session.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改会话项目目录',detail:session.projectPath+'\n会话始终绑定此项目；快照、用量及每轮审计独立保留。'});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
     }
    }
+   if(r.operation==='chatFileMenu')return new Promise<string|null>(resolve=>{
+    let selected=false;
+    Menu.buildFromTemplate([{label:'查看文件',click:()=>{selected=true;resolve('view');}},{label:'打开所在文件夹',click:()=>{selected=true;void service.chatFileLocation(r.profileId!,r.runId!,r.messageId!,r.file!).then(file=>{shell.showItemInFolder(file);resolve('reveal');}).catch(error=>{void dialog.showMessageBox(window,{type:'error',message:'无法打开所在文件夹',detail:(error as Error).message});resolve(null);});}}]).popup({window,callback:()=>{if(!selected)resolve(null);}});
+   });
    if(r.operation==='chooseProject'){const picked=await dialog.showOpenDialog(window,{title:'选择项目文件夹',properties:['openDirectory','createDirectory']});return picked.canceled?null:service.inspectProject(picked.filePaths[0]!);}
    if(r.operation==='startProject'){
     const project=service.inspectProject(r.projectPath!);

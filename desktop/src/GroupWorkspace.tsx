@@ -9,13 +9,14 @@ import AgentLogo from './AgentLogo.js';
 import ImagePreview from './ImagePreview.js';
 import QueuedMessages from './QueuedMessages.js';
 import ProjectExplorer from './ProjectExplorer.js';
-import FilePreview,{FileCards,FilePreviewContext,ChangesButton,ChangesPreview} from './FilePreview.js';
+import FilePreview,{FileCards,FileButton,FilePreviewContext,ChangesButton,ChangesPreview} from './FilePreview.js';
 
 import {refreshLoop} from './refreshLoop.js';
 import {readAttachment,attachmentAccept,MAX_ATTACHMENTS} from './attachments.js';
 import type {AgentId} from '../../src/agent-capabilities.js';
 import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import Markdown from 'react-markdown';
+import Markdown,{defaultUrlTransform} from 'react-markdown';
+import {localFilePath} from './fileReferences.js';
 import {Plus,Maximize2,Globe,ChevronRight,ArrowDown,ArrowUp,Ellipsis,Folder,FolderOpen,LoaderCircle,PanelRight,ArrowUpRight,Check,CheckCircle2,ChevronDown,Clock3,Code2,FileCode2,GitBranch,Image as ImageIcon,Layers3,MessageSquare,Pause,Play,Send,ShieldCheck,Square,TriangleAlert,X} from 'lucide-react';
 import type {DecisionAgent,DecisionDiscussion,SessionDraft,ChatMessage,ChatAttachment,Conversation,Picture,Profile,Project,Run,ThreadPage,ProjectFile} from './types.js';
 import {groupMessages,type MessageGroup} from './threadGrouping.js';
@@ -27,8 +28,12 @@ const logoIds:Partial<Record<ChatMessage['role'],AgentId>>={claude:'claude-code'
 function Avatar({role}:{role:ChatMessage['role']}){const agent=logoIds[role];return <div className={`person-icon ${role}`}>{agent?<AgentLogo agent={agent}/>:role==='controller'?<ShieldCheck size={14}/>:roles.user.letter}</div>;}
 const labels:Record<string,string>={planning:'CC 正在规划',execute:'准备派单',executing:'Codex 正在执行',applying:'Controller 应用提案',verify:'准备决策者审查证据',review:'决策者正在验收成果',paused:'等待你的决策',failed:'执行失败',stopped:'已暂停',completed:'本轮开发已完成'};
 const clock=(time:string)=>new Date(time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-export function SafeMarkdown({text}:{text:string}){return <Markdown skipHtml components={{a:({children})=><span className="markdown-link">{children}</span>,img:()=>null}}>{text}</Markdown>;}
-function Text({text}:{text:string}){const [expanded,setExpanded]=useState(false);return text.length>650?<details className="message-fold" onToggle={e=>setExpanded(e.currentTarget.open)}><summary><SafeMarkdown text={text.split('\n')[0].slice(0,240)}/><span>展开完整内容<ChevronDown size={13}/></span></summary>{expanded&&<div className="markdown"><SafeMarkdown text={text}/></div>}</details>:<div className="markdown"><SafeMarkdown text={text}/></div>;}
+export function SafeMarkdown({text,message}:{text:string;message?:ChatMessage}){
+ const link=(file:string,children:React.ReactNode)=><FileButton message={message!} path={file} className="markdown-file-link" title={file}><FileCode2 size={13}/><span>{children}</span></FileButton>;
+ return <Markdown skipHtml urlTransform={url=>localFilePath(url)?url:defaultUrlTransform(url)} components={{a:({children,href})=>{const file=href&&localFilePath(href);return file&&message?link(file,children):<span className="markdown-link">{children}</span>;},code:({children,className})=>{const text=String(children),file=!className&&!text.includes('\n')&&localFilePath(text);return file&&message?link(file,file.split('/').at(-1)):<code className={className}>{children}</code>;},img:()=>null}}>{text}</Markdown>;
+}
+function Text({text,message}:{text:string;message?:ChatMessage}){const [expanded,setExpanded]=useState(false);return text.length>650?<details className="message-fold" onToggle={e=>setExpanded(e.currentTarget.open)}><summary><SafeMarkdown text={text.split('\n')[0].slice(0,240)} message={message}/><span>展开完整内容<ChevronDown size={13}/></span></summary>{expanded&&<div className="markdown"><SafeMarkdown text={text} message={message}/></div>}</details>:<div className="markdown"><SafeMarkdown text={text} message={message}/></div>;}
+
 function ToolContent({message}:{message:ChatMessage}){
  const tool=toolPresentation({kind:message.kind,text:message.text,title:message.title,source:message.details?.protocol});
  return <div className="tool-record">
@@ -52,7 +57,7 @@ function CompactOperation({message}:{message:ChatMessage}){
 }
 function MessageText({message}:{message:ChatMessage}){
  const command=message.category==='commands'||/执行事件|运行命令|Shell/.test(message.title);
- return command?<details className="command-details"><summary><Code2 size={14}/><span>运行命令</span><span className="command-status">{message.status==='running'?'运行中':message.status==='failed'||message.status==='fail'?'失败':'已记录'}</span></summary><div className="markdown"><SafeMarkdown text={message.text}/></div></details>:<Text text={message.text}/>;
+ return command?<details className="command-details"><summary><Code2 size={14}/><span>运行命令</span><span className="command-status">{message.status==='running'?'运行中':message.status==='failed'||message.status==='fail'?'失败':'已记录'}</span></summary><div className="markdown"><SafeMarkdown text={message.text} message={message}/></div></details>:<Text text={message.text} message={message}/>;
 }
 export const Message=React.memo(function Message({message,showEvidence=false}:{message:ChatMessage;showEvidence?:boolean}){
  const [copyStatus,setCopyStatus]=useState('');
@@ -79,7 +84,7 @@ export function EventGroup({group,expanded,onToggle,showEvidence=false}:{group:M
   const tools=group.messages.map(message=>toolPresentation({kind:message.kind,text:message.text,title:message.title,source:message.details?.protocol}));
   const hasFiles=tools.some(tool=>tool?.paths?.length),hasCommands=tools.some(tool=>tool?.command?.trim());
   const label=hasFiles?(hasCommands?'编辑了文件运行了命令':'编辑了文件'):hasCommands?'运行了命令':'执行了操作';
-  return <article className={`group-message event-group compact-event-group lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><div className="message-main"><div className="message-content"><button className="group-toggle compact-group-toggle" aria-expanded={expanded} onClick={onToggle}>{hasFiles?<FileCode2 size={14}/>:<Code2 size={14}/>}<span>{label}</span></button>{expanded&&<div className="group-children compact-children" tabIndex={0} aria-label="执行操作明细">{group.messages.slice(0,shown).map(message=><CompactOperation key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>显示更多</button>}</div>}</div></div></article>;
+  return <article className={`group-message event-group compact-event-group lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-content"><button className="group-toggle compact-group-toggle" aria-expanded={expanded} onClick={onToggle}>{hasFiles?<FileCode2 size={14}/>:<Code2 size={14}/>}<span>{label}</span></button>{expanded&&<div className="group-children compact-children" tabIndex={0} aria-label="执行操作明细">{group.messages.slice(0,shown).map(message=><CompactOperation key={message.id} message={message}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>显示更多</button>}</div>}</div></div></article>;
  }
  if(group.messages.length===1&&group.category!=='执行操作')return <Message message={first} showEvidence={showEvidence}/>;
  return <article className={`group-message event-group status-${group.status} lane-${messageLane(first)} role-${first.role}`} data-message-id={group.id} data-group-id={group.id}><Avatar role={first.role}/><div className="message-main"><div className="message-meta"><strong>{first.participantName??role.name}</strong><span>{first.participantRole??role.description}</span></div><div className="message-content"><button className="group-toggle" aria-expanded={expanded} onClick={onToggle}><strong>{first.participantName??role.name} · {group.messages.length} 条{group.category}</strong><span>{['fail','failed'].includes(group.status)?'含失败记录':group.status==='running'?'执行中':group.status==='success'?'已完成':'已记录'} · {expanded?'收起':'展开'}</span><ChevronDown size={15}/></button>{!['命令','执行操作'].includes(group.category)&&<p className="group-preview">{messagePreview(first)}</p>}{expanded&&<div className={`group-children ${group.category==='执行操作'?'compact-children':''}`} tabIndex={group.category==='执行操作'?0:undefined} aria-label={group.category==='执行操作'?'执行操作明细':undefined}>{group.messages.slice(0,shown).map(message=>group.category==='执行操作'?<CompactOperation key={message.id} message={message}/>:<Message key={message.id} message={message} showEvidence={showEvidence}/>)}{shown<group.messages.length&&<button className="text-button" onClick={()=>setShown(n=>n+50)}>继续显示 {Math.min(50,group.messages.length-shown)} 条原始事件</button>}</div>}</div><time className="message-time" dateTime={group.lastTime}>{clock(group.lastTime)}</time></div></article>;

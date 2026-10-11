@@ -16,9 +16,10 @@ import {FileCards,FilePreviewContext} from './src/FilePreview.tsx';
 import {EventGroup,Message} from './src/GroupWorkspace.tsx';
 import {groupMessages} from './src/threadGrouping.ts';
 import './src/chat-messages.css';
+window.personalAgent={invoke:async request=>{document.body.dataset.contextRequest=JSON.stringify(request);return 'view';}};
 const message=(i,extra={})=>({id:String(i),timelineIndex:i,time:'2026-10-11T10:00:00Z',role:'codex',participantRole:'执行者',decisionStage:'execute',title:'Codex 执行事件',text:'echo test\\ncompleted · exit_code=0',kind:'tool',category:'commands',status:'success',runId:'run',taskId:'task',loop:1,scope:'execute:1',source:'audit',details:{protocol:'codex-sdk-runStreamed'},...extra});
 const files=message(10,{kind:'tests',details:{paths:['a.ts','b.ts','c.ts','d.ts','e.ts']}});
-const raw=[message(0),message(1,{title:'Codex 文件操作',category:'files',text:'completed\\n[{"path":"a.ts"}]'}),message(2,{kind:'output',category:'output',text:'修改完成'}),message(3),message(4,{kind:'output',category:'output',text:''}),message(5,{status:'fail',text:'false\\nfailed · exit_code=1\\nfailed output'})];
+const raw=[message(0),message(1,{title:'Codex 文件操作',category:'files',text:'completed\\n[{"path":"a.ts"}]'}),message(2,{kind:'output',category:'output',text:'修改完成 [诊断报告](<D:/Demo/report.md>) 和 \`src/code.ts\` [网页](https://example.com)'}),message(3),message(4,{kind:'output',category:'output',text:''}),message(5,{status:'fail',text:'false\\nfailed · exit_code=1\\nfailed output'})];
 function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}</section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button><button id="append-many" onClick={()=>setStream(value=>[...value,...Array.from({length:60},(_,i)=>message(100+i,{timelineIndex:200+i}))])}>追加长列表</button></section><section id="empty-command"><Message message={message(20)}/></section></FilePreviewContext.Provider>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `},bundle:true,format:'esm',outfile:path.join(output,'fixture.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
@@ -39,6 +40,7 @@ app.whenReady().then(async()=>{
    for(let i=0;i<100&&!document.querySelector('#files .chat-file-card');i++)await wait();
    const cards=()=>document.querySelectorAll('#files .chat-file-card');
    assert(cards().length===3,'default file preview must show 3');
+   assert(!document.querySelector('#files .chat-file-path small'),'file cards show only names');
    const toggle=document.querySelector('#files .chat-file-toggle');
    assert(toggle.textContent.includes('2'),'hidden file count');toggle.click();await wait();
    assert(cards().length===5&&toggle.getAttribute('aria-expanded')==='true','file expand');
@@ -47,7 +49,9 @@ app.whenReady().then(async()=>{
    assert(document.querySelectorAll('#events > article').length===3,'tools/output/tools projection');
    const group=document.querySelector('#events .group-toggle');
    assert(group.textContent==='编辑了文件运行了命令','mixed actions have a minimal summary');
-   assert(!document.querySelector('#events .compact-event-group .person-icon,#events .compact-event-group .message-meta'),'operation group omits identity and timestamps');
+   assert(document.querySelector('#events .compact-event-group > .person-icon'),'group avatar retained');
+   assert(!document.querySelector('#events .compact-event-group .message-meta'),'operation group omits redundant header');
+   assert(getComputedStyle(group).flexWrap==='nowrap'&&getComputedStyle(group.querySelector('span')).whiteSpace==='nowrap','operation summary stays on one line');
    assert(group.getAttribute('aria-expanded')==='false','execution group starts folded');
    group.click();await wait();assert(document.querySelectorAll('#events .group-children .compact-operation').length===2,'execution group expands');
    assert(!document.querySelector('#events .group-children .person-icon,#events .group-children .message-title,#events .group-children .copy-message,#events .group-children .source-reference,#events .group-children .tool-heading,#events .group-children .tool-raw,#events .group-children .command-details'),'expanded operations omit repeated chrome');
@@ -63,6 +67,14 @@ app.whenReady().then(async()=>{
    assert(!document.querySelector('#events [data-message-id="2"] .message-title'),'public output has no subtitle');
    const publicMessage=document.querySelector('#events [data-message-id="2"]');
    assert(!publicMessage.querySelector('.source-reference'),'concise messages omit evidence source');
+   const links=publicMessage.querySelectorAll('.markdown-file-link');assert(links.length===2,'local markdown and code paths become file controls');
+   links[0].click();assert(document.body.dataset.opened==='D:/Demo/report.md','markdown file path routes to right preview callback');
+   links[1].click();assert(document.body.dataset.opened==='src/code.ts','inline code file routes to preview');
+   assert(publicMessage.querySelector('.markdown-link').textContent==='网页','web links are not treated as local files');
+   links[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));await wait();
+   assert(JSON.parse(document.body.dataset.contextRequest).operation==='chatFileMenu','file context menu invokes native menu');
+   assert(document.body.dataset.opened==='D:/Demo/report.md','view menu action opens preview');
+   cards()[0].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}));await wait();assert(JSON.parse(document.body.dataset.contextRequest).file==='a.ts','cards share file context menu');
    assert(!publicMessage.querySelector('.message-meta time'),'timestamp removed from header');
    assert(publicMessage.querySelector('.message-time')&&getComputedStyle(publicMessage.querySelector('.message-time')).textAlign==='right','timestamp displayed in bottom right footer');
    assert(!document.querySelector('#events [data-message-id="4"]'),'empty output hidden');

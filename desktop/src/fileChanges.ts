@@ -1,3 +1,4 @@
+import {markdownFilePaths} from './fileReferences.js';
 import type {ChatMessage} from './types.js';
 import {toolPresentation} from './chatPresentation.js';
 
@@ -61,7 +62,7 @@ export function parseFileChanges(diff:string):FileChange[]{
 }
 export function messageFiles(message:ChatMessage){
  const paths=toolPresentation({kind:message.kind,text:message.text,title:message.title,source:message.details?.protocol})?.paths??message.details?.paths??[];
- return [...new Set([...paths,...parseFileChanges(message.details?.diff??'').map(file=>file.path)])];
+ return [...new Set([...paths,...(['output','discussion','review'].includes(message.kind)?markdownFilePaths(message.text):[]),...parseFileChanges(message.details?.diff??'').map(file=>file.path)])];
 }
 export function recordedDiff(messages:ChatMessage[],message:ChatMessage):{message:ChatMessage;scope:string}|undefined{
  if(message.details?.diff)return {message,scope:message.kind==='changes'?(message.details.protocol==='Controller limited Git observation'?'该轮结束时的 Git 观测（可能含此前修改）':'该次 Agent 调用的修改'):'该条事件的变更证据'};

@@ -65,6 +65,7 @@ schema('renameSession',{sessionId:uuid,title:{...str,maxLength:80}});
  schema('listProjectFiles',{projectPath:str,file:{type:'string',maxLength:1000}},['projectPath','file']);
  schema('readProjectFile',{projectPath:str,file:{type:'string',minLength:1,maxLength:1000}},['projectPath','file']);
 schema('readChatFile',{profileId:uuid,runId:uuid,messageId:{type:'string',pattern:'^audit:[a-f0-9]{64}$'},file:{type:'string',minLength:1,maxLength:4096}});
+schema('chatFileMenu',{profileId:uuid,runId:uuid,messageId:{type:'string',pattern:'^audit:[a-f0-9]{64}$'},file:{type:'string',minLength:1,maxLength:4096}});
 schema('processSessionMessage',{sessionId:uuid,messageId:uuid,directAcknowledged:{type:'boolean'},realAcknowledged:{type:'boolean'}},['sessionId','messageId']);
 schema('editSessionMessage',{sessionId:uuid,messageId:uuid,text:{...str,maxLength:5000}});
 schema('cancelSessionMessage',{sessionId:uuid,messageId:uuid});
@@ -241,6 +242,12 @@ export class DesktopService {
    }catch{result.notice='没有历史 diff 或可用 Git 基线；仍可查看当前文件。';}
   }
   return result;
+ }
+ async chatFileLocation(profileId:string,id:string,messageId:string,file:string){
+  const preview=await this.readChatFile(profileId,id,messageId,file),state=this.store(profileId,id).load();
+  const target=projectTarget(fs.realpathSync(state.workspace),preview.path);
+  if(!fs.statSync(target).isFile())throw Error('文件不存在或不是普通文件');
+  return target;
  }
  private readPreviewFile(root:string,fileName:string){
   const target=projectTarget(root,fileName),stat=fs.statSync(target);

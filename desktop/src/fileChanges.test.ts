@@ -55,11 +55,19 @@ test('chat file IPC validates event membership, isolates workspace, preserves hi
  await assert.rejects(service.dispatch({...request,file:'../outside'}),/未在/);await assert.rejects(service.dispatch({...request,messageId:'audit:'+'f'.repeat(64)}),/不存在/);
  assert.throws(()=>validateRequest({...request,projectPath:project}));
  store.audit('independent-check',{passed:true,diff:patch+' '.repeat(160000),tests:[]});const truncated=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.details?.diffTruncated)!;assert.ok(truncated);assert.equal((await service.readChatFile(ref.profileId,ref.id,truncated.id,'src/code.ts')).change?.added,2);
+ store.audit('agent-activity',{agent:'codex',taskId:'hello',loop:1,kind:'output',title:'Codex 公开输出',text:'[报告](<'+path.join(project,'src/code.ts').replaceAll('\\','/')+'>) 和 `src/code.ts`',source:'codex-sdk-runStreamed'});
+ const output=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.kind==='output'&&item.text.includes('[报告]'))!;
+ assert.ok(output);assert.equal((await service.readChatFile(ref.profileId,ref.id,output.id,'src/code.ts')).file?.text,'new\nextra\n');
+ assert.equal(await service.chatFileLocation(ref.profileId,ref.id,output.id,'src/code.ts'),path.join(project,'src/code.ts'));
+ assert.equal(validateRequest({...request,operation:'chatFileMenu'}).operation,'chatFileMenu');
  fs.unlinkSync(path.join(project,'src/code.ts'));const deleted=await service.dispatch(request) as ChatFilePreview;assert.equal(deleted.change?.removed,1);assert.ok(deleted.contentError);
  // Absolute paths outside the Run and junctions never enable arbitrary reads.
  const outside=path.join(data,'outside');fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'secret.txt'),'secret');
  store.audit('agent-activity',{agent:'codex',kind:'tool',title:tool.title,text:'completed\n'+JSON.stringify([{path:path.join(outside,'secret.txt')}]),source:'codex-sdk-runStreamed'});
  const external=service.thread(ref.profileId,ref.id).messages.filter((item:any)=>item.title===tool.title).at(-1)!;await assert.rejects(service.readChatFile(ref.profileId,ref.id,external.id,path.join(outside,'secret.txt')),/不属于/);
+ store.audit('agent-activity',{agent:'codex',kind:'output',title:'Codex 公开输出',text:'[外部](<'+path.join(outside,'secret.txt').replaceAll('\\','/')+'>)',source:'codex-sdk-runStreamed'});
+ const outsideOutput=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.kind==='output'&&item.text.includes('[外部]'))!;
+ await assert.rejects(service.chatFileLocation(ref.profileId,ref.id,outsideOutput.id,path.join(outside,'secret.txt').replaceAll('\\','/')),/不属于/);
  fs.symlinkSync(outside,path.join(project,'alias'),'junction');store.audit('edits-applied',{paths:['alias/secret.txt'],summary:'test'});
  const alias=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.details?.paths?.includes('alias/secret.txt'))!;assert.ok((await service.readChatFile(ref.profileId,ref.id,alias.id,'alias/secret.txt')).contentError);
 });
