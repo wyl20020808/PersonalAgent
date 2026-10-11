@@ -12,9 +12,9 @@ export type ExecutionChoice = DecisionChoice;
 export const executionAgentSchema = decisionAgentSchema;
 export interface DecisionDiscussion { participants: { id: 'a' | 'b' | 'c'; agent: DecisionChoice }[]; primary: 'a' | 'b' | 'c'; rounds: 0 | 1 }
 export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
-Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
+Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
 Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
-export const planSchema = object({ tasks: { type: 'array', items: taskSchema, minItems: 0, maxItems: 20 }, humanDecision: { type: ['string', 'null'], minLength: 1 } });
+export const planSchema = object({ tasks: { type: 'array', items: taskSchema, minItems: 0 }, humanDecision: { type: ['string', 'null'], minLength: 1 } });
 const contextModuleReview = object({ moduleId: text, documentUpdated: { type: 'boolean' }, noUpdateReason: { type: 'string' }, checkedFiles: { type: 'array', items: text }, constraintsChanged: { type: 'boolean' }, disposition: text });
 const contextReviewSchema = { ...object({ expansionReason: { type: 'string' }, unmappedReason: { type: 'string' }, checkedContracts: { type: 'array', description: '实际已核对的精确契约 ID，例如 ["hud","geometry"]；不填标题或文件名，不编造核对。旧输出的精确相对路径仅由 Controller 按本轮安全清单兼容。', items: text }, modules: { type: 'array', items: contextModuleReview }, confirmationNotes: { type: 'array', items: object({ path: text, reason: text }) } }), required: ['expansionReason', 'unmappedReason', 'checkedContracts', 'modules'] };
 export const reviewSchema = { ...object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text, contextReview: contextReviewSchema, contextConfirmations: { type: 'array', maxItems: 20, items: object({ relative: text, action: { enum: ['accepted', 'rejected', 'superseded'] } }) } }), required: ['verdict', 'reason'] };
@@ -33,7 +33,7 @@ export const configSchema = object({
 });
 // Optional workflow limits: absent means unlimited. Desktop Runs never set them.
 configSchema.required = configSchema.required.filter(key => key !== 'maxLoops' && key !== 'maxReworks');
-Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'proposal'] }, claudeStreaming: { type: 'boolean' }, maxClaudeCalls: { type: 'integer', minimum: 1, maximum: 100 }, minTasks: { type: 'integer', minimum: 1, maximum: 20 } });
+Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'proposal'] }, claudeStreaming: { type: 'boolean' }, maxClaudeCalls: { type: 'integer', minimum: 1, maximum: 100 }, minTasks: { type: 'integer', minimum: 1 } });
 Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, maxProperties: 20, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 Object.assign(configSchema.properties, { decisionAgent: decisionAgentSchema, decisionDiscussion: decisionDiscussionSchema });

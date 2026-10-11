@@ -4,8 +4,10 @@ import {codexInput,type NativeAttachment} from './multimodal.js';
 import { codexObservation } from './call-observation.js';
 import { codexPublicEvent } from './telemetry.js';
 import { validate } from './schema.js';
+import { nativeThreadOptions } from './native-agent.js';
 
 export interface CodexDecisionTurn {
+  readOnly?: boolean;
   attachments?:NativeAttachment[];
   workspace: string; threadId: string | null; model?: string; reasoningEffort?: ThreadOptions['modelReasoningEffort']; prompt: string; schema: object;
   runId: string; role: 'plan' | 'review'; participantId?: 'a' | 'b' | 'c'; discussionStage?: string;
@@ -41,9 +43,10 @@ export function restoreOptionalFields(schema: any, value: any): any {
 }
 /** SDK calls run in an owned child; the parent process enforces timeout/tree cancellation. */
 export async function runCodexDecisionTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: CodexDecisionTurn, emit: (event: object) => void, signal?: AbortSignal): Promise<unknown> {
-  const options: ThreadOptions = { workingDirectory: request.workspace, skipGitRepoCheck: true,
-    sandboxMode: 'read-only', approvalPolicy: 'never', networkAccessEnabled: false,
-    webSearchMode: 'disabled', ...(request.model ? { model: request.model } : {}), ...(request.reasoningEffort ? { modelReasoningEffort: request.reasoningEffort } : {}) };
+  const readOnly = request.readOnly || ['draft', 'discussion', 'synthesis'].includes(request.discussionStage ?? '');
+  const options: ThreadOptions = { ...nativeThreadOptions(request.workspace),
+    ...(readOnly ? { sandboxMode: 'read-only' as const, networkAccessEnabled: false, webSearchMode: 'disabled' as const } : {}),
+    ...(request.model ? { model: request.model } : {}), ...(request.reasoningEffort ? { modelReasoningEffort: request.reasoningEffort } : {}) };
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
   const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), { outputSchema: codexOutputSchema(request.schema), ...(signal ? { signal } : {}) });
   let final = '', completed = false, started = false, lastError = '';

@@ -143,13 +143,21 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       if (identity.variant && !model.reasoningEfforts?.includes(identity.variant)) throw new FlowError('supervisor','OpenCode reasoning variant unavailable; refresh model selection');
       const parts=opencodeParts(prompt,runAttachments(state,store),model.capabilities.images);
       const client = service.client, options = { signal,throwOnError:true as const };
+      const permission = request.readOnly ? [{permission:'*',pattern:'*',action:'deny' as const},...['read','glob','grep','list'].map(permission=>({permission,pattern:'*',action:'allow' as const}))] : [{permission:'*',pattern:'*',action:'allow' as const}];
       const owner = `PersonalAgent:${state.id}:${workspace}${store.decisionParticipant?':'+store.decisionParticipant.participantId:''}`;
       if (state.decisionSession) {
         sessionID = state.decisionSession.sessionId;
         const session = await client.session.get({sessionID,directory:workspace},options);
         if (session.data?.directory !== workspace || session.data?.title !== owner) throw new FlowError('safety','OpenCode remote Session ownership mismatch');
+        // A primary participant resumes the same Session after read-only synthesis.
+        // Update only the owned Session so discussion permissions do not persist
+        // into authorized development (or vice versa).
+        if (request.readOnly || session.data?.permission?.some(rule=>rule.action==='deny')) {
+          const updated = await client.session.update({sessionID,directory:workspace,permission},options);
+          if (updated.data?.directory !== workspace || updated.data?.title !== owner || JSON.stringify(updated.data.permission)!==JSON.stringify(permission)) throw new FlowError('safety','OpenCode Session mode permissions mismatch');
+        }
       } else {
-        const session = await client.session.create({directory:workspace,title:owner,permission:request.readOnly?[{permission:'*',pattern:'*',action:'deny'},...['read','glob','grep','list'].map(permission=>({permission,pattern:'*',action:'allow' as const}))]:[{permission:'*',pattern:'*',action:'allow'}]},options);
+        const session = await client.session.create({directory:workspace,title:owner,permission},options);
         if (!session.data?.id || session.data.directory !== workspace || session.data.title !== owner) throw new FlowError('safety','OpenCode created Session ownership mismatch');
         sessionID = session.data.id; bindDecisionSession(state,store,sessionID);
       }

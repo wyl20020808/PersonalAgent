@@ -136,8 +136,7 @@
     },
     "minTasks": {
       "type": "integer",
-      "minimum": 1,
-      "maximum": 20
+      "minimum": 1
     },
     "projectMode": {
       "enum": [

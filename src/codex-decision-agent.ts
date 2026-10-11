@@ -33,8 +33,8 @@ export class CodexDecisionAgent implements DecisionAgent {
       const result = await this.run(request.nodeExecutable??process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
         cwd: store.dir, env: nativeAgentEnv(), signal, interaction: { kind: 'model' }, timeoutMs: request.timeoutMs, streamOutput: true,
         input: JSON.stringify({ ...scope, participantId: scope.participantId ?? undefined, discussionStage: scope.discussionStage ?? undefined,
-          threadId, attachments:runAttachments(state,store), model: state.decisionAgent.model, reasoningEffort: state.decisionAgent.reasoningEffort, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules + interactionAgentRules,
-            decisionPermissions: 'Decision role only. Inspect project using read-only native tools; return the requested structured result. Do not implement, modify files, submit, merge, deliver or change shared settings.' }) }),
+          threadId, readOnly: request.readOnly, attachments:runAttachments(state,store), model: state.decisionAgent.model, reasoningEffort: state.decisionAgent.reasoningEffort, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules + interactionAgentRules,
+            decisionPermissions: request.readOnly ? 'Current mode is read-only discussion: inspect and return the requested structured result without changing project files.' : 'Current mode is authorized development: choose native inspection, verification, direct repair or delegation as needed. Return the requested structured result; respect project scope, interaction policy and delivery authorization.' }) }),
         onLine(line) {
           if (!line.trim()) return;
           const event = JSON.parse(line);

@@ -38,7 +38,7 @@ async function fixture(extra: Partial<Config> = {}, context = false) {
 function request(f: Awaited<ReturnType<typeof fixture>>, role: 'plan' | 'review' = 'plan'): DecisionRequest {
   const state = f.store.load(); return { state, store: f.store, role, phase: role, prompt: JSON.stringify({ action: 'Local fixture' }), schema: role === 'plan' ? planSchema : reviewSchema, workspace: fs.realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, timeoutMs: f.config.timeoutMs, signal: new AbortController().signal };
 }
-function protocol(options: { failB?: boolean; timeout?: boolean; abort?: AbortController; invalid?: boolean; missingThread?: boolean; badScope?: boolean; shared?: boolean; wrongExecute?: boolean; noCompleted?: boolean } = {}) {
+function protocol(options: { taskCount?: number; failB?: boolean; timeout?: boolean; abort?: AbortController; invalid?: boolean; missingThread?: boolean; badScope?: boolean; shared?: boolean; wrongExecute?: boolean; noCompleted?: boolean } = {}) {
   const calls: { request: CodexDecisionTurn; options: ThreadOptions; prompt: any; resumed: boolean }[] = [], execution: any[] = [], sessions = new Map<string, string>();
   let fail = options.failB;
   const run: typeof runProcess = async (executable, args, processOptions) => {
@@ -59,7 +59,7 @@ function protocol(options: { failB?: boolean; timeout?: boolean; abort?: AbortCo
             if (options.abort) { options.abort.abort(); throw Error('Stopped'); }
             yield { type: 'item.completed', item: { id: 'reasoning', type: 'reasoning', text: 'DO_NOT_DISPLAY_REASONING' } };
             yield { type: 'item.completed', item: { id: 'read', type: 'command_execution', command: 'type core.js', aggregated_output: 'local', status: 'completed', exit_code: 0 } };
-            const output = options.invalid ? { tasks: [] } : r.role === 'review' ? review : r.discussionStage === 'discussion' ? opinion : plan;
+            const output = options.invalid ? { tasks: [] } : r.role === 'review' ? review : r.discussionStage === 'discussion' ? opinion : options.taskCount ? { ...plan, tasks: Array.from({length:options.taskCount}, (_, i) => ({...plan.tasks[0],id:'work'+i})) } : plan;
             yield { type: 'item.completed', item: { id: 'answer', type: 'agent_message', text: JSON.stringify(output) } };
             if (!options.noCompleted) yield { type: 'turn.completed', usage: { input_tokens: 12, cached_input_tokens: 2, output_tokens: 4 } };
           })() };
@@ -92,9 +92,9 @@ function localOpenCode() {
       const send = (value: any) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); };
       if (url.pathname === '/provider') return send({ connected: ['fixture'], all: [{ id: 'fixture', name: 'Local', models: { m: { id: 'm', name: 'm', capabilities: { toolcall: true } } } }], default: {} });
       if (url.pathname === '/global/event') { res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(': local\n\n'); streams.push(res); return; }
-      if (url.pathname === '/session' && req.method === 'POST') { const s = { id: 'ses_' + randomUUID(), directory, title: data.title }; sessions.set(s.id, s); return send(s); }
+      if (url.pathname === '/session' && req.method === 'POST') { const s = { id: 'ses_' + randomUUID(), directory, title: data.title, permission:data.permission }; sessions.set(s.id, s); return send(s); }
       const match = url.pathname.match(/^\/session\/([^/]+)(.*)$/), id = match?.[1], tail = match?.[2];
-      if (id && tail === '') return send(sessions.get(id));
+      if (id && tail === '') { if(req.method==='PATCH')Object.assign(sessions.get(id),data); return send(sessions.get(id)); }
       if (id && tail === '/message') {
         const prompt = JSON.parse(data.parts[0].text);
         return send({ info: { id: 'msg_' + randomUUID(), sessionID: id, role: 'assistant', path: { cwd: directory }, providerID: 'fixture', modelID: 'm', tokens: { input: 12, output: 4 }, structured: prompt.action.startsWith('Plan') ? prompt.decisionStage === 'discussion' ? opinion : plan : review }, parts: [] });
@@ -107,12 +107,41 @@ function localOpenCode() {
   return { launcher, sessions };
 }
 
+test('plan size and dependency count are chosen by the decision maker rather than a twenty-task cap',()=>{
+  const tasks=Array.from({length:25},(_,i)=>({...plan.tasks[0],id:'work'+i}));
+  tasks[24]={...tasks[24]!,dependsOn:tasks.slice(0,24).map(t=>t.id)} as typeof tasks[number];
+  assert.equal(validate<any>(planSchema,{tasks,humanDecision:null}).tasks.length,25);
+});
+
+for (const count of [1, 6]) test(`decision maker chooses ${count} tasks; Controller accepts the plan and continues without user checkpoints`, async () => {
+  const f=await fixture({maxLoops:undefined}),p=protocol({taskCount:count});
+  const done=await drive(f.store,new RealAgents(f.config,p.run));
+  assert.equal(done.phase,'completed',done.reason);
+  assert.equal(done.completedTaskIds?.length,count);
+  assert.equal(p.execution.length,count); assert.equal(p.calls.length,count+1);
+  assert.match(p.calls[0]!.prompt.operatingMode,/任务数量与粒度/);
+  assert.doesNotMatch(p.calls[0]!.prompt.action,/small implementation/);
+  assert.equal(p.calls[0]!.prompt.configuredMinimumTasks,undefined);
+  for(const call of p.calls.slice(1))assert.match(call.prompt.action,/Choose the checks/);
+});
+
+test('collaborative cycle stays read-only, primary replan and review use authorized native tools', async () => {
+  const f=await fixture({decisionAgent:undefined,decisionDiscussion:{participants:[{id:'a',agent:{backend:'codex'}},{id:'b',agent:{backend:'codex'}}],primary:'a',rounds:1}}),p=protocol();
+  const done=await drive(f.store,new RealAgents(f.config,p.run)); assert.equal(done.phase,'completed',done.reason);
+  for(const call of p.calls){
+    const readOnly=['draft','discussion','synthesis'].includes(call.request.discussionStage??'');
+    assert.equal(call.request.readOnly,readOnly);
+    assert.equal(call.options.sandboxMode,readOnly?'read-only':'danger-full-access');
+    assert.equal(call.options.networkAccessEnabled,!readOnly);
+  }
+});
+
 test('single Codex Plan/Review, SDK schema/model/native permissions, separate execution, Context, usage and resume', async () => {
   const f = await fixture({decisionAgent:{backend:'codex',model:'fixture-model',reasoningEffort:'max'}}, true), p = protocol(), done = await drive(f.store, new RealAgents(f.config, p.run));
   assert.equal(done.phase, 'completed', done.reason); assert.equal(p.calls.length, 2); assert.equal(p.execution.length, 1);
   assert.equal(p.calls[0]!.resumed, false); assert.equal(p.calls[1]!.resumed, true);
   assert.equal(done.decisionSession?.backend, 'codex'); assert.notEqual(done.decisionSession?.sessionId, done.codexThreadId); assert.equal(done.claudeSessionId, null);
-  for (const call of p.calls) { assert.equal(call.options.model, 'fixture-model'); assert.equal(call.options.modelReasoningEffort, 'max'); assert.equal(call.options.sandboxMode, 'read-only'); assert.equal(call.options.approvalPolicy, 'never'); assert.equal(call.options.workingDirectory, f.source); assert.ok(call.prompt.context.moduleCatalog.some((m: any) => m.id === 'fixture')); }
+  for (const call of p.calls) { assert.equal(call.options.model, 'fixture-model'); assert.equal(call.options.modelReasoningEffort, 'max'); assert.equal(call.options.sandboxMode, 'danger-full-access'); assert.equal(call.options.networkAccessEnabled, true); assert.equal(call.options.approvalPolicy, 'never'); assert.equal(call.options.workingDirectory, f.source); assert.ok(call.prompt.context.moduleCatalog.some((m: any) => m.id === 'fixture')); }
   const usage = runUsage(f.store); assert.equal(usage.calls.filter(c => c.agent === 'codex' && c.phase !== 'execute').length, 2); assert.equal(usage.reported.codex.inputTokens, null); // executor fixture reports no usage
   assert.equal(usage.calls.find(c => c.phase === 'plan')!.inputTokens, 12); assert.equal(usage.calls.find(c => c.phase === 'review')!.controllerCall, 2);
   assert.equal(JSON.parse(fs.readFileSync(f.store.file('state.json'), 'utf8')).config.decisionAgent.model, 'fixture-model');
@@ -166,12 +195,12 @@ test('Codex pass cannot bypass decision authority; Mock stays local and unique e
   for (const extra of [{ executionAgent: { backend: 'unsupported' } }, { executionAgents: [{ backend: 'codex' }, { backend: 'codex' }] }, { decisionAgent: { backend: 'codex', model: 'bad model' } }]) assert.throws(() => validate(configSchema, { ...f.config, ...extra }));
 });
 
-function installedSdkWorker(f: Awaited<ReturnType<typeof fixture>>, hang = false) {
+function installedSdkWorker(f: Awaited<ReturnType<typeof fixture>>, hang = false, readOnly = false) {
   // Node loads the local "exec" script as argv[0]. The installed SDK still builds
   // actual CLI arguments/schema files and parses JSONL; no model binary is launched.
   fs.writeFileSync(f.store.file('exec'), `import fs from 'node:fs';const a=process.argv.slice(2);
     ${f.store.load().userAttachments?.length?`if(!a.includes('--image')||!fs.existsSync(a[a.indexOf('--image')+1]))throw Error('SDK native image missing');`:''}
-    for(const [key,value] of [['--sandbox','read-only'],['--cd',${JSON.stringify(f.source)}],['--model','fixture-model']])if(a[a.indexOf(key)+1]!==value)throw Error('SDK option mismatch '+key);
+    for(const [key,value] of [['--sandbox',${JSON.stringify(readOnly ? 'read-only' : 'danger-full-access')}],['--cd',${JSON.stringify(f.source)}],['--model','fixture-model']])if(a[a.indexOf(key)+1]!==value)throw Error('SDK option mismatch '+key);
     const schema=JSON.parse(fs.readFileSync(a[a.indexOf('--output-schema')+1],'utf8'));
     const id=a.includes('resume')?a[a.indexOf('resume')+1]:'local-installed-sdk-thread';
     console.log(JSON.stringify({type:'thread.started',thread_id:id}));
@@ -192,6 +221,19 @@ test('installed Codex SDK serializes outputSchema/model/read-only/directory and 
   const first = await adapter.structured(request(f)), second = await adapter.structured(request(f, 'review'));
   assert.deepEqual(first.output, plan); assert.deepEqual(second.output, review); assert.equal(second.sessionId, first.sessionId);
   assert.equal(second.usage.inputTokens, 8); assert.equal(second.usage.resumed, true);
+});
+
+test('explicit read-only Decision request retains installed SDK sandbox restriction',async()=>{
+  const f=await fixture(),adapter=new CodexDecisionAgent(f.config,installedSdkWorker(f,false,true));
+  const output=await adapter.structured({...request(f),readOnly:true});assert.deepEqual(output.output,plan);
+});
+
+test('OpenCode leaves read-only mode in the same owned Session when development resumes',async()=>{
+  const f=await fixture({decisionAgent:{backend:'opencode',opencode:{providerID:'fixture',modelID:'m'}}}),server=localOpenCode(),adapter=new OpenCodeDecisionAgent(f.config,server.launcher);
+  const first=await adapter.structured({...request(f),prompt:JSON.stringify({action:'Plan local fixture'}),readOnly:true});
+  assert.ok(server.sessions.get(first.sessionId).permission.some((p:any)=>p.action==='deny'));
+  const resumed=await adapter.structured({...request(f),prompt:JSON.stringify({action:'Plan local fixture'})});assert.equal(resumed.sessionId,first.sessionId);
+  assert.deepEqual(server.sessions.get(first.sessionId).permission,[{permission:'*',pattern:'*',action:'allow'}]);
 });
 test('installed Codex SDK carries native image CLI argument for decision and resumed review',async()=>{
  const f=await fixture();bindRunAttachments(f.store,[{name:'reference.png',mimeType:'image/png',bytes:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')}]);
