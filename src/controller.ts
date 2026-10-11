@@ -244,14 +244,14 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.nativeExecution = agents.executionMode === 'native';
         state.loops++; state.nextPhase = 'execute'; state.evidence = null; state.executorExitCode = -1; checkpoint('executing');
         assertExecutionState(state);
-        const result = await agentOperation(state.config.executionAgent?.backend === 'opencode' ? 'opencode' : 'codex', 'execute', signal => agents.execute(state, store, signal));
+        const result = await agentOperation(state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend === 'opencode' ? 'opencode' : 'codex', 'execute', signal => agents.execute(state, store, signal));
         if (stop.signal.aborted) throw new Error('Stopped');
         if ('mode' in result && result.mode === 'native') {
           validate(nativeResultSchema, result);
           if (!state.nativeExecution) throw new FlowError('safety', 'Unexpected native result in proposal mode');
           atomicJson(store.file(`native-result-${state.loops}.json`), { result, snapshot: await observeWorkspace(state, stop.signal), head: await workspaceHead(state,stop.signal) });
           state.executorExitCode = 0; state.nextPhase = 'verify';
-          store.audit('native-result', { ...result, agent: state.config.executionAgent?.backend ?? 'codex', sessionId: state.executionSession?.sessionId ?? state.codexThreadId, loop: state.loops }); checkpoint('verify'); continue;
+          store.audit('native-result', { ...result, agent: state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend ?? 'codex', sessionId: state.executionSession?.sessionId ?? state.codexThreadId, loop: state.loops }); checkpoint('verify'); continue;
         }
         if (state.nativeExecution) throw new FlowError('safety', 'Native execution returned a file proposal; refusing duplicate application');
         const edits = validate<Edits>(editSchema, result);

@@ -13,7 +13,7 @@ export interface AgentCapabilities {
   experimental: boolean;
 }
 export const agentCapabilities: readonly AgentCapabilities[] = [
-  { id: 'claude-code', name: 'Claude Code', plan: true, review: true, execute: false, nativeTools: true, structuredOutput: true, discussion: true, experimental: false },
+  { id: 'claude-code', name: 'Claude Code', plan: true, review: true, execute: true, nativeTools: true, structuredOutput: true, discussion: true, experimental: false },
   { id: 'opencode', name: 'OpenCode', plan: true, review: true, execute: true, nativeTools: true, structuredOutput: true, discussion: true, experimental: true },
   { id: 'codex', name: 'Codex', plan: true, review: true, execute: true, nativeTools: true, structuredOutput: true, discussion: true, experimental: false },
 ];

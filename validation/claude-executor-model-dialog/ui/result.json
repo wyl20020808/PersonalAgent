@@ -1,0 +1,55 @@
+{
+  "passed": true,
+  "scope": "Hidden offscreen Electron component UI; model discovery fixtures; not remote lifecycle",
+  "checks": [
+    "Claude executor enabled; modal draft/cancel/focus return",
+    "Claude executor model confirm",
+    "Codex catalog selection; decision/execution independent",
+    "Custom Codex execution model; invalid IDs rejected",
+    "OpenCode dynamic Provider/model and capability gate",
+    "OpenCode decision selection",
+    "Second decision uses model dialog",
+    "Keyboard focus trap and Escape",
+    "390px responsive dialog"
+  ],
+  "state": {
+    "decision": {
+      "backend": "opencode",
+      "opencode": {
+        "providerID": "fixture",
+        "modelID": "tool-model"
+      }
+    },
+    "execution": {
+      "backend": "opencode",
+      "opencode": {
+        "providerID": "fixture",
+        "modelID": "tool-model"
+      }
+    },
+    "discussion": {
+      "participants": [
+        {
+          "id": "a",
+          "agent": {
+            "backend": "opencode",
+            "opencode": {
+              "providerID": "fixture",
+              "modelID": "tool-model"
+            }
+          }
+        },
+        {
+          "id": "b",
+          "agent": {
+            "backend": "claude-code",
+            "model": "sonnet"
+          }
+        }
+      ],
+      "primary": "a",
+      "rounds": 1
+    },
+    "valid": true
+  }
+}

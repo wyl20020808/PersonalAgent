@@ -17,7 +17,8 @@ export interface State {
   guidancePending?: Guidance;
   guidanceHistory?: Guidance[];
   userAttachments?: AttachmentRef[];
-  executionSession?: { backend: 'opencode'; providerID: string; modelID: string; sessionId: string; runId: string; workspace: string; directory: string };
+  claudeExecutionSessionId?: string | null;
+  executionSession?: ({ backend: 'opencode'; providerID: string; modelID: string } | { backend: 'claude-code'; model?: string }) & { sessionId: string; runId: string; workspace: string; directory: string };
   executionAttempt?: { loop: number; taskId: string; status: 'running' | 'success' | 'failed' | 'interrupted' };
   decisionAgent?: DecisionIdentity; decisionSession?: DecisionSession;
   discussion?: DiscussionState;
@@ -48,7 +49,11 @@ Object.assign(stateSchema.properties, {
   guidancePending: guidanceSchema,
   guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},
   userAttachments: {type:'array',maxItems:8,items:attachmentRefSchema},
-  executionSession: { type: 'object', additionalProperties: false, required: ['backend','providerID','modelID','sessionId','runId','workspace','directory'], properties: { backend: { const: 'opencode' }, providerID: str, modelID: str, sessionId: str, runId: str, workspace: str, directory: str } },
+  claudeExecutionSessionId: nullable,
+  executionSession: { oneOf: [
+    { type: 'object', additionalProperties: false, required: ['backend','providerID','modelID','sessionId','runId','workspace','directory'], properties: { backend: { const: 'opencode' }, providerID: str, modelID: str, sessionId: str, runId: str, workspace: str, directory: str } },
+    { type: 'object', additionalProperties: false, required: ['backend','sessionId','runId','workspace','directory'], properties: { backend: { const: 'claude-code' }, model: str, sessionId: str, runId: str, workspace: str, directory: str } }
+  ] },
   executionAttempt: { type: 'object', additionalProperties: false, required: ['loop','taskId','status'], properties: { loop: integer, taskId: str, status: { enum: ['running','success','failed','interrupted'] } } },
   decisionAgent: { oneOf: [
     { type: 'object', properties: { backend: { const: 'claude-code' }, model: { type: 'string' } }, required: ['backend'], additionalProperties: false },

@@ -407,6 +407,26 @@
           "properties": {
             "backend": {
               "const": "codex"
+            },
+            "model": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
+            }
+          },
+          "required": [
+            "backend"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "const": "claude-code"
+            },
+            "model": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9._:/-]{1,200}$"
             }
           },
           "required": [

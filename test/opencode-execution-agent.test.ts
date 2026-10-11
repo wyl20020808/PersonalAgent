@@ -151,7 +151,7 @@ test('Controller Review Guard rejects permissive review and failed independent t
 test('persisted execution model immutable; sessions cannot alias decision roles or other Run',async()=>{
  const f=await fixture(),server=fake(),done=await drive(f.store,real(f,server));
  const changed=f.store.load();changed.config.executionAgent={backend:'codex'};assert.throws(()=>f.store.save(changed),/Immutable Execution/);
- for(const field of ['runId','workspace','directory','providerID','modelID'] as const){const state=structuredClone(done);state.executionSession![field]='wrong';assert.throws(()=>assertExecutionState(state),/ownership/);}
+ for(const field of ['runId','workspace','directory','providerID','modelID'] as const){const state=structuredClone(done);assert.equal(state.executionSession?.backend,'opencode');if(state.executionSession?.backend!=='opencode')throw Error('Fixture requires OpenCode');state.executionSession[field]='wrong';assert.throws(()=>assertExecutionState(state),/ownership/);}
  const alias=structuredClone(done);alias.executionSession!.sessionId=alias.decisionSession!.sessionId;assert.throws(()=>assertExecutionState(alias),/role isolation/);
 });
 test('policy hook rejects dispatch before launcher; pending/complete/Plan mutations rejected',async()=>{
@@ -161,7 +161,7 @@ test('policy hook rejects dispatch before launcher; pending/complete/Plan mutati
 });
 test('history defaults to Codex, single executor config enforced; mock OpenCode remains explicit mock',async()=>{
  const f=await fixture({executionAgent:undefined});assert.doesNotThrow(()=>assertExecutionState(f.store.load()));
- for(const executionAgent of [{backend:'claude-code'},[{backend:'codex'},choice]])assert.throws(()=>validate(configSchema,{...f.config,executionAgent}));
+ for(const executionAgent of [{backend:'unsupported'},[{backend:'codex'},choice]])assert.throws(()=>validate(configSchema,{...f.config,executionAgent}));
  assert.throws(()=>validate(configSchema,{...f.config,executionAgent:choice,executionMode:'proposal'}),/native/);
  const g=await fixture({decisionAgent:undefined,tests:[{executable:process.execPath,args:['-e','process.exit(0)']}]});const done=await drive(g.store,new MockAgents(g.config));assert.equal(done.phase,'completed');assert.match(done.executionSession!.sessionId,/^mock-/);assert.equal(done.codexThreadId,null);assert.equal(done.config.mode,'mock');
 });

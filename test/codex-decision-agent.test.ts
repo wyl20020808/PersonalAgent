@@ -162,7 +162,7 @@ test('ownership rejects mixed execution/decision Threads, shared dual Sessions a
 });
 test('Codex pass cannot bypass Review Guard; Mock stays local and unique executor configuration stays enforced', async () => {
   const f = await fixture(), p = protocol({ wrongExecute: true }), state = await drive(f.store, new RealAgents(f.config, p.run)); assert.equal(state.phase, 'paused'); assert.equal(state.evidence?.passed, false); assert.match(fs.readFileSync(f.store.file('audit.jsonl'), 'utf8'), /review-vetoed/);
-  for (const extra of [{ executionAgent: { backend: 'claude-code' } }, { executionAgents: [{ backend: 'codex' }, { backend: 'codex' }] }, { decisionAgent: { backend: 'codex', model: 'bad model' } }]) assert.throws(() => validate(configSchema, { ...f.config, ...extra }));
+  for (const extra of [{ executionAgent: { backend: 'unsupported' } }, { executionAgents: [{ backend: 'codex' }, { backend: 'codex' }] }, { decisionAgent: { backend: 'codex', model: 'bad model' } }]) assert.throws(() => validate(configSchema, { ...f.config, ...extra }));
 });
 
 function installedSdkWorker(f: Awaited<ReturnType<typeof fixture>>, hang = false) {
