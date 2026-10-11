@@ -22,15 +22,19 @@ DEV 原汽车任务的执行结果被 `tests: []` 阻断，没有到达决策者
 ## 完整自动回归（本轮补充）
 
 - Controller 全量：460/460，通过；失败、取消、跳过均为 0。命令为 `node --import ./scripts/regression-policy.mjs --test --test-concurrency=8 dist/test/*.test.js`。
-- Desktop 全量：132/132，通过；失败、取消、跳过均为 0。命令为 `npm test --prefix desktop`。
+- Desktop 全量：133/133，通过；失败、取消、跳过均为 0。命令为 `npm test --prefix desktop`。
 - 最终源码的根构建、桌面类型检查与桌面构建通过。构建保留已有依赖 use-client 与 chunk-size 提示。
-- 日志：本任务 `.validation/full-root7.log`、`.validation/full-desktop7.log`、`.validation/full-validation-result.json`。
+- 日志：本任务 `.validation/full-root7.log`、`.validation/full-desktop-combined.log`、`.validation/full-validation-result.json`。
 
 历史用例保留原覆盖目标，迁移为显式本地决策者运行检查、夹具用户逐项调用正式确认 API。`test/helpers/accepted-flow.ts` 仅服务测试；新职责契约测试继续直接调用真实 Controller，证明它不执行配置检查、不自动通过、不自动否决。旧快照恢复和交付用例通过 `test/helpers/historical-run.ts` 明确重建历史本地夹具，不恢复生产代码的自动项目复制或扫描。
 
 回归发现并修复：用户最终确认后继续处理排队消息与已授权追加需求；保留 Context 观察报告；决策者修改成果并要求人工决定时保留最终审查结论；带依赖的历史 Run 不因 taskIndex 变化而推断前置任务已验收。
 
 这是全量自动回归通过，不代表真实 Electron 窗口交互、汽车现场或 DEV 升级验收。原真实小仓库证据保留原 human 结论，未冒充通过。
+
+## 最新组合复验
+
+持有共享集成锁后，将最新 TEST `78f7a64` 的两笔聊天展示修复正常合入任务分支，合并提交为 `0f081b1`。保留最新展示逻辑及本任务的决策者验收状态显示，无冲突。核心源码、测试、脚本和 Schema 与全量 460/460 的 `a971806` 完全相同，经 Git 精确差异核对；桌面端对最新组合重新类型检查、构建及全量回归 133/133，通过。
 
 ## 本地 TEST 整合
 
