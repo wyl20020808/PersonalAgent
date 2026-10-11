@@ -43,7 +43,7 @@ test('file cards associate only the same Run, Agent invocation and loop',()=>{
  assert.equal(recordedDiff([tool,{...tool,id:'start',kind:'dispatch'},finish],tool),undefined);
  assert.equal(recordedDiff([tool,{...finish,runId:'other'}],tool),undefined);
 });
-test('chat file IPC validates event membership, isolates workspace, preserves history and supports deleted files',async()=>{
+test('chat file IPC validates membership, previews external links read-only and preserves history',async()=>{
  const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','file-'+randomUUID()),service=new DesktopService(root,data,process.execPath),project=path.join(data,'project');
  fs.mkdirSync(path.join(project,'src'),{recursive:true});fs.writeFileSync(path.join(project,'src/code.ts'),'new\nextra\n');service.launch=()=>{};
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct'}),sent=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'file preview',directAcknowledged:true}),ref=sent.runs[0],store=service.store(ref.profileId,ref.id);
@@ -61,13 +61,19 @@ test('chat file IPC validates event membership, isolates workspace, preserves hi
  assert.equal(await service.chatFileLocation(ref.profileId,ref.id,output.id,'src/code.ts'),path.join(project,'src/code.ts'));
  assert.equal(validateRequest({...request,operation:'chatFileMenu'}).operation,'chatFileMenu');
  fs.unlinkSync(path.join(project,'src/code.ts'));const deleted=await service.dispatch(request) as ChatFilePreview;assert.equal(deleted.change?.removed,1);assert.ok(deleted.contentError);
- // Absolute paths outside the Run and junctions never enable arbitrary reads.
+ // User-selected absolute local links can be previewed; unlisted paths and relative escapes stay rejected.
  const outside=path.join(data,'outside');fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'secret.txt'),'secret');
  store.audit('agent-activity',{agent:'codex',kind:'tool',title:tool.title,text:'completed\n'+JSON.stringify([{path:path.join(outside,'secret.txt')}]),source:'codex-sdk-runStreamed'});
- const external=service.thread(ref.profileId,ref.id).messages.filter((item:any)=>item.title===tool.title).at(-1)!;await assert.rejects(service.readChatFile(ref.profileId,ref.id,external.id,path.join(outside,'secret.txt')),/不属于/);
+ const external=service.thread(ref.profileId,ref.id).messages.filter((item:any)=>item.title===tool.title).at(-1)!;assert.equal((await service.readChatFile(ref.profileId,ref.id,external.id,path.join(outside,'secret.txt'))).file?.text,'secret');
  store.audit('agent-activity',{agent:'codex',kind:'output',title:'Codex 公开输出',text:'[外部](<'+path.join(outside,'secret.txt').replaceAll('\\','/')+'>)',source:'codex-sdk-runStreamed'});
  const outsideOutput=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.kind==='output'&&item.text.includes('[外部]'))!;
- await assert.rejects(service.chatFileLocation(ref.profileId,ref.id,outsideOutput.id,path.join(outside,'secret.txt').replaceAll('\\','/')),/不属于/);
+ const outsideFile=path.join(outside,'secret.txt').replaceAll('\\','/'),auditBefore=fs.readFileSync(store.file('audit.jsonl')),bytesBefore=fs.readFileSync(path.join(outside,'secret.txt'));
+ const outsidePreview=await service.readChatFile(ref.profileId,ref.id,outsideOutput.id,outsideFile);
+ assert.equal(outsidePreview.file?.text,'secret');assert.equal(outsidePreview.change,undefined);assert.match(outsidePreview.scope,/只读/);
+ assert.equal(await service.chatFileLocation(ref.profileId,ref.id,outsideOutput.id,outsideFile),path.join(outside,'secret.txt'));
+ assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),auditBefore);assert.deepEqual(fs.readFileSync(path.join(outside,'secret.txt')),bytesBefore);
+ await assert.rejects(service.readChatFile(ref.profileId,ref.id,outsideOutput.id,path.join(outside,'unlisted.txt')),/未在/);
+
  fs.symlinkSync(outside,path.join(project,'alias'),'junction');store.audit('edits-applied',{paths:['alias/secret.txt'],summary:'test'});
  const alias=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.details?.paths?.includes('alias/secret.txt'))!;assert.ok((await service.readChatFile(ref.profileId,ref.id,alias.id,'alias/secret.txt')).contentError);
 });

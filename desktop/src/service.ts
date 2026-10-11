@@ -216,13 +216,19 @@ export class DesktopService {
   const original=messages[index],evidence=this.messageEvidence(profileId,id,messageId);
   const message:ChatMessage={...original,text:evidence.text||original.text,details:original.details?.diffTruncated?{...original.details,diff:(evidence.event as any).data?.diff??original.details.diff,diffTruncated:false}:original.details};messages[index]=message;
   if(!messageFiles(message).includes(fileName))throw Error('文件未在该条事件中列出');
-  // Resolve absolute SDK paths against this Run, never against a caller-supplied project.
+  // Relative paths retain Run containment; explicit local links can open read-only outside it.
   const relative=(name:string)=>{
    if(!path.isAbsolute(name))return name.replaceAll('\\','/');
    for(const root of [state.workspace,state.source]){const rel=path.relative(root,name);if(rel&&!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel))return rel.replaceAll('\\','/');}
-   throw Error('文件路径不属于该 Run 的项目或工作区');
+   return name;
   };
-  const file=relative(fileName),record=recordedDiff(messages,message),change=parseFileChanges(record?.message.details?.diff??'').find(item=>relative(item.path).toLowerCase()===file.toLowerCase());
+  const file=relative(fileName);
+  if(path.isAbsolute(file)){
+   const result:ChatFilePreview={path:file,scope:'本地文件只读预览',notice:'项目外文件只读预览，不关联该 Run 的变更。'};
+   try{result.file=this.readPreviewTarget(()=>this.localPreviewTarget(file),file);}catch(error){result.contentError=(error as Error).message;}
+   return result;
+  }
+  const record=recordedDiff(messages,message),change=parseFileChanges(record?.message.details?.diff??'').find(item=>relative(item.path).toLowerCase()===file.toLowerCase());
   const result:ChatFilePreview={path:file,change,scope:record?.scope??'该条文件事件',evidenceId:record?.message.id,notice:change?undefined:'该条记录没有可用的文件 diff；未推断增删行数。'};
   try{result.file=this.readPreviewFile(fs.realpathSync(state.workspace),file);}catch(error){result.contentError=(error as Error).message;}
   if(!change){
@@ -245,16 +251,23 @@ export class DesktopService {
  }
  async chatFileLocation(profileId:string,id:string,messageId:string,file:string){
   const preview=await this.readChatFile(profileId,id,messageId,file),state=this.store(profileId,id).load();
-  const target=projectTarget(fs.realpathSync(state.workspace),preview.path);
+  const target=path.isAbsolute(preview.path)?this.localPreviewTarget(preview.path):projectTarget(fs.realpathSync(state.workspace),preview.path);
   if(!fs.statSync(target).isFile())throw Error('文件不存在或不是普通文件');
   return target;
  }
+ private localPreviewTarget(file:string){
+  if(!/^[a-z]:[\\/]/i.test(file)||/[\x00-\x1f]/.test(file))throw Error('仅支持本机绝对文件路径');
+  return fs.realpathSync(file);
+ }
  private readPreviewFile(root:string,fileName:string){
-  const target=projectTarget(root,fileName),stat=fs.statSync(target);
+  return this.readPreviewTarget(()=>projectTarget(root,fileName),fileName);
+ }
+ private readPreviewTarget(resolve:()=>string,fileName:string){
+  const target=resolve(),stat=fs.statSync(target);
   if(!stat.isFile()||stat.size>2*1024*1024)throw Error('只能预览存在的普通文件，大小上限为 2 MiB');
   const ext=path.extname(fileName).toLowerCase(),mime:Record<string,string>={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp'};
   const type=mime[ext]??'text/plain',fd=fs.openSync(target,'r');let bytes:Buffer;
-  try{const before=fs.fstatSync(fd);if(!before.isFile()||before.nlink>1||before.size>2*1024*1024||before.ino!==stat.ino)throw Error('文件已改变，请重试');bytes=Buffer.alloc(before.size);let offset=0;while(offset<bytes.length){const n=fs.readSync(fd,bytes,offset,bytes.length-offset,offset);if(!n)throw Error('文件已改变，请重试');offset+=n;}const after=fs.fstatSync(fd),live=fs.lstatSync(projectTarget(root,fileName));if(after.size!==before.size||after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||live.ino!==before.ino)throw Error('文件已改变，请重试');}finally{fs.closeSync(fd);}
+  try{const before=fs.fstatSync(fd);if(!before.isFile()||before.nlink>1||before.size>2*1024*1024||before.ino!==stat.ino)throw Error('文件已改变，请重试');bytes=Buffer.alloc(before.size);let offset=0;while(offset<bytes.length){const n=fs.readSync(fd,bytes,offset,bytes.length-offset,offset);if(!n)throw Error('文件已改变，请重试');offset+=n;}const after=fs.fstatSync(fd),live=fs.lstatSync(resolve());if(after.size!==before.size||after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs||live.ino!==before.ino)throw Error('文件已改变，请重试');}finally{fs.closeSync(fd);}
   if(type.startsWith('image/'))return {path:fileName,size:bytes.length,mimeType:type,dataUrl:`data:${type};base64,${bytes.toString('base64')}`,truncated:false};
   let text:string;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);if(text.includes('\0'))throw Error();}catch{throw Error('此二进制或非 UTF-8 文件不支持文本预览');}
   text=redact(text);const truncated=text.length>200000;

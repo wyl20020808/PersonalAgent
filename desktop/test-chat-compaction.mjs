@@ -48,9 +48,11 @@ app.whenReady().then(async()=>{
    toggle.click();await wait();assert(cards().length===3,'file collapse');
    assert(document.querySelectorAll('#events > article').length===3,'tools/output/tools projection');
    const group=document.querySelector('#events .group-toggle');
-   assert(group.textContent==='编辑了文件运行了命令','mixed actions have a minimal summary');
+   assert(group.querySelector('span').textContent==='编辑了文件 · 运行了 1 条命令','mixed actions show command count');
    assert(document.querySelector('#events .compact-event-group > .person-icon'),'group avatar retained');
-   assert(!document.querySelector('#events .compact-event-group .message-meta'),'operation group omits redundant header');
+   assert(document.querySelector('#events .compact-event-group .message-meta').textContent.includes('Codex'),'group executor name retained');
+   assert(group.querySelector('time')&&group.querySelector('.lucide-square-terminal'),'group time and terminal icon retained');
+   assert(getComputedStyle(group.querySelector('span')).fontWeight==='600','group summary uses darker bold text');
    assert(getComputedStyle(group).flexWrap==='nowrap'&&getComputedStyle(group.querySelector('span')).whiteSpace==='nowrap','operation summary stays on one line');
    assert(group.getAttribute('aria-expanded')==='false','execution group starts folded');
    group.click();await wait();assert(document.querySelectorAll('#events .group-children .compact-operation').length===2,'execution group expands');
@@ -79,7 +81,7 @@ app.whenReady().then(async()=>{
    assert(publicMessage.querySelector('.message-time')&&getComputedStyle(publicMessage.querySelector('.message-time')).textAlign==='right','timestamp displayed in bottom right footer');
    assert(!document.querySelector('#events [data-message-id="4"]'),'empty output hidden');
    const failureGroup=document.querySelectorAll('#events .group-toggle')[1];
-   assert(failureGroup.textContent==='运行了命令','folded summary is only action label');
+   assert(failureGroup.querySelector('span').textContent==='运行了 2 条命令','summary shows command count');
    failureGroup.click();await wait();assert(document.querySelector('#events [data-message-id="5"] .compact-output').textContent==='failed output','failure output shown directly after expand');
    assert(!document.querySelector('#empty-command .tool-output'),'empty command output omitted');
    const stream=document.querySelector('#stream .group-toggle');stream.click();await wait();
@@ -89,10 +91,11 @@ app.whenReady().then(async()=>{
    assert(document.querySelector('#stream article').dataset.groupId===streamId,'stream group ID stable');
    assert(document.querySelector('#stream .group-toggle').getAttribute('aria-expanded')==='true','stream expansion retained');
    assert(document.querySelectorAll('#stream .group-children .compact-operation').length===3,'stream count increases from 2 to 3');
+   assert(document.querySelector('#stream .group-toggle span').textContent==='运行了 3 条命令','visible summary count updates live');
    document.querySelector('#append-many').click();await wait();
    const longScroll=document.querySelector('#stream .compact-children');assert(longScroll.scrollHeight>longScroll.clientHeight,'long operation list scrolls inside bounded group');
    assert(longScroll.clientHeight<=420,'long list height bounded');longScroll.scrollTop=longScroll.scrollHeight;assert(longScroll.scrollTop>0,'operation list can scroll to later rows');
-   return 'PASS: compact operation details without repeated chrome; minimal summary; no identity/count/status/timestamps; commands/failure/output retained; dynamic append';
+   return 'PASS: compact operation details without repeated chrome; compact summary with executor/count/time; no repeated row metadata; commands/failure/output retained; dynamic append';
   }}).toString()+')()'
  ).then(console.log);
  clearTimeout(timer);app.exit(0);
