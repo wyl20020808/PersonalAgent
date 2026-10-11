@@ -22,7 +22,7 @@ const raw=[message(0),message(1,{title:'Codex 文件操作',category:'files',tex
 function Fixture(){const [expanded,setExpanded]=useState({}),[stream,setStream]=useState([message(30),message(31,{timelineIndex:40})]);return <FilePreviewContext.Provider value={{messages:raw,openFile:(_m,path)=>document.body.dataset.opened=path}}><section id="files"><FileCards message={files}/></section><section id="events">{groupMessages(raw,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded[group.id]} onToggle={()=>setExpanded(value=>({...value,[group.id]:!value[group.id]}))}/>)}</section><section id="stream">{groupMessages(stream,true).map(group=><EventGroup key={group.id} group={group} expanded={!!expanded['stream:'+group.id]} onToggle={()=>setExpanded(value=>({...value,['stream:'+group.id]:!value['stream:'+group.id]}))}/>)}<button id="append-operation" onClick={()=>setStream(value=>[...value,message(32,{timelineIndex:80})])}>追加操作</button><button id="append-many" onClick={()=>setStream(value=>[...value,...Array.from({length:60},(_,i)=>message(100+i,{timelineIndex:200+i}))])}>追加长列表</button></section><section id="empty-command"><Message message={message(20)}/></section></FilePreviewContext.Provider>}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `},bundle:true,format:'esm',outfile:path.join(output,'fixture.js'),loader:{'.svg':'dataurl','.png':'dataurl'},define:{'process.env.NODE_ENV':'"production"'}});
-fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="fixture.css"><div id="root"></div><script type="module" src="fixture.js"></script>');
+fs.writeFileSync(path.join(output,'index.html'),'<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="fixture.css"><div id="root" class="chat-feed"></div><script type="module" src="fixture.js"></script>');
 fs.writeFileSync(path.join(output,'test.cjs'),`
 const {app,BrowserWindow,session}=require('electron');
 const path=require('node:path');
@@ -46,10 +46,12 @@ app.whenReady().then(async()=>{
    toggle.click();await wait();assert(cards().length===3,'file collapse');
    assert(document.querySelectorAll('#events > article').length===3,'tools/output/tools projection');
    const group=document.querySelector('#events .group-toggle');
+   assert(group.textContent==='编辑了文件运行了命令','mixed actions have a minimal summary');
+   assert(!document.querySelector('#events .compact-event-group .person-icon,#events .compact-event-group .message-meta'),'operation group omits identity and timestamps');
    assert(group.getAttribute('aria-expanded')==='false','execution group starts folded');
    group.click();await wait();assert(document.querySelectorAll('#events .group-children .compact-operation').length===2,'execution group expands');
    assert(!document.querySelector('#events .group-children .person-icon,#events .group-children .message-title,#events .group-children .copy-message,#events .group-children .source-reference,#events .group-children .tool-heading,#events .group-children .tool-raw,#events .group-children .command-details'),'expanded operations omit repeated chrome');
-   assert(document.querySelector('#events .compact-operation time'),'operation time retained');
+   assert(!document.querySelector('#events .compact-operation time'),'operation timestamps omitted');
    const operation=document.querySelector('#events .compact-operation');assert(!operation.open,'operation starts as one line');
    assert(operation.querySelector('summary').textContent.includes('echo test'),'one line command preview');
    operation.querySelector('summary').click();await wait();assert(operation.open,'operation expands on click');
@@ -59,9 +61,13 @@ app.whenReady().then(async()=>{
    group.click();await wait();assert(!document.querySelector('#events .group-children'),'execution group collapses');
    assert(document.querySelector('#events [data-message-id="2"]').textContent.includes('修改完成'),'public output visible');
    assert(!document.querySelector('#events [data-message-id="2"] .message-title'),'public output has no subtitle');
+   const publicMessage=document.querySelector('#events [data-message-id="2"]');
+   assert(!publicMessage.querySelector('.source-reference'),'concise messages omit evidence source');
+   assert(!publicMessage.querySelector('.message-meta time'),'timestamp removed from header');
+   assert(publicMessage.querySelector('.message-time')&&getComputedStyle(publicMessage.querySelector('.message-time')).textAlign==='right','timestamp displayed in bottom right footer');
    assert(!document.querySelector('#events [data-message-id="4"]'),'empty output hidden');
    const failureGroup=document.querySelectorAll('#events .group-toggle')[1];
-   assert(failureGroup.textContent.includes('含失败记录'),'failure is explicit in folded summary');
+   assert(failureGroup.textContent==='运行了命令','folded summary is only action label');
    failureGroup.click();await wait();assert(document.querySelector('#events [data-message-id="5"] .compact-output').textContent==='failed output','failure output shown directly after expand');
    assert(!document.querySelector('#empty-command .tool-output'),'empty command output omitted');
    const stream=document.querySelector('#stream .group-toggle');stream.click();await wait();
@@ -74,7 +80,7 @@ app.whenReady().then(async()=>{
    document.querySelector('#append-many').click();await wait();
    const longScroll=document.querySelector('#stream .compact-children');assert(longScroll.scrollHeight>longScroll.clientHeight,'long operation list scrolls inside bounded group');
    assert(longScroll.clientHeight<=420,'long list height bounded');longScroll.scrollTop=longScroll.scrollHeight;assert(longScroll.scrollTop>0,'operation list can scroll to later rows');
-   return 'PASS: compact operation details without repeated chrome; commands/time/failure/output retained; dynamic append';
+   return 'PASS: compact operation details without repeated chrome; minimal summary; no identity/count/status/timestamps; commands/failure/output retained; dynamic append';
   }}).toString()+')()'
  ).then(console.log);
  clearTimeout(timer);app.exit(0);
