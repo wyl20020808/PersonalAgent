@@ -845,6 +845,50 @@
         }
       ]
     },
+    "userAttachments": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "mimeType",
+          "size",
+          "file",
+          "sha256"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "mimeType": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/gif",
+              "image/webp",
+              "text/plain"
+            ]
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2097152
+          },
+          "file": {
+            "type": "string",
+            "pattern": "^user-attachments/[a-f0-9-]{36}\\.(png|jpg|gif|webp|txt)$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    },
     "executionSession": {
       "type": "object",
       "additionalProperties": false,

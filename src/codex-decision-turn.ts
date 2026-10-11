@@ -1,9 +1,11 @@
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
+import {codexInput,type NativeAttachment} from './multimodal.js';
 import { codexObservation } from './call-observation.js';
 import { codexPublicEvent } from './telemetry.js';
 import { validate } from './schema.js';
 
 export interface CodexDecisionTurn {
+  attachments?:NativeAttachment[];
   workspace: string; threadId: string | null; model?: string; prompt: string; schema: object;
   runId: string; role: 'plan' | 'review'; participantId?: 'a' | 'b'; discussionStage?: string;
 }
@@ -42,7 +44,7 @@ export async function runCodexDecisionTurn(codex: Pick<Codex, 'startThread' | 'r
     sandboxMode: 'read-only', approvalPolicy: 'never', networkAccessEnabled: false,
     webSearchMode: 'disabled', ...(request.model ? { model: request.model } : {}) };
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
-  const { events } = await thread.runStreamed(request.prompt, { outputSchema: codexOutputSchema(request.schema), ...(signal ? { signal } : {}) });
+  const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), { outputSchema: codexOutputSchema(request.schema), ...(signal ? { signal } : {}) });
   let final = '', completed = false, started = false;
   for await (const event of events) {
     if (event.type === 'thread.started') {

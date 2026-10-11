@@ -116,7 +116,7 @@ test('ordinary folder session: two formal Mock runs, immutable project, state/co
  for(const run of history.runs){const detail=restored.detail(run.profileId,run.id);assert.equal(detail.auditVerified,true);assert.ok(restored.thread(run.profileId,run.id).messages.length>0);assert.ok(restored.audit(restored.store(run.profileId,run.id)).some(e=>e.event==='desktop-session-link'&&e.data.sessionId===session.id));}
  assert.equal(restored.sessions.list().filter(s=>s.runs.some(r=>r.id===first.id)).length,1);
 });
-test('active messages persist without injecting Agent or mutating Controller; edit/cancel/explicit completion node',async()=>{
+test('active messages persist without mid-turn injection; edit/cancel and automatic completion handoff',async()=>{
  const {service,data,project}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});const launch=service.launch;service.launch=()=>{};
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first requirement',directAcknowledged:true});const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id),before=fs.readFileSync(store.file('state.json')),audit=fs.readFileSync(store.file('audit.jsonl'));const id=randomUUID();
  const pending=await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:id,text:'补充需求'} ) as Conversation;assert.equal(pending.messages.at(-1)?.status,'pending');assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);
@@ -125,7 +125,8 @@ test('active messages persist without injecting Agent or mutating Controller; ed
  const secondId=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:secondId,text:'下一轮开发'});service.launch=launch;
  await service.dispatch({operation:'resume',profileId:run.profileId,runId:run.id,decision:'continue'}).catch(()=>{}); // planning requires no recovery decision, start saved run via formal launcher below.
  service.launch(store,store.file('desktop.config.json'));assert.equal((await done(service,session.id)).phase,'completed');
- await service.dispatch({operation:'processSessionMessage',sessionId:session.id,messageId:secondId});assert.equal((await done(service,session.id)).phase,'completed');assert.equal(service.sessions.detail(session.id).runs.length,2);
+ for(let i=0;i<100&&service.sessions.get(session.id).runs.length<2;i++)await new Promise(r=>setTimeout(r,30));
+ assert.equal(service.sessions.get(session.id).messages.find(m=>m.id===secondId)?.status,'executed');assert.equal((await done(service,session.id)).phase,'completed');assert.equal(service.sessions.detail(session.id).runs.length,2);
 });
 test('session continues after historical cumulative exhaustion and restart; old files stay unchanged',async()=>{
  const {service,project,data}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',maxLoops:2,maxClaudeCalls:1});
@@ -155,9 +156,20 @@ test('real session creates Run without paid authorization; direct project permis
  const run=service.sessions.detail(real.id).runs[0];assert.equal(run.mode,'real');assert.equal(run.phase,'planning');assert.equal(service.store(run.profileId,run.id).load().config.globalBudget,undefined);
 });
 
-test('ambiguous chat never resumes paused runs, changes budget or approves delivery',async()=>{
+test('chat continuation reaches the real Controller launcher and preserves the existing Run',async()=>{
+ const {service,project}=fixture(),launch=service.launch;service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'初始本地测试任务',directAcknowledged:true});
+ const ref=service.sessions.get(session.id).runs[0],store=service.store(ref.profileId,ref.id),state=store.load();state.phase='paused';state.nextPhase='planning';store.save(state);service.launch=launch;
+ try{
+  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续'});
+  const completed=await done(service,session.id);assert.equal(completed.phase,'completed');assert.equal(completed.id,ref.id);assert.equal(service.sessions.get(session.id).runs.length,1);
+  assert.ok(service.audit(store).some(e=>e.event==='human-decision'&&e.data.decision==='继续'));
+ }finally{await service.stopOwned();}
+});
+test('chat resumes the saved Run without changing limits or approving delivery',async()=>{
  const {service,project}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});service.launch=()=>{};await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'开发功能',directAcknowledged:true});const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id),state=store.load();state.phase='paused';store.save(state);const before=fs.readFileSync(store.file('state.json')),audit=fs.readFileSync(store.file('audit.jsonl'));
- for(const text of ['好','继续','批准所有 Delivery','现在增加预算'])await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text});assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);assert.equal(service.sessions.detail(session.id).runs.length,1);assert.ok(service.sessions.detail(session.id).session.messages.slice(1).every(m=>m.status==='pending'));
+ for(const text of ['好','继续','批准所有 Delivery','现在增加预算'])await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text});assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.equal(service.sessions.detail(session.id).runs.length,1);assert.ok(service.sessions.detail(session.id).session.messages.slice(1).every(m=>m.status==='executed'));assert.ok(!service.audit(store).some(e=>e.event.startsWith('delivery-')));assert.equal(service.audit(store).filter(e=>e.event==='desktop-chat-dispatch').length,4);
  state.phase='completed';store.save(state);await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'继续'});assert.equal(service.sessions.detail(session.id).runs.length,1);assert.equal(service.sessions.detail(session.id).session.messages.at(-1)?.status,'recorded');
 });
 test('idempotent send, concurrent send and rename/search state do not duplicate a run',async()=>{

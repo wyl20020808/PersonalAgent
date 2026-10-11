@@ -1,4 +1,5 @@
 import type { Codex, ThreadOptions } from '@openai/codex-sdk';
+import {codexInput,type NativeAttachment} from './multimodal.js';
 import { codexPublicEvent } from './telemetry.js';
 import { codexObservation } from './call-observation.js';
 import { editSchema, nativeResultSchema, validate, type ExecutionResult } from './schema.js';
@@ -9,12 +10,12 @@ export const agentRules = `围绕用户授权的项目目标工作，优先复�
 export function nativeThreadOptions(workspace: string): ThreadOptions {
   return { workingDirectory: workspace, skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' };
 }
-export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; executionMode?: 'native' | 'proposal' }
+export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
 export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
   const native = request.executionMode !== 'proposal';
   const options = nativeThreadOptions(request.workspace);
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
-  const { events } = await thread.runStreamed(request.prompt, native ? {} : { outputSchema: editSchema });
+  const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), native ? {} : { outputSchema: editSchema });
   let final = '', completed = false;
   for await (const event of events) {
     const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
