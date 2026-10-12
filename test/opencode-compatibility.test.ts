@@ -33,3 +33,14 @@ test('V1 child environment isolates persistence and never writes source credenti
   assert.deepEqual(fs.readdirSync(path.join(root,'owned','config','opencode')),[]);
  }finally{if(prior===undefined)delete process.env.PERSONAL_AGENT_OPENCODE_CONFIG_FILE;else process.env.PERSONAL_AGENT_OPENCODE_CONFIG_FILE=prior;}
 });
+
+test('declared V2 effort variants survive V1 conversion with effective SDK options',()=>{
+ const source={providers:{relay:{package:'@opencode/ai/providers/openai-compatible',settings:{},models:{sol:{modelID:'gpt-6.1-sol',body:{store:false},variants:[{id:'low'},{id:'medium'},{id:'custom',settings:{temperature:0.2},body:{reasoning_effort:'high',max_tokens:1024}}]}}}}};
+ const before=JSON.stringify(source),model=v1ProviderConfig(source).provider.relay.models.sol;
+ assert.deepEqual(model.variants,{low:{reasoningEffort:'low'},medium:{reasoningEffort:'medium'},custom:{temperature:0.2,max_tokens:1024,reasoningEffort:'high'}});
+ assert.deepEqual(model.options,{store:false});
+ assert.equal('high' in model.variants,false);
+ assert.equal(JSON.stringify(source),before);
+ const anthropic=v1ProviderConfig({providers:{a:{package:'@opencode/ai/providers/anthropic',models:{m:{variants:[{id:'medium'}]}}}}}).provider.a.models.m;
+ assert.deepEqual(anthropic.variants,{medium:{}});
+});

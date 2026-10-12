@@ -39,7 +39,11 @@ function fake(options:Options={}){
    if(url.pathname==='/session'&&req.method==='POST'){const s={id:'ses_'+randomUUID(),directory,title:body.title,permission:body.permission};sessions.set(s.id,s);return send(s);}
    if(url.pathname==='/session/status')return send(options.badStatus?null:options.busy?Object.fromEntries([...sessions.keys()].map(id=>[id,{type:'busy'}])):{});
    const match=url.pathname.match(/^\/session\/([^/]+)(.*)$/),id=match?.[1],tail=match?.[2];
-   if(id&&tail==='')return send({...sessions.get(id),...(options.badOwner?{title:'wrong-owner'}:{})});
+   if(id&&tail===''){
+    const session=sessions.get(id);
+    if(req.method==='PATCH'&&Array.isArray(body.permission))session.permission=body.permission;
+    return send({...session,...(options.badOwner?{title:'wrong-owner'}:{})});
+   }
    if(id&&tail==='/abort'){aborts++;return send(true);}
    if(id&&tail==='/message'){
     prompts++;const execution=body.format.schema.properties.mode, discussion=body.format.schema.properties.disagreements;
@@ -153,8 +157,8 @@ test('Controller durable result recovery does not replay confirmed task',async()
  const recovered=await drive(f.store,real(f,server));assert.equal(recovered.phase,'completed');assert.equal(server.prompts,calls+1); // only Review repeated
  assert.ok(records(f.store).some(e=>e.event==='native-result-recovered'));
 });
-test('Controller transports decision verdict and fixture user acceptance without a machine test veto',async()=>{
- const f=await fixture({maxReworks:0}),server=fake({failTest:true}),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.userAccepted,true);assert.ok(records(f.store).some(e=>e.event==='manual-acceptance'));
+test('Controller transports decision acceptance without a machine test veto or forged user approval',async()=>{
+ const f=await fixture({maxReworks:0}),server=fake({failTest:true}),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.decisionAccepted,true);assert.notEqual(done.evidence?.userAccepted,true);assert.ok(!records(f.store).some(e=>e.event==='manual-acceptance'));
  await assert.rejects(()=>previewDelivery(f.store,f.source,''));
 });
 test('persisted execution model immutable; sessions cannot alias decision roles or other Run',async()=>{

@@ -87,3 +87,17 @@ test('missing historical diff uses actual current Git HEAD delta, including untr
  fs.writeFileSync(path.join(project,'code.ts'),'old\n');assert.match((await service.readChatFile(ref.profileId,ref.id,message.id,'code.ts')).notice??'',/没有文本差异/);
  fs.writeFileSync(path.join(project,'added.ts'),'x'.repeat(200001));const large=await service.readChatFile(ref.profileId,ref.id,message.id,'added.ts');assert.equal(large.change,undefined);assert.match(large.notice??'',/截断/);
 });
+
+test('native file events use the file owning Git worktree outside the Run directory',async()=>{
+ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','external-worktree-'+randomUUID()),service=new DesktopService(root,data,process.execPath),project=path.join(data,'project'),repository=path.join(data,'repository'),worktree=path.join(data,'worktree');fs.mkdirSync(project,{recursive:true});fs.mkdirSync(repository);
+ await git(repository,['init']);await git(repository,['config','user.name','Test']);await git(repository,['config','user.email','test@example.invalid']);fs.writeFileSync(path.join(repository,'code.py'),'old\n');fs.writeFileSync(path.join(repository,'deleted.py'),'delete\n');await git(repository,['add','code.py','deleted.py']);await git(repository,['commit','-m','fixture']);await git(repository,['worktree','add','-b','file-stats',worktree]);
+ fs.writeFileSync(path.join(worktree,'code.py'),'new\nextra\n');fs.writeFileSync(path.join(worktree,'added.py'),'first\nsecond\n');fs.unlinkSync(path.join(worktree,'deleted.py'));
+ service.launch=()=>{};const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct'}),sent=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'file stats',directAcknowledged:true}),ref=sent.runs[0],store=service.store(ref.profileId,ref.id);
+ const files=['code.py','added.py','deleted.py'].map(name=>path.join(worktree,name).replaceAll('\\','\\\\'));
+ store.audit('agent-activity',{agent:'codex',scope:'codex:1',loop:1,kind:'tool',title:'Codex 文件操作',source:'codex-sdk-runStreamed',text:'completed\n'+JSON.stringify(files.map(path=>({path,kind:'update'})))});
+ const message=service.thread(ref.profileId,ref.id).messages.find((item:any)=>item.title==='Codex 文件操作')!,before=fs.readFileSync(store.file('audit.jsonl')),status=await git(worktree,['status','--porcelain']);
+ const results=await Promise.all(files.map(file=>service.readChatFile(ref.profileId,ref.id,message.id,file)));
+ assert.deepEqual(results.map(result=>[result.change?.added,result.change?.removed]),[[2,1],[2,0],[0,1]]);for(const result of results)assert.match(result.scope,/文件所在 Git 工作区/);
+ assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),before);assert.equal(await git(worktree,['status','--porcelain']),status);assert.equal(fs.readFileSync(path.join(worktree,'code.py'),'utf8'),'new\nextra\n');
+ await assert.rejects(service.readChatFile(ref.profileId,ref.id,message.id,path.join(worktree,'unlisted.py')),/未在/);
+});

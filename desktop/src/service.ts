@@ -24,6 +24,7 @@ import {runTiming,timingTotals,type RunTiming} from './runTiming.js';
 import {SessionStore} from './sessions.js';
 import {validateParallelProject} from './parallelProject.js';
 import {messageFiles,recordedDiff,parseFileChanges} from './fileChanges.js';
+import {toolPresentation} from './chatPresentation.js';
 import type {ChatFilePreview,ChatMessage} from './types.js';
 import {collectScreenshots,screenshotBytes} from '../../dist/src/screenshots.js';
 import {projectTarget} from '../../dist/src/project-files.js';
@@ -237,6 +238,18 @@ export class DesktopService {
   if(path.isAbsolute(file)){
    const result:ChatFilePreview={path:file,scope:'本地文件只读预览',notice:'项目外文件只读预览，不关联该 Run 的变更。'};
    try{result.file=this.readPreviewTarget(()=>this.localPreviewTarget(file),file);}catch(error){result.contentError=(error as Error).message;}
+   if(message.kind==='tool'&&toolPresentation({kind:message.kind,title:message.title,text:message.text,source:message.details?.protocol})?.paths?.includes(fileName)){
+    try{
+     const absolute=path.resolve(file),directory=fs.realpathSync(path.dirname(absolute)),repository=(await git(directory,['--no-optional-locks','rev-parse','--show-toplevel'])).trim(),relativeFile=path.relative(repository,absolute).replaceAll('\\','/');
+     if(relativeFile.startsWith('../')||path.isAbsolute(relativeFile))throw Error('文件不属于该 Git 仓库');
+     const tracked=await git(repository,['--no-optional-locks','--literal-pathspecs','ls-files','--',relativeFile]);
+     const diff=await git(repository,['--no-optional-locks','--literal-pathspecs','diff','--no-ext-diff','--no-textconv','HEAD','--',relativeFile]);
+     result.change=parseFileChanges(redact(diff)).find(change=>change.path.toLowerCase()===relativeFile.toLowerCase());
+     if(!tracked.trim()&&result.file?.text!==undefined&&!result.file.truncated){const rows=result.file.text.split('\n');if(rows.at(-1)==='')rows.pop();result.change={path:relativeFile,diff:'',lines:rows.map((text,i)=>({kind:'add',text:'+'+text,newLine:i+1})),added:rows.length,removed:0};}
+     if(tracked.trim()&&!diff.trim())result.change={path:relativeFile,diff:'',lines:[],added:0,removed:0};
+     result.scope='文件所在 Git 工作区与 HEAD 比较（当前差异）';result.notice=result.change?result.change.notice:result.file?.truncated?'文件预览被截断，未生成不完整的新增行数。':'文件没有可统计的文本差异。';
+    }catch(error){result.notice='无法读取文件所在仓库的 Git diff：'+redact((error as Error).message).slice(0,200);}
+   }
    return result;
   }
   const record=recordedDiff(messages,message),change=parseFileChanges(record?.message.details?.diff??'').find(item=>relative(item.path).toLowerCase()===file.toLowerCase());
