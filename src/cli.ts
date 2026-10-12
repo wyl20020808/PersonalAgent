@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { configSchema, validate, type Config } from './schema.js';
@@ -12,6 +12,7 @@ import { previewDelivery, approveDelivery, applyDelivery, deliveryStatus } from 
 import { acceptManual } from './manual-acceptance.js';
 import { restoreProject, inspectProject } from './project-files.js';
 import { loadProjectContext, stampContext } from './project-context.js';
+import { findRun, usageReport, usageTable } from './usage-report.js';
 import { prepareContextConfirmation, decideContextConfirmation, pendingContextConfirmations, type ConfirmationAction } from './context-confirmation.js';
 
 const help = `PersonalAgent CLI MVP
@@ -34,10 +35,11 @@ const help = `PersonalAgent CLI MVP
   delivery-approve --config FILE --id RUN_UUID --delivery UUID --approval SHA256 --decision "EXPLICIT APPROVAL"
   delivery-apply --config FILE --id RUN_UUID --delivery UUID [--resume]
   delivery-status --config FILE --id RUN_UUID --delivery UUID
+  usage-report --run RUN_DIRECTORY_OR_UUID [--run ...] [--data ROOT] [--table] (read-only; several Runs are shown side by side)
 Projects may be on any drive; internal runtime data must be on D:. Real agents require authentication.
 `;
 try {
-  const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'automatic-decision':{type:'boolean'}, 'expected-updated-at':{type:'string'}, 'scan-max-files': {type:'string'}, 'scan-max-manifest-bytes': {type:'string'}, executable: {type:'string'}, document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, intent: { type: 'string' }, 'timeout-ms': { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: { run:{type:'string',multiple:true}, data:{type:'string'}, table:{type:'boolean'}, 'automatic-decision':{type:'boolean'}, 'expected-updated-at':{type:'string'}, 'scan-max-files': {type:'string'}, 'scan-max-manifest-bytes': {type:'string'}, executable: {type:'string'}, document: { type: 'string' }, action: { type: 'string' }, request: { type: 'string' }, cancel: { type: 'boolean' }, workspace: { type: 'string' }, module: { type: 'string' }, file: { type: 'string', multiple: true }, config: { type: 'string' }, repo: { type: 'string' }, goal: { type: 'string' }, intent: { type: 'string' }, 'timeout-ms': { type: 'string' }, id: { type: 'string' }, decision: { type: 'string' }, 'max-loops': { type: 'string' }, 'max-reworks': { type: 'string' }, help: { type: 'boolean' }, branch: { type: 'string' }, delivery: { type: 'string' }, approval: { type: 'string' }, checkpoint: { type: 'string' }, resume: { type: 'boolean' } } });
   const command = positionals[0];
   if ((values['automatic-decision'] || values['expected-updated-at']) && (command !== 'resume' || !values['automatic-decision'] || !values['expected-updated-at'] || !Number.isFinite(Date.parse(values['expected-updated-at'])))) throw new Error('Automatic decision requires resume and expected state timestamp');
   if (values['timeout-ms'] !== undefined && !['start', 'context-start', 'resume'].includes(command ?? '')) throw new Error('--timeout-ms requires start or resume');
@@ -50,6 +52,11 @@ try {
   }
   else if (command === 'decision-models' || command === 'execution-models') {
     console.log(JSON.stringify(await (command === 'execution-models' ? discoverOpencodeExecutionModels : discoverOpencodeModels)(values.executable, values.workspace),null,2));
+  }
+  else if (command === 'usage-report') {
+    if (!values.run?.length) throw new Error('--run is required');
+    const reports = values.run.map(run => usageReport(existsSync(path.join(path.resolve(run), 'audit.jsonl')) ? path.resolve(run) : findRun(path.resolve(values.data ?? 'D:/PersonalAgent-data'), run)));
+    console.log(values.table ? usageTable(reports) : JSON.stringify(reports, null, 2));
   }
   else if (command === 'context-stamp') {
     if (!values.workspace || !values.module || !values.file?.length) throw Error('--workspace, --module and --file are required');
