@@ -22,7 +22,9 @@ try{
   await page.locator('.chat-image-receipts .image-file-name').filter({hasText:'progress.png'}).click();await page.locator('.file-review-image').waitFor();
   assert.ok(await page.locator('.file-review-image').evaluate(img=>img.complete&&img.naturalWidth>0));
   await page.locator('.chat-image-receipts .image-file-name').filter({hasText:'missing.png'}).click();await page.getByText('图片已不存在',{exact:true}).waitFor();
-  await page.locator('.chat-image-card').click();await page.locator('.file-review-image').waitFor();
+  const thumbnail=page.locator('.chat-image-receipts .chat-image-card img');await thumbnail.waitFor();assert.equal(await thumbnail.count(),1);assert.ok(await thumbnail.evaluate(img=>img.complete&&img.naturalWidth>0));
+  await page.locator('.chat-image-receipts .chat-image-card').click();await page.locator('.file-review-image').waitFor();
+  await page.locator('.chat-image-card').last().click();await page.locator('.file-review-image').waitFor();
   assert.equal(await page.locator('img[src^="https:"]').count(),0);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
   await page.screenshot({path:path.join(out,`chat-images-${width}.png`)});

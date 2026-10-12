@@ -5,7 +5,7 @@ import {codexPublicEvent,type PublicActivity} from './telemetry.js';
 
 /** SDK 0.161 omits native ImageView items. Read only the bound Thread's public
  * completed-image events, incrementally; never publish messages or image bytes. */
-export function observeCodexImages(workspace:string,thread:()=>string|null|undefined,emit:(event:PublicActivity)=>void,
+export function observeCodexImages(workspace:string,thread:()=>string|null|undefined,emit:(event:PublicActivity,time:string)=>void,
   home=process.env.CODEX_HOME??path.join(homedir(),'.codex'),startedAt=Date.now()){
  const sessions=path.join(home,'sessions');let file:string|undefined,offset=0,partial='',skip=false,owned=false,closed=false;
  const chunk=Buffer.alloc(256*1024);
@@ -16,7 +16,7 @@ export function observeCodexImages(workspace:string,thread:()=>string|null|undef
    if(event.type==='session_meta'){owned=data?.id===thread()&&path.resolve(data.cwd)===path.resolve(workspace);return;}
    const time=Date.parse(event.timestamp);
    if(!owned||!Number.isFinite(time)||event.type!=='event_msg'||data?.type!=='item_completed'||data.thread_id!==thread()||time<startedAt||data.item?.type!=='ImageView'||typeof data.item.path!=='string'||typeof data.item.id!=='string')return;
-   const activity=codexPublicEvent({type:'item.completed',item:{type:'image_view',id:data.item.id,path:data.item.path}});if(activity)emit(activity);
+   const activity=codexPublicEvent({type:'item.completed',item:{type:'image_view',id:data.item.id,path:data.item.path}});if(activity)emit(activity,event.timestamp);
   }catch{/* Incomplete/unknown native records never become receipts. */}
  };
  function poll(){
