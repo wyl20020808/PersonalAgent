@@ -22,7 +22,7 @@ export function supervisionBlock(state: State, durableResult = false): string | 
 }
 
 export function supervisionSignature(state: State, lastUserAt: number): string {
-  return createHash('sha256').update(JSON.stringify({phase:state.phase,nextPhase:state.nextPhase,task:state.tasks[state.taskIndex]?.id,loops:state.loops,failureKind:state.failure?.kind,lastUserAt})).digest('hex');
+  return createHash('sha256').update(JSON.stringify({phase:state.phase,nextPhase:state.nextPhase,task:state.tasks[state.taskIndex]?.id,completedTaskIds:state.completedTaskIds,failureKind:state.failure?.kind,lastUserAt})).digest('hex');
 }
 
 export function supervisionDue(state: State, now: number, enabledAt: number, lastUserAt: number, receipt?: SupervisionReceipt): boolean {

@@ -29,6 +29,7 @@ test('ten minute grace, user activity, invalid timestamps and persistent three-a
  const receipt={signature:supervisionSignature(state,lastUserAt),attempts:3,lastAttemptAt:base};
  assert.equal(supervisionDue(state,base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt,receipt),false);
  assert.equal(supervisionDue({...state,reason:'The decision maker rephrased the same question'},base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt,receipt),false);
+ assert.equal(supervisionDue({...state,loops:state.loops+1},base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt,receipt),false);
  assert.equal(supervisionDue(state,base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt+1,receipt),true);
  assert.equal(supervisionDue({...state,updatedAt:'bad'},base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt),false);
 });
