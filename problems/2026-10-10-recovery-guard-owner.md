@@ -9,3 +9,13 @@
 轻量单元测试覆盖死 guard 回收、活动项目锁保持互斥、活 guard 保留、空/损坏/null guard 保留、死 claim 回收、活/空 claim 保留；死 PID 为本地模拟，没有终止进程。
 
 旧空锁和损坏锁仍需要用户确认后人工检查；本次不清理任何真实项目锁。PID 复用可能保守阻挡，不声称 OS 权限隔离。正式审查和交付待完成。
+
+## 2026-10-12 外部审查 H2 核对
+
+状态：部分已有实现，遗留 Git 交付恢复锁仍待处理。核对基线为 TEST `aa52a965e0855dcda40566228b8286cd3732e4a4`；本轮只登记，不修复或清理真实锁。
+
+- 外部报告针对 MAIN 旧工作区。其 `lockProject` 的空 `.recovery` 残留阻挡描述对该旧实现成立；当前 TEST `src/project-files.ts:162-215` 已保存 PID，并以唯一 claim 串行恢复，对明确死持有者回收。不能把旧问题直接称为当前所有 direct 项目永久不可运行。
+- TEST `src/delivery.ts:281-295` 的遗留 `targetLock` 仍在主锁存在且显式 resume 时创建空 `.recovery`，缺少该 guard 的身份与恢复。该步骤崩溃后再次 resume 会 EEXIST。适用旧 Git 分支交付；普通 direct 和 project-files 分支不调用它。
+- 旧空 guard、损坏 guard 保守拒绝是既有安全边界；未经核验不能按文件年龄自动删除。用户可人工核查，因此“永久且无法自救”措辞过强。
+- 下一步：为 targetLock 复用可靠的恢复身份机制，并确认实际运行版的修复部署边界。PID 复用独立记录于 [锁身份问题](2026-10-12-lock-pid-reuse.md)。
+- 验证：本轮静态核对，不制造崩溃，不写真实 project-locks/.delivery-locks。既有测试结论保留为历史证据，没有本轮重跑或 GUI 验收。
