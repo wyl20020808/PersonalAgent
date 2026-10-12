@@ -32,3 +32,7 @@ OpenCode 内的模型使用 OpenCode 的工具、Session 和协议；选择 Open
 本地 CLI 证据：工作区 `.validation/p3c-native-50110681/result.json`，Run `0286807a-f9e4-4191-b7ff-4a57efcda46e`。首次脚本使用过时的 Controller 固定测试判据，虽然链路完成仍返回失败；更新为当前决策验收加实际开发者检查后重跑通过，首次证据保留。
 
 远端模型调用 0 次；未逐个实测用户配置的远端模型，也未进行 Electron GUI 验收。图片支持为声明及协议发现验证，不是远端视觉质量验收。未声明图片支持的自定义模型需要在对应模型配置提供实际 `modalities.input` 或 `capabilities.input`，不修改用户全局配置来替模型承诺能力。
+
+## TEST 组合复核
+
+本任务实现提交 `471d694`。持有 Git common directory 中原子创建的 `personalagent-test-integration.lock` 后，核对 TEST 干净、无进行中的 Git 操作，将最新 TEST `3058024c20a6496f37aa4b872ce24c618e646821` 合入任务工作区，组合提交 `e0b12ea5b4ade6bd6232161a3e0c69fe644c1e2e`，无冲突。并发增量为文档、问题记录及桌面测试等待修复，未修改 OpenCode 生产源码。组合构建退出码 0，按 capability/providers/variants/discovery/Schema/role board 选择相关测试复验 8/8 通过。采用正常 Git 历史和 fast-forward 整合本地 TEST；集成后核对目标树、能力测试及干净状态，最终提交以 Git 为准。检查在任务工作区构建产物上执行，避免覆盖 TEST 实例产物。
