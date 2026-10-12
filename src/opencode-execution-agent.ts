@@ -91,7 +91,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       if (state.executionAttempt.loop === state.loops) throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       if (state.executionAttempt.status !== 'success') {
         const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-        let last = -1; events.forEach((e, index) => { if (e.event === 'opencode-execute-dispatch') last = index; });
+        let last = -1; events.forEach((e, index) => { if (e.event === 'opencode-execute-dispatch' || e.event === 'claude-execute-dispatch') last = index; });
         const following=events.slice(last+1);
         const guided=following.some(e=>e.event==='guidance-interrupted'&&e.data.loop===state.executionAttempt!.loop)&&following.some(e=>e.event==='guidance-applied');
         if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
