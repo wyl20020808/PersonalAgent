@@ -203,6 +203,7 @@ test('Claude tool blocks and results are retained without hidden thinking', () =
 });
 
 test('SDK MCP, web and file events stay visible, nonfatal tool errors do not end turn', async () => {
+  for(const type of ['item.started','item.completed'])assert.equal(codexPublicEvent({type,item:{id:'file-1',type:'file_change',status:type==='item.started'?'in_progress':'completed',changes:[{path:'x',kind:'update'}]}})?.streamId,'file-1');
   for (const item of [{ id: 'm', type: 'mcp_tool_call', server: 'local', tool: 'fixture', status: 'failed', error: { message: 'fixture failure' } }, { id: 'w', type: 'web_search', query: 'fixture' }, { id: 'f', type: 'file_change', status: 'completed', changes: [{ path: 'x', kind: 'add' }] }]) assert.ok(codexPublicEvent({ type: 'item.completed', item }));
   const f = await fixture('uncapped'), state = f.store.load(), record = activityRecorder(state, f.store, 'codex', 'many');
   for (let n = 0; n < 125; n++) record({ key: String(n), kind: 'tool', title: '本地夹具', text: String(n) });

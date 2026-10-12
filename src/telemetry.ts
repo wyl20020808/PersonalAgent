@@ -51,7 +51,7 @@ export function codexPublicEvent(value:any):PublicActivity|null {
     return {key:`${item.id}:${value.type}:${text}`,streamId:item.id,kind:'output',title,text};
   }
   if(item.type==='command_execution')return {key:`${item.id}:${value.type}:${item.aggregated_output}`,kind:'tool',title:'Codex 执行事件',text:`${item.command}\n${item.status} · exit_code=${item.exit_code??'pending'}\n${item.aggregated_output??''}`};
-  if(item.type==='file_change')return {key:`${item.id}:${value.type}:${JSON.stringify(item.changes)}`,kind:'tool',title:'Codex 文件操作',text:`${item.status}\n${JSON.stringify(item.changes??[])}`};
+  if(item.type==='file_change')return {key:`${item.id}:${value.type}:${JSON.stringify(item.changes)}`,streamId:item.id,kind:'tool',title:'Codex 文件操作',text:`${item.status}\n${JSON.stringify(item.changes??[])}`};
   if(item.type==='mcp_tool_call'&&item.id)return {key:`${item.id}:${value.type}:${JSON.stringify(item.result??item.error)}`,kind:'tool',title:`Codex MCP · ${item.server}/${item.tool}`,text:JSON.stringify({status:item.status,arguments:item.arguments,result:item.result,error:item.error})};
   if(item.type==='web_search')return {key:`${item.id}:${value.type}`,kind:'tool',title:'Codex 网络搜索',text:item.query??''};
   if(item.type==='error')return {key:`${item.id}:${value.type}`,kind:'error',title:'Codex 工具错误',text:item.message??''};

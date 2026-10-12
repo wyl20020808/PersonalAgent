@@ -12,6 +12,16 @@ import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 
+test('file started/completed events replace one operation and retain the completed evidence',()=>{
+ const event=(hash:string,status:string,scope='codex:1',streamId?:string)=>({hash,time:'2026-10-12T10:00:00.000Z',event:'agent-activity',data:{agent:'codex',kind:'tool',title:'Codex 文件操作',scope,streamId,source:'codex-sdk-runStreamed',text:status+'\n'+JSON.stringify([{path:'D:/Demo/code.py',kind:'update'}])}});
+ for(const streamId of [undefined,'file-1']){
+  const messages=projectMessages(state,[event('a','in_progress','codex:1',streamId),event('b','completed','codex:1',streamId)],[]);
+  assert.equal(messages.length,1);assert.equal(messages[0].status,'success');assert.equal(messages[0].id,'audit:a');assert.equal(messages[0].details?.evidenceMessageId,'audit:b');
+ }
+ assert.equal(projectMessages(state,[event('a','completed'),event('b','completed')],[]).length,2);
+ assert.equal(projectMessages(state,[event('a','in_progress','codex:1'),event('b','completed','codex:2')],[]).length,2);
+});
+
 test('held discussion queue has no running indicator and reply uses first public output time',()=>{
  const reply=sessionDiscussionReply({id:'a',time:'2026-10-11T10:00:00Z',discussionReplyTime:'2026-10-11T10:00:10Z',text:'question',status:'pending',action:'discuss',autoQueued:false},'fixture')!;
  assert.equal(reply.status,'pending');assert.match(reply.text,/重试或取消/);assert.equal(reply.time,'2026-10-11T10:00:10Z');
