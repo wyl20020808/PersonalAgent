@@ -20,7 +20,7 @@ export async function recoverTransport<T>(state: State, store: Store, signal: Ab
     throw new FlowError(saved.status === 'exhausted' ? 'transport' : 'interrupted',
       saved.status === 'exhausted' ? `自动连接恢复已耗尽：${saved.message}` : saved.status === 'cancelled' ? '连接恢复等待已中断；未派发下一次调用，需要明确恢复指令' : '连接恢复进程中断；调用状态未知，保留 Session 和已有修改，需要明确恢复指令');
   }
-  const delays = state.config.transportRetryDelaysMs ?? [5000, 15000, 30000];
+  const delays = state.config.transportRetryDelaysMs ?? [5000, 15000, 30000, 45000, 60000];
   const recovery: Recovery = { key, retries: 0, status: 'running' };
   const activity = activityRecorder(state, store, role === 'execute' || state.decisionAgent?.backend === 'codex' ? 'codex' : 'claude',
     `transport:${key}`, role === 'execute' ? 'execute' : role === 'review' ? 'review' : 'plan');
@@ -44,7 +44,7 @@ export async function recoverTransport<T>(state: State, store: Store, signal: Ab
     } catch (error) {
       const failure = classifyFailure(error, role);
       const current = session();
-      if (signal.aborted || failure.kind !== 'transport' || !current || (owned && current !== owned)) {
+      if (signal.aborted || !['transport', 'timeout'].includes(failure.kind) || !current || (owned && current !== owned)) {
         // Do not leave a retry marker blocking ordinary explicitly approved recovery.
         recovery.status = 'closed'; recovery.message = redact(failure.message); delete recovery.nextAt; persist(); throw error;
       }

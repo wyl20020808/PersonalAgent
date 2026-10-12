@@ -39,7 +39,7 @@ Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolat
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 Object.assign(configSchema.properties, { decisionAgent: decisionAgentSchema, decisionDiscussion: decisionDiscussionSchema });
 Object.assign(configSchema.properties, { executionAgent: executionAgentSchema });
-Object.assign(configSchema.properties, { transportRetryDelaysMs: { type: 'array', maxItems: 3, items: { type: 'integer', minimum: 0, maximum: 60000 }, description: 'Additional retries after provider recovery, default [5000,15000,30000]; [] disables them.' } });
+Object.assign(configSchema.properties, { transportRetryDelaysMs: { type: 'array', maxItems: 5, items: { type: 'integer', minimum: 0, maximum: 60000 }, description: 'Additional retries after provider recovery, default [5000,15000,30000,45000,60000]; [] disables them.' } });
 export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string; moduleIds?: string[] }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export interface Plan { tasks: Task[]; humanDecision: string | null; discussionRounds?: number }

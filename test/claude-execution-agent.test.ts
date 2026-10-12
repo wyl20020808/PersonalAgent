@@ -16,6 +16,20 @@ import type {runProcess} from '../src/process.js';
 
 const root=path.resolve('.validation','claude-executor-'+randomUUID().slice(0,8));
 const tasks=[1,2].map(i=>({id:'step'+i,instruction:'Local injected CLI fixture only',acceptance:['trusted test confirms file']}));
+
+test('Claude execution retries five ended transport failures using one owned Session',async()=>{
+ const f=await fixture();f.config.transportRetryDelaysMs=[0,0,0,0,0];const state=pending(f);state.config.transportRetryDelaysMs=f.config.transportRetryDelaysMs;f.store.save(state);
+ let calls=0,writes=0;const sessions:string[]=[];
+ const run:typeof runProcess=async(_program,args,options)=>{
+  calls++;const resumed=args.includes('--resume'),session=args[args.indexOf(resumed?'--resume':'--session-id')+1]!;sessions.push(session);
+  options.onLine!(JSON.stringify({type:'system',subtype:'init',session_id:session,model:'execute-model'}));
+  if(calls<=5){options.onLine!(JSON.stringify({type:'result',session_id:session,is_error:true,result:'Upstream request failed'}));return{exitCode:1,stdout:'',stderr:''};}
+  assert.match(options.input!,/先检查已有修改和工具结果/);writes++;fs.writeFileSync(path.join(f.source,'result.txt'),'once');
+  options.onLine!(JSON.stringify({type:'result',session_id:session,structured_output:{mode:'native',summary:'Local fixture'}}));return{exitCode:0,stdout:'',stderr:''};
+ };
+ await new RealAgents(f.config,run).execute(state,f.store,new AbortController().signal);
+ assert.equal(calls,6);assert.equal(new Set(sessions).size,1);assert.equal(writes,1);assert.equal(state.executionAttempt?.status,'success');
+});
 async function fixture(){
  const dir=path.join(root,randomUUID()),source=path.join(dir,'source');fs.mkdirSync(source,{recursive:true});fs.writeFileSync(path.join(source,'seed.txt'),'seed\n');
  const verify=path.join(dir,'verify.cjs');fs.writeFileSync(verify,"require('node:assert/strict').equal(require('node:fs').readFileSync(process.env.PERSONAL_AGENT_TASK_ID+'.txt','utf8'),'fixed\\n')");

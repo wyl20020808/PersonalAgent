@@ -11,6 +11,15 @@ import { git, snapshot, nativeAgentEnv } from '../src/workspace.js';
 import { nativeThreadOptions, runCodexTurn } from '../src/native-agent.js';
 import { runProcess } from '../src/process.js';
 import { activityRecorder, claudePublicEvents, codexPublicEvent } from '../src/telemetry.js';
+
+test('native image views and MCP image paths preserve public status and coalesce updates',()=>{
+ for(const type of ['item.started','item.completed']){
+  const event=codexPublicEvent({type,item:{type:'image_view',id:'image-1',path:'D:/proof/result.png'}})!;
+  assert.equal(event.streamId,'image-1');assert.equal(JSON.parse(event.text).status,type==='item.started'?'in_progress':'completed');
+ }
+ const event=codexPublicEvent({type:'item.completed',item:{type:'mcp_tool_call',id:'mcp-1',server:'local',tool:'view_image',status:'completed',arguments:{path:'D:/proof/result.png'}}})!;
+ assert.equal(event.streamId,'mcp-1');assert.equal(JSON.parse(event.text).tool,'view_image');
+});
 import { RealAgents } from '../src/real-agents.js';
 import { recordClaudeCall } from '../src/agent-usage.js';
 import { atomicJson } from '../src/store.js';

@@ -1,9 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activityStatus,toolPresentation,messageLane,publicMessageText,messagePreview} from '../src/chatPresentation.js';
+import {activityStatus,toolPresentation,messageLane,publicMessageText,messagePreview,imageFilePath} from '../src/chatPresentation.js';
 import {groupMessages} from '../src/threadGrouping.js';
 import type {ChatMessage} from '../src/types.js';
 const command=(text:string)=>({kind:'tool',title:'Codex 执行事件',source:'codex-sdk-runStreamed',text});
+
+test('image receipts retain local paths and distinguish actual view write pending and failed',()=>{
+ for(const [source,receipt] of [
+  ['codex-sdk-runStreamed',{tool:'view_image',status:'completed',arguments:{path:'D:/proof/result.png'}}],
+  ['opencode-sdk',{tool:'read',status:'completed',input:{filePath:'D:/proof/result.png'}}],
+  ['claude-cli-stream-json',{name:'Read',input:{file_path:'D:/proof/result.png'},id:'tool-1'}],
+ ] as const){const tool=toolPresentation({kind:'tool',source,text:JSON.stringify(receipt)});assert.deepEqual(tool?.images,['D:/proof/result.png']);assert.equal(tool?.imageAction,'view');}
+ const write=toolPresentation({kind:'tool',source:'opencode-sdk',text:JSON.stringify({receipt:{tool:'write',status:'completed',input:{filePath:'preview.webp'}}})});assert.equal(write?.imageAction,'write');
+ const failed=toolPresentation({kind:'tool',source:'opencode-sdk',text:JSON.stringify({receipt:{tool:'read',status:'error',error:'missing',input:{filePath:'missing.png'}}})});assert.equal(failed?.status,'fail');
+ const wrapper=toolPresentation({kind:'tool',source:'codex-sdk-runStreamed',text:JSON.stringify({tool:'exec',status:'completed',arguments:{code:'image(await tools.view_image({path: "D:/proof/a.png"}));'}})});assert.deepEqual(wrapper?.paths,['D:/proof/a.png']);assert.equal(wrapper?.imageAction,'view');
+ for(const path of ['https://example.com/p.png','data:image/png;base64,abc','//server/private.png','javascript:evil.png'])assert.equal(imageFilePath(path),undefined);
+ assert.equal(imageFilePath('file:///D:/proof/a.png'),'D:/proof/a.png');
+ assert.deepEqual(toolPresentation({kind:'tool',source:'codex-sdk-runStreamed',text:JSON.stringify({tool:'view_image',status:'completed',input:{path:'file:///D:/proof/a.png'}})})?.images,['D:/proof/a.png']);
+});
 test('output words cannot override command exit status',()=>{
  assert.equal(activityStatus(command('npm test\ncompleted · exit_code=0\n0 failed; example exit_code=1')),'success');
  assert.equal(activityStatus(command('npm test\nfailed · exit_code=1\nexit_code=0')),'fail');
@@ -43,4 +57,29 @@ test('role lanes distinguish same provider; users stay centered and Controller s
  assert.equal(messageLane({...message,role:'user'}),'user');
  assert.equal(messageLane({...message,role:'controller'}),'system');
  assert.equal(groupMessages([{...message,participantRole:'决策者'},{...message,id:'2',timelineIndex:2,participantRole:'执行者'}]).length,2);
+});
+test('execution envelopes unwrap nested receipts across all supported adapters',()=>{
+ const receipt={action:'Use native tools to inspect the project',summary:'检查完成',checks:['build passed','tests passed'],extra:{retained:true}};
+ const envelope={role:'execution',phase:'execute',sessionId:'private-session',providerID:'provider',modelID:'model',receipt:JSON.stringify(receipt)};
+ for(const protocol of ['opencode-sdk','codex-sdk-runStreamed','claude-cli-stream-json']){
+  for(const kind of ['output','summary']){
+   const text=publicMessageText({...message,kind,text:JSON.stringify(envelope),details:{protocol}});
+   assert.match(text,/\*\*操作\*\*/);assert.match(text,/检查完成/);assert.match(text,/- tests passed/);
+   assert.match(text,/"retained": true/);assert.doesNotMatch(text,/private-session|providerID|modelID/);
+   assert.equal(messagePreview({...message,kind,text:JSON.stringify(envelope),details:{protocol}}),'Use native tools to inspect the project');
+  }
+ }
+ const nested={...envelope,receipt:JSON.stringify({...envelope,receipt:{mode:'native',summary:'最终结果'}})};
+ assert.equal(publicMessageText({...message,kind:'output',text:JSON.stringify(nested),details:{protocol:'opencode-sdk'}}),'最终结果');
+});
+test('unrecognized JSON stays intact; partial envelopes show a notice and tools retain their format',()=>{
+ for(const text of ['{"role":"other","receipt":"do not hide"}','{"ordinary":"user JSON"}']){
+  assert.equal(publicMessageText({...message,kind:'output',text,details:{protocol:'opencode-sdk'}}),text);
+ }
+ assert.match(publicMessageText({...message,kind:'output',text:'{"role":"execution","phase":"execute","receipt":',details:{protocol:'opencode-sdk'}}),/执行记录不完整/);
+ assert.equal(publicMessageText({...message,kind:'output',status:'running',text:'{"role":"execution","phase":"execute","receipt":',details:{protocol:'opencode-sdk'}}),'正在接收执行结果…');
+ const text=JSON.stringify({role:'execution',phase:'execute',receipt:'hello'});
+ assert.equal(publicMessageText({...message,kind:'output',text,details:{protocol:'unknown'}}),text);
+ assert.equal(publicMessageText({...message,kind:'tool',text,details:{protocol:'opencode-sdk'}}),text);
+ assert.equal(publicMessageText({...message,kind:'output',text:JSON.stringify({mode:'native',summary:'done'}),details:{protocol:'codex-sdk-runStreamed'}}),'done');
 });

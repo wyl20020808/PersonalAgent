@@ -13,7 +13,7 @@ import { recoverTransport } from '../src/transport-recovery.js';
 import { runCodexTurn } from '../src/native-agent.js';
 import { runCodexDecisionTurn } from '../src/codex-decision-turn.js';
 import { nativeResultSchema, type Config } from '../src/schema.js';
-import { classifyFailure, FlowError } from '../src/failure.js';
+import { classifyFailure, FlowError, providerFailure } from '../src/failure.js';
 import { codexPublicEvent } from '../src/telemetry.js';
 import { runProcess } from '../src/process.js';
 
@@ -105,6 +105,41 @@ test('bounded recovery preserves partial writes and counters',async()=>{
   assert.equal(await recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,async()=>{calls++;fs.writeFileSync(path.join(state.workspace,'partial.txt'),'preserved');if(calls<3)throw new FlowError('transport','network error');return 'ok';}),'ok');
   assert.equal(calls,3);assert.equal(state.loops,0);assert.equal(state.reworks,0);assert.equal(state.codexThreadId,'owned');assert.equal(fs.readFileSync(path.join(state.workspace,'partial.txt'),'utf8'),'preserved');
 });
+
+test('default window retries five times with increasing delays then records exhaustion',async()=>{
+  const {state,store}=await fixture();delete state.config.transportRetryDelaysMs;state.codexThreadId='owned';let calls=0;const waits:number[]=[];
+  await assert.rejects(recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,async()=>{calls++;throw providerFailure({name:'UnknownError',data:{message:'Upstream request failed'}},'executor');},async ms=>{waits.push(ms);}),/5 次.*Upstream request failed/);
+  assert.equal(calls,6);assert.equal(waits.length,5);
+  for(const [index,base] of [5000,15000,30000,45000,60000].entries())assert.ok(waits[index]!>=base&&waits[index]!<base+1000);
+  const audit=fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  assert.equal(audit.filter(e=>e.event==='transport-recovery-start').length,5);
+  assert.equal(audit.at(-1).event,'transport-recovery-exhausted');
+  await assert.rejects(recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,async()=>{calls++;}),/耗尽/);assert.equal(calls,6);
+});
+
+test('timeout resumes same owned session; authentication quota and unknown failures never retry',async()=>{
+  for(const [native,expected] of [[{name:'UnknownError',data:{message:'401 authentication network error'}},'authentication'],[{name:'UnknownError',data:{message:'429 quota exceeded upstream request failed'}},'budget'],[{name:'UnknownError'},'executor']] as const){
+    const {state,store}=await fixture();state.codexThreadId='owned';let calls=0;
+    const failure=providerFailure(native,'executor');assert.equal(failure.kind,expected);
+    await assert.rejects(recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,async()=>{calls++;throw failure;}));assert.equal(calls,1);
+  }
+  const {state,store}=await fixture();state.codexThreadId='owned';let calls=0;
+  assert.equal(await recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,async()=>{calls++;if(calls===1)throw new FlowError('timeout','request timed out');return 'ok';}),'ok');assert.equal(calls,2);
+});
+
+test('Codex parent timeout never retries unfinished tool in execution or decision',async()=>{
+ for(const role of ['execute','plan'] as const){
+  const {state,store,config}=await fixture({decisionAgent:{backend:'codex'}});let calls=0;
+  state.tasks=[{id:'one',instruction:'local',acceptance:['ok']}];state.phase='executing';state.nativeExecution=true;store.save(state);
+  const real=new RealAgents(config,async(_exe,_args,options)=>{
+   calls++;const request=JSON.parse(options.input!);const scope={runId:request.runId,workspace:request.workspace,role:request.role,participantId:null,discussionStage:null};
+   options.onLine!(JSON.stringify({type:'thread',id:'owned',...(role==='plan'?{scope}:{})}));
+   options.onLine!(JSON.stringify({type:'observation',data:{type:'item.started',item:{id:'write',type:'command_execution',command:'write'}},...(role==='plan'?{scope}:{})}));
+   throw new FlowError('timeout','child timed out');
+  });
+  await assert.rejects(role==='execute'?real.execute(state,store,new AbortController().signal):real.plan(state,store,new AbortController().signal),/tool results are unknown/);assert.equal(calls,1);
+ }
+});
 test('exhaustion persists across restart; explicit new decision opens new window',async()=>{
   const {state,store}=await fixture();state.codexThreadId='owned';let calls=0;const operation=async()=>{calls++;throw Error('network error');};
   await assert.rejects(recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,operation),/3 次/);
@@ -131,5 +166,5 @@ test('Controller retries executor within one loop then independently verifies',a
     assert.match(request.prompt,/先检查已有修改/);fs.writeFileSync(path.join(request.workspace,'result.txt'),'ok');options.onLine!(JSON.stringify({type:'result',data:{mode:'native',summary:'local fixture'}}));return {exitCode:0,stdout:'',stderr:''};
   });
   const result=await drive(store,{executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'one',instruction:'local',acceptance:['result is ok']}]}),execute:real.execute.bind(real),review:async()=>({verdict:'pass',reason:'local fixture'})});
-  assert.equal(result.phase,'completed');assert.equal(result.loops,1);assert.equal(result.reworks,0);assert.equal(result.evidence?.userAccepted, true);assert.deepEqual(ids,[null,'owned']);
+  assert.equal(result.phase,'completed');assert.equal(result.loops,1);assert.equal(result.reworks,0);assert.equal(result.evidence?.decisionAccepted, true);assert.notEqual(result.evidence?.userAccepted, true);assert.deepEqual(ids,[null,'owned']);
 });

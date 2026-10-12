@@ -1,5 +1,5 @@
 import React,{createContext,useContext,useEffect,useMemo,useState} from 'react';
-import {FileCode2,Pencil,GitCompareArrows,LoaderCircle,Maximize2,Minimize2,RefreshCw} from 'lucide-react';
+import {FileCode2,Image as ImageIcon,Pencil,GitCompareArrows,LoaderCircle,Maximize2,Minimize2,RefreshCw} from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import {messageFiles,parseFileChanges,recordedDiff,findFileChange,type DiffLine,type FileChange} from './fileChanges.js';
 import type {ChatFilePreview,ChatMessage} from './types.js';
@@ -31,6 +31,18 @@ export function FileOperationSummary({message,paths,label}:{message:ChatMessage;
  const read=/read|glob|grep|list|读取|查看/i.test(label),edit=/edit|write|patch|文件变更|文件操作/i.test(label);
  const status=message.status==='running'?(read?'查看中':edit?'编辑中':'文件'):['fail','failed'].includes(message.status)?'失败':read?'已查看':edit?'已编辑':'文件';
  return <div className="operation-file-summary">{paths.map(path=><div className="operation-file-entry" key={path}>{read?<FileCode2 size={13}/>:<Pencil size={13}/>}<span className="operation-file-status">{status}</span><FileButton message={message} path={path} className="operation-file-name" title={path}>{path.replaceAll('\\','/').split('/').at(-1)}</FileButton>{!read&&<FileChangeStats message={message} path={path}/>}</div>)}</div>;
+}
+export function ImageOperationSummary({message,paths,action}:{message:ChatMessage;paths:string[];action?:'view'|'write'}){
+ const status=message.status==='running'?'处理中':['fail','failed'].includes(message.status)?'失败':message.status==='success'?(action==='view'?'已查看':action==='write'?'已生成':'图片文件'):'图片记录';
+ return <div className="operation-file-summary image-operation-summary">{paths.map(path=><div className="operation-file-entry" key={path}><ImageIcon size={14}/><span className="operation-file-status">{status}</span><FileButton message={message} path={path} className="operation-file-name image-file-name" title={path}>{path.replaceAll('\\','/').split('/').at(-1)}</FileButton></div>)}</div>;
+}
+export function ChatImage({message,path,alt}:{message:ChatMessage;path:string;alt:string}){
+ const [preview,setPreview]=useState<ChatFilePreview>();const profileId=message.details?.profileId;
+ useEffect(()=>{let live=true;setPreview(undefined);const profile=profileId??document.querySelector<HTMLElement>('.group-workspace')?.dataset.profileId;
+  if(profile&&message.id.startsWith('audit:'))void window.personalAgent.invoke<ChatFilePreview>({operation:'readChatFile',profileId:profile,runId:message.runId,messageId:message.id,file:path}).then(value=>{if(live)setPreview(value);}).catch(()=>{});
+  return()=>{live=false;};
+ },[profileId,message.id,message.runId,path]);
+ return <FileButton message={message} path={path} className="chat-image-card" title={'查看图片 '+path}>{preview?.file?.dataUrl?<img loading="lazy" src={preview.file.dataUrl} alt={alt}/>:<ImageIcon size={22}/>}<span>{alt||path.replaceAll('\\','/').split('/').at(-1)}</span></FileButton>;
 }
 function Totals({files,incomplete}:{files:FileChange[];incomplete?:boolean}){return files.length?<span className="file-change-total"><small>{incomplete?'展示范围内的文本行数':files.some(file=>file.notice)?'文本行数':''}</small><Stats added={files.reduce((n,file)=>n+file.added,0)} removed={files.reduce((n,file)=>n+file.removed,0)}/></span>:<small>未提供完整文本 diff</small>;}
 export function FileCards({message}:{message:ChatMessage}){

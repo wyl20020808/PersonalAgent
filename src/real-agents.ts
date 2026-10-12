@@ -25,6 +25,7 @@ import { timeoutSignal } from './timeout.js';
 import { recoverTransport } from './transport-recovery.js';
 import { codexGuidanceBoundary } from './guidance-handoff.js';
 import { processingGuidance } from './steering.js';
+import {observeCodexImages} from './codex-images.js';
 import { decisionOperatingMode, planningAction, reviewAction } from './decision-guidance.js';
 
 export class RealAgents implements Agents {
@@ -40,9 +41,6 @@ export class RealAgents implements Agents {
       if (retry) recordContextPrompt(store, navigation, input);
       return (await adapter.structured<T>({state, store, signal, schema, prompt: input, role, context: navigation, workspace: realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, phase: role, readOnly: ['draft', 'discussion', 'synthesis'].includes(store.decisionParticipant?.discussionStage ?? ''), timeoutMs: state.config.timeoutMs})).output;
     };
-    // A failed OpenCode HTTP prompt can still run on its server. Keep its existing
-    // status/abort/manual recovery instead of blindly submitting a second prompt.
-    if (identity.backend === 'opencode') return operation(0);
     return recoverTransport(state, store, signal, role, () => state.decisionSession?.sessionId, operation);
   }
   async plan(state: State, store: Store, signal: AbortSignal): Promise<Plan> {
@@ -62,8 +60,7 @@ export class RealAgents implements Agents {
   }
   async execute(state: State, store: Store, signal: AbortSignal): Promise<ExecutionResult> {
     assertOperationPolicy({ kind: 'model' });
-    if (this.config.executionAgent?.backend === 'opencode' || this.config.executionAgent?.backend === 'claude-code') return this.executeAttempt(state, store, signal);
-    return recoverTransport(state, store, signal, 'execute', () => state.codexThreadId,
+    return recoverTransport(state, store, signal, 'execute', () => this.config.executionAgent?.backend === 'codex' || !this.config.executionAgent ? state.codexThreadId : state.executionSession?.sessionId,
       retry => this.executeAttempt(state, store, signal, retry));
   }
   private async executeAttempt(state: State, store: Store, signal: AbortSignal, retry = 0): Promise<ExecutionResult> {
@@ -80,6 +77,8 @@ export class RealAgents implements Agents {
     if (this.config.executionAgent?.backend === 'opencode') return this.execution.execute(state, store, signal, prompt, context);
     if (this.config.executionAgent?.backend === 'claude-code') return new ClaudeCodeExecutionAgent(this.config, this.run).execute(state, store, signal, prompt, context);
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.codexThreadId);
+    const pendingTools=new Set<string>();
+    const images=observeCodexImages(state.workspace,()=>state.codexThreadId,record);
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
@@ -87,9 +86,9 @@ export class RealAgents implements Agents {
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };
-        if (event.type === 'thread') { if (state.decisionSession?.backend === 'codex' && state.decisionSession.sessionId === event.id || state.discussion?.participants.some(p => p.session?.backend === 'codex' && p.session.sessionId === event.id)) throw new FlowError('safety', 'Execution cannot share a Decision Thread'); state.codexThreadId = event.id!; store.save(state); store.audit('codex-thread', { id: event.id }); }
+        if (event.type === 'thread') { if (state.decisionSession?.backend === 'codex' && state.decisionSession.sessionId === event.id || state.discussion?.participants.some(p => p.session?.backend === 'codex' && p.session.sessionId === event.id)) throw new FlowError('safety', 'Execution cannot share a Decision Thread'); state.codexThreadId = event.id!; store.save(state);images.poll(); store.audit('codex-thread', { id: event.id }); }
         else if (event.type === 'activity') record(event.data as import('./telemetry.js').PublicActivity);
-        else if (event.type === 'observation') {codexGuidanceBoundary(event.data);observation.observe(event.data);}
+        else if (event.type === 'observation') {const data=event.data as any;if(data?.item&&['command_execution','file_change','mcp_tool_call'].includes(data.item.type)){if(data.type==='item.completed')pendingTools.delete(data.item.id);else pendingTools.add(data.item.id);}codexGuidanceBoundary(event.data);observation.observe(event.data);}
         else if (event.type === 'result') { if (edits !== undefined) throw new Error('Duplicate SDK worker result'); edits = event.data; }
         else throw new Error('Unexpected SDK worker protocol');
       }
@@ -100,7 +99,10 @@ export class RealAgents implements Agents {
       const classified = classifyFailure(new Error(message), 'execute'); throw new FlowError(classified.kind === 'unknown' ? 'executor' : classified.kind, message);
     }
     const output = validate<ExecutionResult>(this.executionMode === 'native' ? nativeResultSchema : editSchema, edits); completed = true; return output;
-    } finally { observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
+    } catch(error){
+      if(pendingTools.size&&['transport','timeout'].includes(classifyFailure(error,'execute').kind))throw new FlowError('interrupted','Codex tool results are unknown; manual recovery required');
+      throw error;
+    } finally { images.finish();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
   async review(state: State, store: Store, signal: AbortSignal): Promise<Review> {
     assertOperationPolicy({ kind: 'model' });

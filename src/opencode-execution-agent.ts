@@ -2,7 +2,7 @@ import {runAttachments,opencodeParts} from './multimodal.js';
 import {opencodeGuidanceBoundary,blockGuidanceHandoff} from './guidance-handoff.js';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { FlowError } from './failure.js';
+import { FlowError, classifyFailure, providerFailure } from './failure.js';
 import { configSchema, nativeResultSchema, validate, type Config, type NativeResult } from './schema.js';
 import type { State, Store } from './store.js';
 import { CallObservation } from './call-observation.js';
@@ -88,13 +88,17 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
     if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || realpathSync(state.workspace) !== (state.config.projectMode === 'direct' ? source : realpathSync(store.file('workspace'))) ||
       state.config.projectMode === 'direct' && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'OpenCode Execute workspace authorization mismatch');
     if (state.executionAttempt) {
-      if (state.executionAttempt.loop === state.loops) throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       if (state.executionAttempt.status !== 'success') {
         const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
         let last = -1; events.forEach((e, index) => { if (e.event === 'opencode-execute-dispatch' || e.event === 'claude-execute-dispatch') last = index; });
         const following=events.slice(last+1);
+        const safeIndex=following.findIndex(e=>e.event==='opencode-execute-retry-safe'&&e.data.loop===state.loops&&e.data.sessionId===state.executionSession?.sessionId);
+        const automatic=state.executionAttempt.loop===state.loops&&safeIndex>=0&&following.slice(safeIndex+1).some(e=>e.event==='transport-recovery-start'&&e.data.role==='execute'&&e.data.sessionId===state.executionSession?.sessionId);
         const guided=following.some(e=>e.event==='guidance-interrupted'&&e.data.loop===state.executionAttempt!.loop)&&following.some(e=>e.event==='guidance-applied');
-        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+        if (state.executionAttempt.loop===state.loops&&!automatic) throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
+        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided&&!automatic) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+      } else if(state.executionAttempt.loop===state.loops){
+        throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       }
     }
     const workspace = realpathSync(state.workspace), timeout = timeoutSignal(state.config.timeoutMs), signal = AbortSignal.any([externalSignal, timeout]);
@@ -102,6 +106,8 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.executionSession, 'opencode');
     const record = activityRecorder(state, store, 'opencode', `opencode-execute:${observation.usage.callId}`);
     let service: OpenCodeService | undefined, sessionID: string | undefined, completed = false, dispatched = false;
+    let retrySafe=false;
+    const tools=new Map<string,any>();
     const eventsStop = new AbortController(); let eventTask: Promise<void> | undefined;
     try {
       service = await this.launcher(choice.opencode.executable, workspace, signal, path.join(state.config.runtimeDir, 'opencode', state.id, 'execution'));
@@ -129,6 +135,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       let readyResolve!: () => void, readyReject!: (error: Error) => void;
       const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
       const consumePart = (part: any) => {
+        if(part.type==='tool')tools.set(part.id,part);
         for (const activity of opencodePublicEvents({ directory: workspace, payload: { properties: { part } } }, workspace, sessionID!)) {
           record({ ...activity, text: JSON.stringify({ role: 'execution', phase: 'execute', sessionId: sessionID, runId: state.id, taskId: task.id, providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, receipt: activity.kind === 'tool' ? JSON.parse(activity.text) : activity.text }) });
         }
@@ -157,7 +164,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       if (!data || data.info.sessionID !== sessionID || data.info.role !== 'assistant' || data.info.path?.cwd !== workspace || data.info.providerID !== choice.opencode.providerID || data.info.modelID !== choice.opencode.modelID) throw new FlowError('safety', 'OpenCode Execute response Session/workspace/model mismatch');
       for (const part of data.parts ?? []) { if (part.sessionID !== sessionID) throw new FlowError('safety', 'OpenCode Execute part Session mismatch'); consumePart(part); }
       observation.observeOpencodeMessage(data.info);
-      if (data.info.error) throw new FlowError('executor', `OpenCode Execute ${data.info.error.name}`);
+      if (data.info.error) throw providerFailure(data.info.error, 'executor');
       if (!data.info.finish || !['stop','tool-calls'].includes(data.info.finish) || data.parts.some(part => part.type === 'tool' && ['pending','running'].includes(part.state.status))) throw new FlowError('interrupted', 'OpenCode Execute lacks confirmed terminal result');
       const output = validate<NativeResult>(nativeResultSchema, data.info.structured);
       const status = await client.session.status({ directory: workspace }, options);
@@ -178,16 +185,20 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
             await new Promise(resolve=>setTimeout(resolve,25));
           }
         } catch { store.audit('opencode-execute-abort-incomplete', { sessionId: sessionID }); }
-        if(!idle)blockGuidanceHandoff('OpenCode 执行调用退出未确认；保留现场，不能并发派发下一调用');
+        if(!idle){blockGuidanceHandoff('OpenCode 执行调用退出未确认；保留现场，不能并发派发下一调用');throw new FlowError('interrupted','OpenCode Execute idle state unknown; manual recovery required');}
+        if([...tools.values()].some(part=>part.tool!=='StructuredOutput'&&(['pending','running'].includes(part.state.status)||part.state.metadata?.interrupted)))throw new FlowError('interrupted','OpenCode tool results are unknown; manual recovery required');
+        retrySafe=['transport','timeout'].includes(classifyFailure(error,'execute').kind)||timeout.aborted;
       }
       store.audit('opencode-execute-error', { callId: observation.usage.callId, sessionId: sessionID, taskId: task.id, message: redact((error as Error).message), interrupted: signal.aborted, ...transportErrorDetails(error) });
       if (timeout.aborted) throw new FlowError('timeout', `OpenCode Execute Timeout after ${state.config.timeoutMs} ms`);
       if (externalSignal.aborted) throw new Error('Stopped');
-      throw new FlowError(error instanceof FlowError ? error.kind : /JSON Schema/.test((error as Error).message) ? 'validation' : 'supervisor', redact((error as Error).message));
+      const failure=error instanceof FlowError?error:providerFailure(error,'supervisor');
+      throw new FlowError(failure.kind,redact(failure.message));
     } finally {
       eventsStop.abort(); await eventTask?.catch(() => {});
       try {
         await service?.close();
+        if(retrySafe&&!externalSignal.aborted)store.audit('opencode-execute-retry-safe',{loop:state.loops,sessionId:sessionID,taskId:task.id,note:'Session idle, tool results terminal, owned process closed; inspect existing results before retry'});
         if (completed) store.audit('opencode-execute-exit', { callId: observation.usage.callId, sessionId: sessionID, taskId: task.id, exitCode: 0, mode: state.config.mode });
       }
       catch {
@@ -197,6 +208,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         throw new FlowError('supervisor', 'OpenCode Execute process exit unconfirmed; manual recovery required');
       }
       finally {
+        if(service?.diagnostics)store.audit('opencode-service-exit',{role:'execute',callId:observation.usage.callId,sessionId:sessionID,...service.diagnostics()});
         if (dispatched && !completed) { state.executionAttempt!.status = signal.aborted ? 'interrupted' : 'failed'; state.executorExitCode = -1; store.save(state); }
         observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');
       }
