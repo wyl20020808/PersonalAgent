@@ -13,6 +13,27 @@ import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
 
+test('CLI Controller lock keeps clocks and pause controls live without owned child; stale phases do not',async()=>{
+ const service=new DesktopService(root,path.join(data,'live-clock-service-'+randomUUID()),process.execPath);
+ const folder=path.join(data,'live-clock-'+randomUUID()),source=path.join(folder,'source');fs.mkdirSync(source,{recursive:true});
+ const config={mode:'mock' as const,claudeExecutable:'NEVER-PAID',timeoutMs:30000,allowedRepositories:[source],runtimeDir:path.join(folder,'runtime'),projectMode:'direct' as const,directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},tests:[],mockScenario:'pass' as const};
+ const file=path.join(folder,'config.json');fs.writeFileSync(file,JSON.stringify(config));const profile=service.register(file).profiles.at(-1)!;
+ const store=await createRun(config,source,'LOCAL CLOCK FIXTURE'),state=store.load();state.phase='executing';store.save(state);store.audit('transition',{phase:'executing'});
+ assert.equal(service.publicRun(state,profile.id).active,false);assert.equal(service.thread(profile.id,store.id).timing.running,null);
+ const unlock=store.lock();
+ try{
+  assert.equal(service.children.has(store.id),false);assert.equal(service.publicRun(state,profile.id).active,true);
+  const timing=service.thread(profile.id,store.id).timing;assert.equal(timing.running,'execution');
+  const {timingTotals}=await import('./runTiming.js');const now=Date.parse(timing.since!);
+  assert.equal(timingTotals([timing],now+2000).executionMs-timingTotals([timing],now+1000).executionMs,1000);
+  store.audit('transition',{phase:'review'});assert.equal(service.thread(profile.id,store.id).timing.running,'decision');
+  await service.dispatch({operation:'stop',profileId:profile.id,runId:store.id});assert.ok(fs.existsSync(store.file('stop.request')));
+ }finally{unlock();}
+ assert.equal(service.publicRun(state,profile.id).active,false);assert.equal(service.thread(profile.id,store.id).timing.running,null);
+ for(const lock of ['{',JSON.stringify({pid:0}),JSON.stringify({pid:2147483647})]){fs.writeFileSync(store.file('lock.json'),lock);assert.equal(service.publicRun(state,profile.id).active,false);}
+ fs.unlinkSync(store.file('lock.json'));
+});
+
 test('paused single decision IPC preserves Session Run, switches settings and rejects active or collaborative switches',async()=>{
  const local=new DesktopService(root,path.join(data,'decision-switch'),process.execPath),project=path.join(data,'decision-switch-project');fs.mkdirSync(project,{recursive:true});const launches:any[]=[];local.launch=(store,_file,decision)=>{launches.push({id:store.id,decision});};
  const session=local.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct',decisionAgent:{backend:'claude-code'}});
