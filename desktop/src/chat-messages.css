@@ -15,6 +15,7 @@
 .chat-feed .group-message>.person-icon{display:grid;place-items:center;flex-shrink:0;align-self:flex-start;width:32px;height:32px;border-radius:10px;margin:0;padding:0}
 .chat-feed .agent-logo{display:grid;place-items:center;width:22px;height:22px}
 .chat-feed .agent-logo img{display:block;width:22px;height:22px;object-fit:contain}
+.group-workspace .chat-feed .person-icon:has(.agent-logo){background:transparent;border:0;box-shadow:none}
 .chat-feed .group-message .message-title{display:flex;gap:8px;align-items:center;line-height:1.5;margin-bottom:8px;color:#27364b;font-size:14px}
 .chat-feed .group-message .markdown{color:#27364b;line-height:1.75;font-size:14px}
 .chat-feed .markdown li,.chat-feed .markdown ul,.chat-feed .markdown ol{color:#27364b}

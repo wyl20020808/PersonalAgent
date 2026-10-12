@@ -30,3 +30,16 @@ Controller 当前按任务顺序执行并逐项请求决策者验收；决策者
 ## 后续清理
 
 本记录描述首批验收时点。旧 0/1 轮限制、强制 moduleIds 和盖章文件分类已在后续清理中解除，最新结果见 DECISION_LEGACY_RULES_CLEANUP_20261012.md。
+
+## 补充审查（2026-10-12，Claude Code）
+
+独立任务分支 `feature/decision-latitude-20261012`，创建于 TEST `07a2fe0`。开发期间另一会话的 `fix/decision-legacy-rules-20261012` 先合入 TEST（`935a709`），已覆盖 moduleIds 可选、Context 检查改为观察资料、固定数量上限清除、建档约定和讨论轮数等同类修改，见 DECISION_LEGACY_RULES_CLEANUP_20261012.md。本分支整合最新 TEST，冲突处采用 TEST 已有实现，仅保留其未覆盖的部分：
+
+- `real-agents.ts`：引导重规划提示由一串“never/Only/Preserve”指令改为说明现场已保留、已完成任务 ID 不可重用的协议，如何调整剩余工作由决策者决定。
+- `conversation-discussion.ts`：只读讨论提示改为说明用户所选模式及转入开发的入口，候选方案的内容和形式由决策者决定，不再规定“目标、范围、步骤、验收标准”模板。
+- AGENTS.md、统一规则：修正与 V2.1 及运行时规则冲突的“Agent 不自行提交或合并”“按验收和正式交付审批整合 test”和按模型名称划分角色的旧句。
+- 测试：新增“启用 Context 时 moduleIds 为空可完成”用例；修正 TEST 上因提示词改写而过期的 checkedContracts 断言。
+
+复查后未改动：执行者角色提示（仅实施当前任务）、只读讨论与初始协作周期的只读权限、工作/空闲策略、已完成任务 ID 防重放、依赖图校验、写入锁与恢复属于运行协议或用户选定模式；`maxLoops`、`maxReworks`、`minTasks`、阶段映射仅在显式配置时生效，桌面端新 Run 不设置。证据 issues 中的旧措辞（如 human verification required、commits and merges are forbidden）被测试和历史暂停原因引用，验收提示已说明其仅为观察，本轮未改。
+
+验证：类型检查与 Schema 导出成功。整合最新 TEST 后全量回归 490 项，失败项均为 `07a2fe0` 基线已有的失败（基线 484 项中失败 23 项，其中 2 项不稳定），外加上述一条过期断言，修正后复跑通过，具体数字见任务目录 `.validation/`。模型响应均为本地夹具，未做真实远程模型验证，未做可见 GUI 验收；既有失败用例本轮未处理。

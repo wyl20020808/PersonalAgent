@@ -104,7 +104,7 @@ test('actual RealAgents Review assembly declares precise IDs, live title/path/st
   });
   const returned = await agents.review(state, f.fixture.store, new AbortController().signal);
   assert.deepEqual(returned, original.review);
-  assert.match(prompt.contextInstruction, /checkedContracts 必须填写.*精确 ID/);
+  assert.match(prompt.contextInstruction, /checkedContracts 若提供.*精确 ID/);
   const hud = prompt.contractReferences.find((row: any) => row.id === 'hud'), geometry = prompt.contractReferences.find((row: any) => row.id === 'geometry');
   assert.equal(hud.title, 'hud'); assert.equal(hud.path, catalog[0]!.path); assert.equal(hud.status, 'proposed'); assert.equal(hud.required, true);
   assert.equal(geometry.required, false); assert.equal(geometry.status, 'proposed');
