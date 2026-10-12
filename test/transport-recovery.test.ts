@@ -29,6 +29,17 @@ function sdk(events:ThreadEvent[]):Pick<Codex,'startThread'|'resumeThread'>{
   return {startThread:()=>thread,resumeThread:()=>thread} as unknown as Pick<Codex,'startThread'|'resumeThread'>;
 }
 const reconnect={type:'error',message:'Reconnecting... 1/5 (stream disconnected before completion: Transport error: network error: error decoding response body)'} as const;
+test('model capacity retries the retained review session without treating quota as capacity',async()=>{
+ const {store,state}=await fixture({transportRetryDelaysMs:[0,0,0,0,0]});
+ const message='Codex Decision SDK worker exited 1: Selected model is at capacity. Please try a different model.';
+ assert.equal(classifyFailure(Error(message),'review').kind,'transport');
+ assert.equal(classifyFailure(Error('Selected model is at capacity; usage limit exceeded'),'review').kind,'budget');
+ state.codexThreadId='retained-review';let calls=0;
+ const result=await recoverTransport(state,store,new AbortController().signal,'review',()=>state.codexThreadId,async()=>{
+  calls++;if(calls<=5){const failure=classifyFailure(Error(message),'review');throw new FlowError(failure.kind,failure.message);}return 'review resumed';
+ });
+ assert.equal(result,'review resumed');assert.equal(calls,6);assert.equal(state.codexThreadId,'retained-review');
+});
 test('installed SDK subprocess survives reconnect notification until delayed completion',async()=>{
   const {store,state}=await fixture();
   fs.writeFileSync(store.file('exec'),`import fs from 'node:fs';console.log(JSON.stringify({type:'thread.started',thread_id:'owned'}));console.log(JSON.stringify(${JSON.stringify(reconnect)}));setTimeout(()=>{fs.writeFileSync('continued.txt','yes');console.log(JSON.stringify({type:'item.completed',item:{id:'answer',type:'agent_message',text:'{"mode":"native","summary":"ok"}'}}));console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1,cached_input_tokens:0}}));},80);`);
