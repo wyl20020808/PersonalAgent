@@ -123,7 +123,7 @@ export class DesktopService {
      const state=store.load();if(state.phase==='completed')continue;
      const result=(status:string,reason:string)=>this.supervisionResults.push({runId:state.id,status,reason});
      const last=session.messages.at(-1);
-     let lastUserAt=Math.max(Date.parse(session.createdAt),Date.parse(session.updatedAt),...session.messages.map(message=>Date.parse(message.time)));
+     let lastUserAt=Math.max(enabledAt,Date.parse(session.createdAt),Date.parse(session.updatedAt),...session.messages.map(message=>Date.parse(message.time)));
      const block=supervisionBlock(state,fs.existsSync(store.file(`native-result-${state.loops}.json`)));
      if(block||this.runActive(store)||fs.existsSync(store.file('stop.request'))||last?.action==='stop'||last?.action==='hold'||pendingContextConfirmations(store).length){result('skipped',block??'运行中、用户停止或待正式确认');continue;}
      // An absent Controller lock does not prove its native model/tools exited.

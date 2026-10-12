@@ -56,3 +56,5 @@ node --import ../scripts/regression-policy.mjs --test out/supervision.test.js
 扩大 Controller 回归在发现原有断言和短超时后停止，未完成。受影响核心模块串行组合 34/35，唯一 Mock 超时用例单独复测 1/1 通过；不得改写为一次 35/35。扩大桌面回归 155/162；原 TEST 独立副本复现六项 thread 失败，isolated rounds 的超时单独复测 1/1 通过。记录见 [历史回归问题](../problems/2026-10-12-legacy-acceptance-regression-waits.md)。没有删用例或修改生产验收语义来使测试通过。
 
 实际 Electron 设置操作、进程崩溃后的真实 Electron 自动重启、远端模型接管仍为 pending。本轮没有启动、重启或替换用户的真实软件，也没有开启用户数据中的全自动模式。工作模式隐藏窗口的恢复入口已实现，真实窗口表现未冒充通过。
+
+整合最新 TEST 的流式回复、证书恢复和 `b939c22` 等待夹具修正后，Controller 专项 10/10、桌面巡检与完整聊天回归组合 35/35 通过，日志分别为 `.validation/automatic-combined-feature.log`、`.validation/automatic-combined-desktop.log`。构建及桌面类型检查通过。随后强化重复问题保护：决策者仅改写问题措辞不能清零接管计数，用户重新开启模式会形成新的十分钟等待与委托周期。
