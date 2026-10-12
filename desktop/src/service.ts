@@ -21,6 +21,7 @@ import {decideContextConfirmation,pendingContextConfirmations} from '../../dist/
 import {FlowError} from '../../dist/src/failure.js';
 import {instanceId,sharedRuntime} from '../../dist/src/instance-runtime.js';
 import {projectMessages,messagePage} from './thread.js';
+import {codexImageHistory} from './codexImageHistory.js';
 import {runTiming,timingTotals,type RunTiming} from './runTiming.js';
 import {SessionStore} from './sessions.js';
 import {validateParallelProject} from './parallelProject.js';
@@ -222,8 +223,9 @@ export class DesktopService {
  private async readDeliveries(profileId:string,id:string):Promise<Delivery[]>{const store=this.store(profileId,id);const folder=store.file('deliveries');if(!fs.existsSync(folder))return [];const items:Delivery[]=[];for(const deliveryId of fs.readdirSync(folder).filter(x=>/^[0-9a-f-]{36}$/.test(x))){const state=await deliveryStatus(store,deliveryId);const manifest=JSON.parse(fs.readFileSync(path.join(folder,deliveryId,'manifest.json'),'utf8'));items.push({...state,kind:manifest.kind,runId:id,target:manifest.target,branch:manifest.branch,head:manifest.head,rulesHash:manifest.rulesHash,workspaceSnapshot:manifest.workspaceSnapshot,changes:manifest.changes.map(({path,before,after}:any)=>({path,before,after})),diff:redact(manifest.diff),tests:store.load().evidence?.tests.map(t=>({...t,stdout:redact(t.stdout),stderr:redact(t.stderr)}))??[],issues:store.load().evidence?.issues.map(redact)??[],preview:fs.readFileSync(path.join(folder,deliveryId,'preview.md'),'utf8')});}return items.sort((a,b)=>fs.statSync(path.join(folder,a.id,'manifest.json')).mtimeMs-fs.statSync(path.join(folder,b.id,'manifest.json')).mtimeMs);}
 
  notes(id:string):Note[]{const file=path.join(this.data,'notes',id+'.json');return fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):[];}
+ chatEvents(store:Store){const events=this.audit(store);return [...events,...codexImageHistory(events,store.load().workspace)].sort((a,b)=>a.time.localeCompare(b.time));}
  messageEvidence(profileId:string,id:string,messageId:string){
-  const store=this.store(profileId,id),event=this.audit(store).find(e=>'audit:'+e.hash===messageId);if(!event)throw Error('原始事件不存在');
+  const store=this.store(profileId,id),event=this.chatEvents(store).find(e=>'audit:'+e.hash===messageId);if(!event)throw Error('原始事件不存在');
   const data=event.data??{};let text=data.text??'';
   if(data.fullTextFile){if(!/^activity-[a-f0-9]{64}\.txt$/.test(data.fullTextFile))throw Error('Invalid activity evidence path');const bytes=fs.readFileSync(store.file(data.fullTextFile));if(sha(bytes)!==data.fullTextHash)throw Error('Activity evidence hash mismatch');text=bytes.toString('utf8');}
   return {event:JSON.parse(redact(JSON.stringify(event))),text:redact(text)};
@@ -232,7 +234,7 @@ export class DesktopService {
   return this.readPreviewFile(this.previewRoot(projectPath),fileName);
  }
  async readChatFile(profileId:string,id:string,messageId:string,fileName:string):Promise<ChatFilePreview>{
-  const store=this.store(profileId,id),state=store.load(),messages=projectMessages(state,this.audit(store),this.notes(id));
+  const store=this.store(profileId,id),state=store.load(),messages=projectMessages(state,this.chatEvents(store),this.notes(id));
   const index=messages.findIndex(message=>message.id===messageId);if(index<0)throw Error('文件事件不存在');
   const original=messages[index],evidence=this.messageEvidence(profileId,id,original.details?.evidenceMessageId??messageId);
   const message:ChatMessage={...original,text:evidence.text||original.text,details:original.details?.diffTruncated?{...original.details,diff:(evidence.event as any).data?.diff??original.details.diff,diffTruncated:false}:original.details};messages[index]=message;
@@ -327,7 +329,7 @@ export class DesktopService {
   const stamp=(file:string)=>{if(!fs.existsSync(file))return 'missing';const stat=fs.statSync(file,{bigint:true});return `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;};
   const fingerprint=state.updatedAt+':'+stamp(store.file('state.json'))+':'+stamp(store.file('audit.jsonl'))+':'+stamp(path.join(this.data,'notes',id+'.json'));
   let cached=this.threadCache.get(key);
-  if(!cached||cached.fingerprint!==fingerprint){const events=this.audit(store);cached={fingerprint,timing:runTiming(events),timingEnd:Date.parse(events.at(-1)?.time??state.updatedAt),messages:projectMessages(state,events,this.notes(id)),capabilities:{claudeStreaming:state.config.claudeStreaming!==false,codexPublicEvents:events.some(e=>e.event==='agent-activity'&&e.data.agent==='codex'),imagesToClaude:false}};this.threadCache.set(key,cached);if(this.threadCache.size>20)this.threadCache.delete(this.threadCache.keys().next().value!);}
+  if(!cached||cached.fingerprint!==fingerprint){const events=this.chatEvents(store);cached={fingerprint,timing:runTiming(events),timingEnd:Date.parse(events.at(-1)?.time??state.updatedAt),messages:projectMessages(state,events,this.notes(id)),capabilities:{claudeStreaming:state.config.claudeStreaming!==false,codexPublicEvents:events.some(e=>e.event==='agent-activity'&&e.data.agent==='codex'),imagesToClaude:false}};this.threadCache.set(key,cached);if(this.threadCache.size>20)this.threadCache.delete(this.threadCache.keys().next().value!);}
   const timing=this.runActive(store)?cached.timing:{...timingTotals([cached.timing],cached.timingEnd),running:null,since:null};
   return {...messagePage(cached.messages,after),timing,lastActivity:cached.messages.at(-1)?.time??null,capabilities:cached.capabilities};
  }

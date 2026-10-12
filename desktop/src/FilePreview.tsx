@@ -34,7 +34,7 @@ export function FileOperationSummary({message,paths,label}:{message:ChatMessage;
 }
 export function ImageOperationSummary({message,paths,action}:{message:ChatMessage;paths:string[];action?:'view'|'write'}){
  const status=message.status==='running'?'处理中':['fail','failed'].includes(message.status)?'失败':message.status==='success'?(action==='view'?'已查看':action==='write'?'已生成':'图片文件'):'图片记录';
- return <div className="operation-file-summary image-operation-summary">{paths.map(path=><div className="operation-file-entry" key={path}><ImageIcon size={14}/><span className="operation-file-status">{status}</span><FileButton message={message} path={path} className="operation-file-name image-file-name" title={path}>{path.replaceAll('\\','/').split('/').at(-1)}</FileButton></div>)}</div>;
+ return <div className="operation-file-summary image-operation-summary">{paths.map(path=><div key={path}><div className="operation-file-entry"><ImageIcon size={14}/><span className="operation-file-status">{status}</span><FileButton message={message} path={path} className="operation-file-name image-file-name" title={path}>{path.replaceAll('\\','/').split('/').at(-1)}</FileButton></div>{message.status==='success'&&<ChatImage message={message} path={path} alt={path.replaceAll('\\','/').split('/').at(-1)??'图片'}/>}</div>)}</div>;
 }
 export function ChatImage({message,path,alt}:{message:ChatMessage;path:string;alt:string}){
  const [preview,setPreview]=useState<ChatFilePreview>();const profileId=message.details?.profileId;
