@@ -34,3 +34,5 @@
 隔离 headless 的真实 React GroupWorkspace，通过正式 projectMessages/messagePage 后端投影验证 1280/480px：同一气泡在回合结束前增长；中途已有命令也能更新旧气泡；JSON 外壳隐藏；刷新仍显示最新正文；无重复气泡、横向溢出或 Renderer 异常。证据 `desktop/.validation/chat-text-stream/result.json` 与 `growing-*.png`。这是受控事件/IPC 桥夹具与真实组件验收，不冒充用户 Electron 窗口或实时模型直接驱动浏览器的验收。
 
 既有输出长度上限、完整审计文件、工具未知结果保护、停止、恢复、五次安全重试及正式交付边界保留。源代码已验证后按共享 TEST 集成锁正常整合；若 TEST 在开发期间前进，在本任务工作树合并最新版本并复验最终组合。
+
+开发期间 TEST 前进到 `913de5772caa4fd12d9b33f2ea0b0f179a6fd30a`（历史图片恢复）。已正常合并并保留双方功能，最终组合核心 28 项、桌面线程/文件/图片历史 40 项、构建和类型检查通过；文字流与图片 headless 均在 1280/480px 复验通过。未对历史图片提交进行摘取或覆盖。
