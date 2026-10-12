@@ -11,12 +11,32 @@ export function FileButton({message,path,className,title,children}:{message:Chat
  return <><button type="button" className={className} title={title} disabled={!openFile} onClick={()=>openFile?.(message,path)} onContextMenu={event=>{event.preventDefault();event.stopPropagation();setError('');void window.personalAgent.invoke<string|null>({operation:'chatFileMenu',profileId:message.details?.profileId??document.querySelector<HTMLElement>('.group-workspace')?.dataset.profileId,runId:message.runId,messageId:message.id,file:path}).then(action=>{if(action==='view')openFile?.(message,path);}).catch(reason=>setError(reason.message));}}>{children}</button>{error&&<span className="file-action-error" role="alert">{error}</span>}</>;
 }
 function Stats({added,removed}:{added:number;removed:number}){return <span className="file-change-stats" aria-label={`新增 ${added} 行，删除 ${removed} 行`}><b className="added">+{added}</b><b className="removed">−{removed}</b></span>;}
+export function FileChangeStats({message,path}:{message:ChatMessage;path:string}){
+ const {messages,roots}=useContext(FilePreviewContext),record=recordedDiff(messages,message),change=findFileChange(parseFileChanges(record?.message.details?.diff??''),path,roots);
+ const [preview,setPreview]=useState<ChatFilePreview>();
+ const profileId=message.details?.profileId,protocol=message.details?.protocol;
+ useEffect(()=>{
+  setPreview(undefined);
+  if(change||message.status==='running'||message.kind!=='tool'||!message.id.startsWith('audit:'))return;
+  const profile=profileId??document.querySelector<HTMLElement>('.group-workspace')?.dataset.profileId;
+  if(!profile)return;
+  let live=true;
+  void window.personalAgent.invoke<ChatFilePreview>({operation:'readChatFile',profileId:profile,runId:message.runId,messageId:message.id,file:path}).then(value=>{if(live)setPreview(value);}).catch(()=>{});
+  return()=>{live=false;};
+ },[change,profileId,protocol,message.id,message.runId,message.kind,message.status,path]);
+ const result=change??preview?.change,scope=change?record?.scope:preview?.scope;
+ return result&&!result.notice?<span className="operation-file-stats" title={scope}><Stats added={result.added} removed={result.removed}/>{!change&&!preview?.evidenceId&&<small>当前</small>}{record?.message.details?.diffTruncated&&<small>部分</small>}</span>:<small className="operation-file-notice" title={result?.notice??preview?.notice}>{message.status==='running'?'统计中':'行数不可用'}</small>;
+}
+export function FileOperationSummary({message,paths,label}:{message:ChatMessage;paths:string[];label:string}){
+ const read=/read|glob|grep|list|读取|查看/i.test(label),edit=/edit|write|patch|文件变更|文件操作/i.test(label);
+ return <span className="operation-file-summary"><span>{message.status==='running'?(read?'查看中':edit?'编辑中':'文件'):read?'已查看':edit?'已编辑':'文件'}</span>{paths.map(path=><span className="operation-file-entry" key={path}><span className="operation-file-name" title={path}>{path.replaceAll('\\','/').split('/').at(-1)}</span>{!read&&<FileChangeStats message={message} path={path}/>}</span>)}</span>;
+}
 function Totals({files,incomplete}:{files:FileChange[];incomplete?:boolean}){return files.length?<span className="file-change-total"><small>{incomplete?'展示范围内的文本行数':files.some(file=>file.notice)?'文本行数':''}</small><Stats added={files.reduce((n,file)=>n+file.added,0)} removed={files.reduce((n,file)=>n+file.removed,0)}/></span>:<small>未提供完整文本 diff</small>;}
 export function FileCards({message}:{message:ChatMessage}){
  const [expanded,setExpanded]=useState(false);
- const {messages,roots}=useContext(FilePreviewContext),paths=useMemo(()=>messageFiles(message),[message]),record=useMemo(()=>recordedDiff(messages,message),[messages,message]),changes=parseFileChanges(record?.message.details?.diff??'');
+ const {messages}=useContext(FilePreviewContext),paths=useMemo(()=>messageFiles(message),[message]),record=useMemo(()=>recordedDiff(messages,message),[messages,message]);
  if(!paths.length)return null;
- return <div className="chat-file-list"><div className="chat-file-heading"><FileCode2 size={15}/><span>文件列表 · {paths.length} 个文件{message.details?.diffTruncated?'（部分）':''}</span></div><div className="chat-file-cards">{(expanded?paths:paths.slice(0,3)).map(path=>{const change=findFileChange(changes,path,roots),name=path.replaceAll('\\','/').split('/').at(-1);return <FileButton message={message} path={path} className="chat-file-card" key={path} title={'查看文件或变更 · '+path+(record?' · '+record.scope:'')}><FileCode2 size={16}/><span className="chat-file-path"><strong>{name}</strong></span>{change&&!change.notice&&<Stats added={change.added} removed={change.removed}/>}</FileButton>;})}</div>{paths.length>3&&<button type="button" className="chat-file-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起文件列表':`展开其余 ${paths.length-3} 个文件`}</button>}</div>;
+ return <div className="chat-file-list"><div className="chat-file-heading"><FileCode2 size={15}/><span>文件列表 · {paths.length} 个文件{message.details?.diffTruncated?'（部分）':''}</span></div><div className="chat-file-cards">{(expanded?paths:paths.slice(0,3)).map(path=>{const name=path.replaceAll('\\','/').split('/').at(-1);return <FileButton message={message} path={path} className="chat-file-card" key={path} title={'查看文件或变更 · '+path+(record?' · '+record.scope:'')}><FileCode2 size={16}/><span className="chat-file-path"><strong>{name}</strong></span><FileChangeStats message={message} path={path}/></FileButton>;})}</div>{paths.length>3&&<button type="button" className="chat-file-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起文件列表':`展开其余 ${paths.length-3} 个文件`}</button>}</div>;
 }
 export function ChangesButton({message}:{message:ChatMessage}){
  const {openChanges}=useContext(FilePreviewContext),files=useMemo(()=>parseFileChanges(message.details?.diff??''),[message.details?.diff]);
