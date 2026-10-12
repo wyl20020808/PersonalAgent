@@ -189,8 +189,8 @@ export class CallObservation {
   }
 }
 
-export function runUsage(store: Store) {
-  const events = auditRecords(store.file('audit.jsonl')), calls = new Map<string, CallUsage>();
+export function runUsage(store: Store, verifiedEvents?: readonly any[]) {
+  const events = verifiedEvents ?? auditRecords(store.file('audit.jsonl')), calls = new Map<string, CallUsage>();
   for (const event of events) if (['observation-call-start', 'usage-progress', 'agent-usage'].includes(event.event) && event.data.runId === store.id) calls.set(event.data.callId, event.data as CallUsage);
   const rows = [...calls.values()];
   const groups = [...new Set(rows.map(row => `${row.taskId ?? '(plan)'}:${row.phase}:${row.rework ? 'rework' : 'initial'}`))].map(key => { const selected = rows.filter(row => `${row.taskId ?? '(plan)'}:${row.phase}:${row.rework ? 'rework' : 'initial'}` === key); return { key, calls: selected.length, ...sumTokens(selected), complete: selected.every(row => row.completeness === 'complete' && row.status === 'success') }; });

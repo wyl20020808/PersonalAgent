@@ -8,7 +8,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // The installed V2 config is read only. Credentials stay in the child environment,
 // never in the Controller config, IPC, receipts or a generated config file.
 export function v1ProviderConfig(config: Record<string, any>): Record<string, any> {
-  if (!config.providers) return { provider: config.provider ?? {}, plugin: [], ...(config.enabled_providers ? { enabled_providers: config.enabled_providers } : {}), ...(config.disabled_providers ? { disabled_providers: config.disabled_providers } : {}) };
+  const source=config.compaction,compaction:Record<string,unknown>={};
+  if(source&&typeof source==='object'){
+    for(const key of ['auto','prune'])if(typeof source[key]==='boolean')compaction[key]=source[key];
+    for(const key of ['tail_turns','preserve_recent_tokens','reserved'])if(Number.isSafeInteger(source[key])&&source[key]>=0)compaction[key]=source[key];
+    // The owned V1 service publishes these fields in its Config schema.
+    if(compaction.preserve_recent_tokens===undefined&&Number.isSafeInteger(source.keep?.tokens)&&source.keep.tokens>=0)compaction.preserve_recent_tokens=source.keep.tokens;
+    if(compaction.reserved===undefined&&Number.isSafeInteger(source.buffer)&&source.buffer>=0)compaction.reserved=source.buffer;
+  }
+  const policy=Object.keys(compaction).length?{compaction}:{};
+  if (!config.providers) return { provider: config.provider ?? {}, plugin: [], ...policy, ...(config.enabled_providers ? { enabled_providers: config.enabled_providers } : {}), ...(config.disabled_providers ? { disabled_providers: config.disabled_providers } : {}) };
   const packages: Record<string, string> = {
     '@opencode/ai/providers/openai-compatible': '@ai-sdk/openai-compatible',
     '@opencode/ai/providers/anthropic': '@ai-sdk/anthropic',
@@ -33,7 +42,7 @@ export function v1ProviderConfig(config: Record<string, any>): Record<string, an
       return [key, { id: m.modelID ?? key, name: m.name, ...input, ...(m.limit ? { limit: m.limit } : {}), ...(m.body ? { options: m.body } : {}), ...(variants ? { variants } : {}) }];
     })) };
   }
-  return { provider, plugin: [] };
+  return { provider, plugin: [], ...policy };
 }
 export function opencodeEnvironment(directory: string, runtimeDirectory?: string): NodeJS.ProcessEnv {
   const root = runtimeDirectory ?? path.join(process.env.PERSONAL_AGENT_OPENCODE_RUNTIME_DIR ?? (process.platform === 'win32' ? 'D:/PersonalAgent-data/opencode-v1' : path.join(os.tmpdir(), 'personal-agent-opencode')), 'discovery', createHash('sha256').update(directory).digest('hex'));

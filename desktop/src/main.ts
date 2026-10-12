@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {DesktopService,validateRequest,redact} from './service.js';
+import {HistoryReader,historyOperations} from './historyReader.js';
 import {assertD} from '../../dist/src/store.js';
 import {instanceId,instanceData,claimInstanceData} from '../../dist/src/instance-runtime.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -17,6 +18,8 @@ app.setPath('userData',path.join(data,'electron'));app.setPath('sessionData',pat
 protocol.registerSchemesAsPrivileged([{scheme:'personalagent',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const locked=app.requestSingleInstanceLock();if(!locked)app.quit();
 let window:BrowserWindow;let service:DesktopService;let quitting=false;
+const historyReader=new HistoryReader(root,data,'C:/Program Files/nodejs/node.exe');
+app.on('before-quit',()=>{void historyReader.close();});
 const threadWatchers=new Map<string,fs.FSWatcher>();
 const closeThreadWatchers=()=>{for(const watcher of threadWatchers.values())watcher.close();threadWatchers.clear();};
 if(locked)app.whenReady().then(async()=>{
@@ -81,7 +84,7 @@ ${request.replacement?'替代方案：'+request.replacement.relative+'\n'+reques
    if(r.operation==='manualAccept'){const answer=await dialog.showMessageBox(window,{type:'question',buttons:['取消','记录人工验收'],defaultId:0,cancelId:0,message:'人工验收不会声明独立测试通过',detail:`Run：${r.runId}\n摘要：${r.digest}\n检查记录：${r.decision}`});if(answer.response!==1)throw Error('用户取消人工验收');}
    if(r.operation==='approve'){const deliveries=await service.deliveries(r.profileId!,r.runId!),d=deliveries.find(d=>d.id===r.deliveryId);if(!d||d.digest!==r.digest)throw Error('Delivery digest mismatch');const approval=await dialog.showMessageBox(window,{type:'question',buttons:['取消','批准此具体交付'],defaultId:0,cancelId:0,message:'批准具体交付内容（不会立即应用）',detail:`Run：${d.runId}\n目标：${d.target}\n分支：${d.branch}\nHEAD：${d.head}\n摘要：${d.digest}\n${d.changes.map(c=>(c.after===null?'DELETE ':c.before===null?'ADD ':'MODIFY ')+c.path).join('\n')}`});if(approval.response!==1)throw Error('用户取消审批');}
    if(r.operation==='apply'){const direct=service.store(r.profileId!,r.runId!).load().config.projectMode==='direct';const approval=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','应用已批准内容'],defaultId:0,cancelId:0,message:direct?'重新验收并确认已有成果（不重复写入）':'应用将写入目标仓库',detail:direct?'文件已直接修改。核验准确批准、Diff 与独立验收；不重复写入项目。':'重新核验批准、内容和目标状态，仅应用摘要中列出的新增、修改及 Context 文档删除；不会 commit、merge 或 push。'});if(approval.response!==1)throw Error('用户取消应用');}
-   return await service.dispatch(r);
+   return await (historyOperations.has(r.operation)?historyReader.read(r):service.dispatch(r));
   }catch(error){throw Error(redact((error as Error).message));}
  });
  ipcMain.handle('personalagent:subscribe',async(event,raw)=>{
