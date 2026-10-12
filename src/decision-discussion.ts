@@ -10,12 +10,18 @@ export type DiscussionStage = 'draft' | 'discussion' | 'synthesis' | 'replan' | 
 export interface DiscussionOpinion { summary: string; disagreements: string[]; amendments: string[] }
 export const opinionSchema = { type: 'object', additionalProperties: false, required: ['summary', 'disagreements', 'amendments'], properties: {
   summary: { type: 'string', minLength: 1, maxLength: 100000 },
-  disagreements: { type: 'array', maxItems: 30, items: { type: 'string', minLength: 1, maxLength: 10000 } },
-  amendments: { type: 'array', maxItems: 30, items: { type: 'string', minLength: 1, maxLength: 10000 } }
+  disagreements: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 10000 } },
+  amendments: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 10000 } }
 } };
 export interface DiscussionParticipant { id: 'a' | 'b' | 'c'; agent: DecisionChoice; session?: DecisionSession; claudeSessionId: string | null; calls: number }
 export interface DiscussionStep { key: string; participantId: 'a' | 'b' | 'c'; stage: DiscussionStage; status: 'running' | 'success' | 'failed' | 'interrupted'; output?: Plan | DiscussionOpinion; error?: string }
 export interface DiscussionState { config: DecisionDiscussion; participants: DiscussionParticipant[]; steps: DiscussionStep[]; closed: boolean }
+export function selectedDiscussionRounds(discussion: DiscussionState): number {
+  if (discussion.config.rounds !== 'auto') return discussion.config.rounds;
+  const primaryDraft = discussion.steps.find(step => step.key === `draft:${discussion.config.primary}` && step.status === 'success')?.output as Plan | undefined;
+  return primaryDraft?.discussionRounds ?? 0;
+}
+const discussionKey = (id: string, round: number) => round === 0 ? `discussion:${id}` : `discussion:${round}:${id}`;
 export function initializeDiscussion(state: State): void {
   if (!state.config.decisionDiscussion) return;
   state.discussion = { config: structuredClone(state.config.decisionDiscussion), participants: state.config.decisionDiscussion.participants.map(p => ({ ...structuredClone(p), claudeSessionId: null, calls: 0 })), steps: [], closed: false };
@@ -36,7 +42,7 @@ export function assertDiscussionPlan(state: State, plan: Plan): void {
   const discussion = state.discussion;
   if (!discussion || discussion.closed) return;
   const expected = discussion.config.participants.map(p=>`draft:${p.id}`);
-  if (discussion.config.rounds === 1) expected.push(...discussion.config.participants.map(p=>`discussion:${p.id}`));
+  for (let round=0;round<selectedDiscussionRounds(discussion);round++) expected.push(...discussion.config.participants.map(p=>discussionKey(p.id,round)));
   expected.push(`synthesis:${discussion.config.primary}`);
   if (discussion.steps.length !== expected.length || expected.some(key=>discussion.steps.filter(s=>s.key===key&&s.status==='success').length!==1) || JSON.stringify(discussion.steps.find(s=>s.key===`synthesis:${discussion.config.primary}`)?.output) !== JSON.stringify(plan)) throw new FlowError('supervisor', '双决策周期未完成或最终 Plan 与主决策者输出不一致；禁止 Execute。');
 }
@@ -81,8 +87,7 @@ export async function discussPlan(state: State, store: Store, signal: AbortSigna
     store.audit('discussion-replan-output', { participantId: discussion.config.primary, participantAgent: discussion.participants.find(p=>p.id===discussion.config.primary)!.agent, primary: true, discussionStage: 'replan', mode: state.config.mode, output });
     return output;
   }
-  async function step(id: 'a' | 'b' | 'c', stage: DiscussionStage, exchange?: object): Promise<Plan | DiscussionOpinion> {
-    const key = `${stage}:${id}`;
+  async function step(id: 'a' | 'b' | 'c', stage: DiscussionStage, exchange?: object, key = `${stage}:${id}`): Promise<Plan | DiscussionOpinion> {
     let saved = discussion.steps.find(s => s.key === key);
     if (saved?.status === 'success') return saved.output!;
     signal.throwIfAborted();
@@ -113,13 +118,17 @@ export async function discussPlan(state: State, store: Store, signal: AbortSigna
   const drafts: Record<string, Plan> = {};
   for (const participant of discussion.participants) drafts[participant.id] = await step(participant.id, 'draft') as Plan;
   const opinions: Record<string, DiscussionOpinion> = {};
-  if (discussion.config.rounds === 1) for (const participant of discussion.participants) {
+  const rounds = selectedDiscussionRounds(discussion);
+  for (let round=0;round<rounds;round++) {
+   const previousOpinions = Object.fromEntries(discussion.participants.map(p => [p.id, opinions[round === 1 ? p.id : `${round-1}:${p.id}`]]));
+   for (const participant of discussion.participants) {
     const peers = discussion.participants.filter(p => p.id !== participant.id);
-    // Each participant sees every fixed peer draft, never round-one opinions.
+    // Each round uses the same original drafts and a snapshot of completed earlier rounds.
     const exchange = peers.length === 1 ? { peer: peers[0]!.id, peerDraft: drafts[peers[0]!.id] } : { peerDrafts: Object.fromEntries(peers.map(p => [p.id, drafts[p.id]])) };
-    opinions[participant.id] = await step(participant.id, 'discussion', { ownDraft: drafts[participant.id], ...exchange }) as DiscussionOpinion;
+    opinions[round===0?participant.id:`${round}:${participant.id}`] = await step(participant.id, 'discussion', { ownDraft: drafts[participant.id], ...exchange, round, ...(round ? {previousOpinions, historyReference: store.file('state.json')} : {}) }, discussionKey(participant.id,round)) as DiscussionOpinion;
+   }
   }
-  return await step(discussion.config.primary, 'synthesis', { drafts, opinions, rounds: discussion.config.rounds }) as Plan;
+  return await step(discussion.config.primary, 'synthesis', { drafts, opinions, rounds }) as Plan;
 }
 export function mockParticipantSession(view: State, store: Store): void {
   const codex = view.decisionAgent!.backend === 'codex';

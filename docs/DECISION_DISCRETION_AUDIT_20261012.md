@@ -26,3 +26,7 @@ Controller 当前按任务顺序执行并逐项请求决策者验收；决策者
 类型检查、Schema 导出与隔离本地回归验证接口行为。验证包含模型返回 1/6 项计划均可自动推进、25 项计划与 24 项依赖可校验、讨论只读、SDK 实际参数序列化、OpenCode 同 Session 模式转换、验收自动继续、恢复和 Context 授权边界。模型响应由本地夹具注入；不是真实远程模型选择粒度或 Token 节省实测，不代表 OpenWorld 导入或可见 GUI 已验收。
 
 最终源码类型检查与 Schema 导出成功。相关回归覆盖 106 项；提供者组的 3 个夹具问题修正后，该组复跑 43/43，其余 63 项已通过。旧 native-agent 测试中“自主验收必须 userAccepted=true”的断言按当前语义改为 decisionAccepted=true、userAccepted 不为 true。所有失败及复验日志保留在任务目录 `.validation/`，未把模型夹具称为真实远程 Agent 验收。已授权协作会话只读审查未发现明确阻断问题；Diff 检查通过。按 V2.1 授权整合本地 TEST，DEV 保持 `850809f`。
+
+## 后续清理
+
+本记录描述首批验收时点。旧 0/1 轮限制、强制 moduleIds 和盖章文件分类已在后续清理中解除，最新结果见 DECISION_LEGACY_RULES_CLEANUP_20261012.md。

@@ -194,7 +194,6 @@
         "acceptanceStages": {
           "type": "object",
           "minProperties": 1,
-          "maxProperties": 20,
           "propertyNames": {
             "pattern": "^[a-zA-Z0-9_-]{1,64}$"
           },
@@ -460,9 +459,14 @@
               ]
             },
             "rounds": {
-              "enum": [
-                0,
-                1
+              "anyOf": [
+                {
+                  "const": "auto"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
               ]
             }
           },
@@ -585,7 +589,6 @@
         "taskStages": {
           "type": "object",
           "minProperties": 1,
-          "maxProperties": 20,
           "propertyNames": {
             "pattern": "^[a-zA-Z0-9_-]{1,64}$"
           },
@@ -655,8 +658,7 @@
               "minLength": 1,
               "maxLength": 100000
             },
-            "minItems": 1,
-            "maxItems": 30
+            "minItems": 1
           },
           "dependsOn": {
             "type": "array",
@@ -673,7 +675,6 @@
           "moduleIds": {
             "type": "array",
             "uniqueItems": true,
-            "maxItems": 20,
             "items": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9_-]{1,64}$"
@@ -851,7 +852,6 @@
                 },
                 "contextConfirmations": {
                   "type": "array",
-                  "maxItems": 20,
                   "items": {
                     "type": "object",
                     "properties": {
@@ -1706,9 +1706,14 @@
               ]
             },
             "rounds": {
-              "enum": [
-                0,
-                1
+              "anyOf": [
+                {
+                  "const": "auto"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
               ]
             }
           },
@@ -1889,7 +1894,6 @@
         },
         "steps": {
           "type": "array",
-          "maxItems": 7,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -1954,8 +1958,7 @@
                                 "minLength": 1,
                                 "maxLength": 100000
                               },
-                              "minItems": 1,
-                              "maxItems": 30
+                              "minItems": 1
                             },
                             "dependsOn": {
                               "type": "array",
@@ -1972,7 +1975,6 @@
                             "moduleIds": {
                               "type": "array",
                               "uniqueItems": true,
-                              "maxItems": 20,
                               "items": {
                                 "type": "string",
                                 "pattern": "^[a-zA-Z0-9_-]{1,64}$"
@@ -1994,6 +1996,10 @@
                           "null"
                         ],
                         "minLength": 1
+                      },
+                      "discussionRounds": {
+                        "type": "integer",
+                        "minimum": 0
                       }
                     },
                     "required": [

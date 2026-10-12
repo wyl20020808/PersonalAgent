@@ -30,13 +30,9 @@ export function contextPath(relative: string, directory = false): boolean {
   return name.split('/').every(part => part && part !== '.' && part !== '..' && !/[. ]$/.test(part) && !/^(?:\.git|\.codex|\.claude|\.env(?:\..*)?|node_modules|dist|build|out|\.cache|\.tmp|\.runtime|auth\.json|\.?credentials\.json|.*\.(?:pem|key)|CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(part));
 }
 export function belongsToModule(module: ModuleDocument, file: string): boolean { return module.metadata.paths.some(declared => declared.endsWith('/') ? file.startsWith(declared) : file === declared); }
-// Reject clearly unsuitable stamp targets, without restricting source languages.
-export function stampEligible(file: string): boolean {
-  return contextPath(file) && !/(^|\/)(?:tests?|__tests__|validation|coverage|artifacts|generated)(\/|$)/i.test(file)
-    && !/(?:^|\/)(?:README(?:\.[^/]*)?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.gitignore|\.gitattributes|\.editorconfig|\.npmrc)$/i.test(file)
-    && !/\.(?:md|markdown|rst|txt|json|lock|map|png|jpg|svg|zip)$/i.test(file)
-    && !/(?:[.-](?:test|spec)\.[^/]+|(?:validation|验收)[^/]*\.[^/]+|(?:^|\/)validate[-_.][^/]+|[.-]acceptance\.[^/]+)$/i.test(file);
-}
+// The decision maker chooses verification targets; paths and credentials remain protected.
+export function stampEligible(file: string): boolean { return contextPath(file); }
+
 function docTarget(workspace: string, relative: string): string {
   const target = projectTarget(workspace, relative);
   if (existsSync(target) && (!lstatSync(target).isFile() || lstatSync(target).nlink > 1)) invalid(`不是普通文档文件：${relative}`);
@@ -65,7 +61,7 @@ export function parseContextDocument(workspace: string, relative: string, kind: 
   } else {
     if (!text(data.id) || !identifier.test(data.id) || path.basename(relative) !== `${data.id}.md`) invalid(`${relative} ID/文件名无效`);
     if (kind === 'module') {
-      if (!text(data.name) || !strings(data.paths) || !data.paths.length || !data.paths.every(p => contextPath(p, true)) || !strings(data.depends_on) || !data.depends_on.every(id => identifier.test(id)) || !object(data.checked_files) || Object.keys(data.checked_files).length > 20) invalid(`${relative} 模块字段无效`);
+      if (!text(data.name) || !strings(data.paths) || !data.paths.length || !data.paths.every(p => contextPath(p, true)) || !strings(data.depends_on) || !data.depends_on.every(id => identifier.test(id)) || !object(data.checked_files)) invalid(`${relative} 模块字段无效`);
       for (const [file, hash] of Object.entries(data.checked_files)) if (!contextPath(file) || !sha256.test(String(hash)) || typeof hash !== 'string' || !data.paths.some(p => p.endsWith('/') ? file.startsWith(p) : file === p)) invalid(`${relative} checked_files 无效`);
     } else {
       if (!text(data.title) || !strings(data.modules) || !data.modules.length || !data.modules.every(id => identifier.test(id)) || !['proposed', 'accepted', 'rejected', 'superseded'].includes(data.status)) invalid(`${relative} 状态或关联模块无效`);
@@ -121,13 +117,12 @@ export function stampContext(workspace: string, moduleId: string, files: string[
   if (!module || !files.length || new Set(files).size !== files.length) invalid('盖章需要有效模块和不重复的文件参数');
   const checked = { ...module.metadata.checked_files }, results: Record<string, string> = {};
   for (const file of files) {
-    if (!stampEligible(file)) invalid(`盖章只允许核心源码入口或接口文件，不允许文档、测试、锁文件或生成结果：${file}`);
+    if (!stampEligible(file)) invalid(`盖章文件路径不安全或属于受保护目录：${file}`);
     if (!contextPath(file) || !belongsToModule(module, file)) invalid(`盖章文件不属于模块：${file}`);
     const target = docTarget(root, file);
     if (!existsSync(target)) invalid(`盖章文件不存在：${file}`);
     results[file] = checked[file] = contextHash(readFileSync(target));
   }
-  if (Object.keys(checked).length > 20) invalid('checked_files 最多 20 项');
   const lines = module.content.split(/\r?\n/), end = lines.indexOf('---', 1);
   const header = lines.slice(1, end).join(module.newline), yaml = parseDocument(header, { uniqueKeys: true });
   if (!isMap(yaml.contents)) invalid('模块 frontmatter 不是映射');

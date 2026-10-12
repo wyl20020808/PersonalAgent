@@ -310,7 +310,7 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       atomicJson(path.join(directory(store, id), 'final-check.json'), evidence);
       store.audit('delivery-independent-check', { deliveryId: id, kind: 'direct', ...evidence, sourceWrites: 0 });
       if ((run.evidence?.acceptanceMode !== 'decision-user' && !evidence.passed) || evidence.snapshotDigest !== delivery.workspaceSnapshot || evidence.acceptanceRulesHash !== delivery.rulesHash) throw new Error('Direct delivery final independent verification failed');
-      journal.phase = 'applied'; journal.reason = run.evidence?.acceptanceMode === 'decision-user' ? '决策者审查及用户验收已确认；Controller 未执行验收测试，未重复写入项目文件。' : run.snapshotPolicy === 'none' ? `配置测试已通过，现有成果已确认；${observationScope}` : '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
+      journal.phase = 'applied'; journal.reason = run.evidence?.acceptanceMode === 'decision-user' ? '决策者验收已完成，具体交付已获批准；Controller 未执行验收测试，未重复写入项目文件。' : run.snapshotPolicy === 'none' ? `配置测试已通过，现有成果已确认；${observationScope}` : '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
     }
     const projectRelease=lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}});
     try {const legacyRelease=delivery.branch==='project-files'?()=>{}:targetLock(delivery.target,options.resume??false);release=()=>{try{legacyRelease();}finally{projectRelease();}};}catch(error){projectRelease();throw error;}

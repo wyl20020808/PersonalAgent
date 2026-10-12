@@ -112,7 +112,6 @@
     },
     "contextConfirmations": {
       "type": "array",
-      "maxItems": 20,
       "items": {
         "type": "object",
         "properties": {

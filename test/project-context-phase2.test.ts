@@ -45,7 +45,7 @@ function passReview(state: State): Review {
 }
 function pause(f: Awaited<ReturnType<typeof fixture>>) { const state = f.store.load(); state.phase = 'paused'; state.nextPhase = 'verify'; f.store.save(state); }
 
-for (const mode of ['direct', 'isolated'] as const) for (const useGit of [false, true]) test(`Plan native world edit cannot disappear into combat Execute baseline in ${mode} Git=${useGit}`, async () => {
+for (const mode of ['direct', 'isolated'] as const) for (const useGit of [false, true]) test(`authorized Plan native world edit continues and retains planning audit in ${mode} Git=${useGit}`, async () => {
   const f = await fixture(mode, useGit), original = fs.readFileSync(path.join(f.workspace, 'src/world.js'), 'utf8');
   const state = f.store.load(); state.phase = 'planning'; state.nextPhase = 'planning'; state.tasks = []; f.store.save(state);
   let plans = 0, executions = 0, reviews = 0;
@@ -53,29 +53,17 @@ for (const mode of ['direct', 'isolated'] as const) for (const useGit of [false,
     plans++; write(state.workspace, 'src/world.js', 'export const wall = 99; // Mock Plan native edit\n');
     if (useGit) { await git(state.workspace, ['add', '.']); await git(state.workspace, ['-c', 'user.name=Mock', '-c', 'user.email=mock@example.invalid', 'commit', '-m', 'Mock Plan world edit']); }
     return { tasks: [{ id: 'combat-only', moduleIds: ['combat'], instruction: 'Mock Execute 不修改 world', acceptance: ['Mock'] }], humanDecision: null };
-  }, execute: async () => { executions++; return { mode: 'native', summary: 'Mock Execute 无 world 修改' }; }, review: async state => { reviews++; return passReview(state); } };
+  }, execute: async () => { executions++; return { mode: 'native', summary: 'Mock Execute 无 world 修改' }; }, review: async state => { reviews++; const receipt = JSON.parse(fs.readFileSync(f.store.file('planning-observation.json'), 'utf8')); assert.match(receipt.diff, /src\/world\.js/); return passReview(state); } };
   const result = await drive(f.store, agents);
-  assert.equal(result.phase, 'paused', result.reason); assert.match(result.reason, /规划.*src\/world\.js/);
-  assert.equal(plans, 1); assert.equal(executions, 0); assert.equal(reviews, 0); assert.equal(fs.existsSync(f.store.file('context/task-0-baseline.json')), false);
-  const finish = auditRecords(f.store.file('audit.jsonl')).find(event => event.event === 'agent-finish' && event.data.role === 'plan');
-  assert.equal(finish!.data.changed, true); assert.match(finish!.data.diff, /src\/world\.js/);
+  assert.equal(result.phase, 'completed', result.reason);
+  assert.equal(plans, 1); assert.equal(executions, 1); assert.equal(reviews, 1);
   const planningCheck = auditRecords(f.store.file('audit.jsonl')).find(event => event.event === 'context-planning-change');
   assert.deepEqual(planningCheck!.data.paths, ['src/world.js']);
-  const planningBaseline = fs.readFileSync(f.store.file('context/planning-baseline.json'), 'utf8');
-  assert.equal(fs.readFileSync(path.join(f.workspace, 'src/world.js'), 'utf8').includes('99'), true);
-  const resumed = await drive(f.store, agents, 'Mock 普通继续不能吞掉规划修改');
-  assert.equal(resumed.phase, 'paused'); assert.match(resumed.reason, /src\/world\.js/); assert.equal(plans, 1); assert.equal(executions, 0);
-  assert.equal(fs.readFileSync(f.store.file('context/planning-baseline.json'), 'utf8'), planningBaseline);
+  const finish = auditRecords(f.store.file('audit.jsonl')).find(event => event.event === 'agent-finish' && event.data.role === 'plan');
+  assert.equal(finish!.data.changed, true); assert.match(finish!.data.diff, /src\/world\.js/);
+  assert.ok(fs.readFileSync(path.join(f.workspace, 'src/world.js'), 'utf8').includes('99'));
   if (mode === 'isolated') assert.equal(fs.readFileSync(path.join(f.source, 'src/world.js'), 'utf8'), original);
-  // Restore only this disposable Mock edit; context-only planning updates remain permitted.
-  write(f.workspace, 'src/world.js', original);
-  const completed = await drive(f.store, { ...agents, plan: async state => {
-    const file = path.join(state.workspace, `${contextRoot}/modules/world.md`); fs.appendFileSync(file, '\nMock 规划知识补充。\n');
-    return { tasks: [{ id: 'combat-only', moduleIds: ['combat'], instruction: 'Mock Execute 不修改 world', acceptance: ['Mock'] }], humanDecision: null };
-  } }, 'Mock 已恢复业务文件，续接规划');
-  assert.ok(executions >= 1); assert.ok(reviews >= 1); assert.doesNotMatch(completed.reason, /规划期间业务文件修改/);
-  if (!useGit) assert.equal(completed.phase, 'completed', completed.reason);
-  else assert.ok(completed.evidence!.issues.includes('Git HEAD changed; commits and merges are forbidden'));
+
 });
 
 for (const mode of ['direct', 'isolated'] as const) for (const useGit of [false, true]) test(`scope snapshot catches added/modified/deleted/renamed/committed files in ${mode} Git=${useGit}`, async () => {

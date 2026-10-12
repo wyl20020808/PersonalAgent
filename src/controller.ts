@@ -100,12 +100,13 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
     await captureBaseline(store, state, baseline, stop.signal);
     store.audit('agent-start', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops });
-    try { return await timed(signal=>withGuidanceHandoff(store,signal,operation), role === 'plan' && state.discussion && !state.discussion.closed ? state.config.timeoutMs * (3 + 2 * state.discussion.config.rounds) : state.config.timeoutMs); }
+    try { return await timed(signal=>withGuidanceHandoff(store,signal,operation), role === 'plan' && state.discussion && !state.discussion.closed ? 0 : state.config.timeoutMs); }
     finally {
       // Processes have exited (or been killed) before recording their real diff.
       const after = await observeWorkspace(state, undefined);
       const diff = state.snapshotPolicy === 'none' ? (await gitObservation(state.workspace)).diff : await baselineDiff(store, state, baseline, new AbortController().signal);
       store.audit('agent-finish', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops, durationMs: Date.now() - started, before, after, changed: state.snapshotPolicy === 'none' && !existsSync(path.join(state.workspace,'.git')) ? null : before !== after, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, diff, status: await workspaceStatus(state) });
+      if (role === 'plan') atomicJson(store.file('planning-observation.json'), { before, after, diff, status: await workspaceStatus(state), verificationScope: state.snapshotPolicy === 'none' ? observationScope : 'planning baseline comparison', baseline: state.snapshotPolicy === 'none' ? undefined : store.file(baseline), note: 'Planning changes are part of the authorized work. Inspect this receipt and current files when reviewing; absence of a full snapshot does not prove no changes.' });
       assertOnboardingScope(state, store);
       if (role === 'plan') assertPlanningContext(state, store);
     }
@@ -228,8 +229,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
         if (context.enabled && state.purpose !== 'context-onboarding') {
           const ids = new Set(context.modules.map(module => module.metadata.id));
-          if (plan.tasks.some(task => !task.moduleIds?.length || task.moduleIds.some(id => !ids.has(id)))) {
-            state.feedback = 'Project Context 已启用：每个开发任务必须声明至少一个现有且相关的 moduleIds。先通过原生工具探索模块目录和源码；新职责可先按建档规则补充业务模块再规划，不得随便填无关模块。';
+          if (plan.tasks.some(task => task.moduleIds?.some(id => !ids.has(id)))) {
+            state.feedback = '显式 moduleIds 含不存在的引用。可修正引用或省略 moduleIds，按需要使用模块导航。';
             throw new FlowError('supervisor', state.feedback);
           }
         }
