@@ -43,8 +43,8 @@ export function freezeTaskContext(state: State, store: Store): void {
   const context = loadProjectContext(state.workspace, state.projectContextEnabled === true, { runtimeDir: state.config.runtimeDir, source: state.source });
   if (!context.enabled) return;
   const task = state.tasks[state.taskIndex]!;
-  if (!task.moduleIds?.length || task.moduleIds.some(id => !context.modules.some(doc => doc.metadata.id === id))) throw Error('任务必须声明有效且非空 moduleIds');
-  const payload = { taskId: task.id, moduleIds: [...task.moduleIds], context, snapshot: contextObservation(state) };
+  if (task.moduleIds?.some(id => !context.modules.some(doc => doc.metadata.id === id))) throw Error('任务 moduleIds 含不存在的模块');
+  const payload = { taskId: task.id, moduleIds: [...(task.moduleIds ?? [])], context, snapshot: contextObservation(state) };
   mkdirSync(store.file('context'), { recursive: true });
   const baseline = { ...payload, digest: contextHash(JSON.stringify(payload)) };
   atomicJson(store.file(baselineName(state)), baseline); store.audit('context-task-frozen', { taskId: task.id, digest: baseline.digest, snapshot: baseline.snapshot.digest, moduleIds: task.moduleIds });

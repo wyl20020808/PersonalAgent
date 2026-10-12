@@ -11,13 +11,13 @@ export type DecisionChoice = { backend: 'codex'; model?: string; reasoningEffort
 export type ExecutionChoice = DecisionChoice;
 export const executionAgentSchema = decisionAgentSchema;
 export interface DecisionDiscussion { participants: { id: 'a' | 'b' | 'c'; agent: DecisionChoice }[]; primary: 'a' | 'b' | 'c'; rounds: 0 | 1 }
-export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1, maxItems: 30 } });
+export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, instruction: text, acceptance: { type: 'array', items: text, minItems: 1 } });
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
-Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, maxItems: 20, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
+Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export const planSchema = object({ tasks: { type: 'array', items: taskSchema, minItems: 0 }, humanDecision: { type: ['string', 'null'], minLength: 1 } });
 const contextModuleReview = object({ moduleId: text, documentUpdated: { type: 'boolean' }, noUpdateReason: { type: 'string' }, checkedFiles: { type: 'array', items: text }, constraintsChanged: { type: 'boolean' }, disposition: text });
 const contextReviewSchema = { ...object({ expansionReason: { type: 'string' }, unmappedReason: { type: 'string' }, checkedContracts: { type: 'array', description: '实际已核对的精确契约 ID，例如 ["hud","geometry"]；不填标题或文件名，不编造核对。旧输出的精确相对路径仅由 Controller 按本轮安全清单兼容。', items: text }, modules: { type: 'array', items: contextModuleReview }, confirmationNotes: { type: 'array', items: object({ path: text, reason: text }) } }), required: ['expansionReason', 'unmappedReason', 'checkedContracts', 'modules'] };
-export const reviewSchema = { ...object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text, contextReview: contextReviewSchema, contextConfirmations: { type: 'array', maxItems: 20, items: object({ relative: text, action: { enum: ['accepted', 'rejected', 'superseded'] } }) } }), required: ['verdict', 'reason'] };
+export const reviewSchema = { ...object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text, contextReview: contextReviewSchema, contextConfirmations: { type: 'array', items: object({ relative: text, action: { enum: ['accepted', 'rejected', 'superseded'] } }) } }), required: ['verdict', 'reason'] };
 export const editSchema = object({ summary: text, changes: { type: 'array', maxItems: 50, items: object({ path: { type: 'string', minLength: 1, maxLength: 240 }, content: { type: 'string', maxLength: 1000000 } }) } });
 export const nativeResultSchema = object({ mode: { const: 'native' }, summary: text });
 export const configSchema = object({

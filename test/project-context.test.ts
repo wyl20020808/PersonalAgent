@@ -268,8 +268,15 @@ test('stamp rejects obvious non-core objects atomically but accepts HTML, source
   }
 });
 
-test('new enabled development plans block missing or invalid moduleIds and can retry after native exploration', async () => {
-  for (const ids of [undefined, [], ['missing']]) {
+test('decision maker may plan enabled-Context tasks without moduleIds', async () => {
+  for (const ids of [undefined, []]) {
+    const f = await fixture(true, { mode: 'mock' });
+    const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'work', instruction: '核心源码', acceptance: ['通过'], moduleIds: ids }], humanDecision: null }), execute: async state => { write(state.workspace, 'src/new/main.ts', 'export const added = true;'); return { mode: 'native', summary: 'fixture' }; }, review: async () => ({ verdict: 'pass', reason: 'fixture' }) };
+    const result = await drive(f.store, agents); assert.equal(result.phase, 'completed', result.reason);
+  }
+});
+test('new enabled development plans block nonexistent moduleIds and can retry after native exploration', async () => {
+  for (const ids of [['missing']]) {
     const f = await fixture(true, { mode: 'mock' }); let executed = false;
     const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'work', instruction: '核心源码', acceptance: ['通过'], moduleIds: ids }], humanDecision: null }), execute: async () => { executed = true; return { mode: 'native', summary: 'never' }; }, review: async () => ({ verdict: 'pass', reason: 'fixture' }) };
     const result = await drive(f.store, agents); assert.equal(result.phase, 'paused'); assert.equal(result.nextPhase, 'planning'); assert.equal(executed, false); assert.equal(result.loops, 0);

@@ -228,8 +228,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
         if (context.enabled && state.purpose !== 'context-onboarding') {
           const ids = new Set(context.modules.map(module => module.metadata.id));
-          if (plan.tasks.some(task => !task.moduleIds?.length || task.moduleIds.some(id => !ids.has(id)))) {
-            state.feedback = 'Project Context 已启用：每个开发任务必须声明至少一个现有且相关的 moduleIds。先通过原生工具探索模块目录和源码；新职责可先按建档规则补充业务模块再规划，不得随便填无关模块。';
+          if (plan.tasks.some(task => task.moduleIds?.some(id => !ids.has(id)))) {
+            state.feedback = 'Project Context 已启用：计划的 moduleIds 含模块目录中不存在的 ID。moduleIds 关联你判断相关的现有模块，可为空；新职责可先补充业务模块文档再引用。';
             throw new FlowError('supervisor', state.feedback);
           }
         }
