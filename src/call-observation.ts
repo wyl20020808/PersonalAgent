@@ -60,6 +60,7 @@ export class CallObservation {
   private lastProgress = '';
   private initModel: string | null = null;
   private freshModelUsage = false;
+  private cumulativeOnly = false;
 
   constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'claude' | 'opencode' | 'codex') {
     this.context = new ContextObservation(state, store, phase, prompt);
@@ -119,7 +120,7 @@ export class CallObservation {
     this.context.observe(event);
     if(event.type==='stream_event'&&!['message_start','message_delta'].includes(event.event?.type))return;
     if (this.usage.agent === 'codex') {
-      if (event.type === 'turn.completed') { this.finalUsage = tokens(event.usage, true); this.resultSeen = true; }
+      if (event.type === 'turn.completed') { this.finalUsage = this.codexTurn(tokens(event.usage, true)); this.resultSeen = true; }
       const item = event.item;
       if (item?.type === 'command_execution' && typeof item.id === 'string' && typeof item.command === 'string') this.record('shell-command', { toolCallId: item.id, command: redactCommand(item.command), status: item.status, exitCode: count(item.exit_code) ?? (Number.isInteger(item.exit_code) ? item.exit_code : null) });
       else if (item?.type === 'mcp_tool_call') this.record('unobservable', { toolCallId: item.id, reason: 'MCP 工具没有注册可核验的文件读取协议' });
@@ -175,6 +176,19 @@ export class CallObservation {
     const progress = contextHash(JSON.stringify({ tokens: [this.usage.inputTokens, this.usage.outputTokens, this.usage.cacheReadTokens, this.usage.cacheCreationTokens], models: this.usage.models, requests: this.usage.modelRequests }));
     if (progress !== this.lastProgress) { this.lastProgress = progress; this.store.audit('usage-progress', this.usage); }
   }
+  // A resumed Codex Thread reports its running total. Keep the last total per Thread and record this call's share.
+  private codexTurn(total: Tokens): Tokens {
+    const thread = this.usage.phase === 'execute' ? this.state.codexThreadId : this.state.decisionSession?.sessionId;
+    if (!thread) return total;
+    const file = this.store.file(`context/codex-thread-${contextHash(thread)}.total.json`);
+    const previous: Tokens | null = this.usage.resumed && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+    atomicJson(file, total);
+    if (!this.usage.resumed) return total;
+    const keys = Object.keys(total) as (keyof Tokens)[];
+    if (!previous || keys.some(key => total[key] !== null && previous[key] !== null && total[key]! < previous[key]!)) { this.cumulativeOnly = true; return total; }
+    this.usage.source = 'codex-sdk-0.161.0-turn.completed-thread-delta';
+    return Object.fromEntries(keys.map(key => [key, total[key] === null || previous[key] === null ? null : total[key]! - previous[key]!])) as Tokens;
+  }
   private refresh(): void {
     const rows = [...this.requests.values()];
     Object.assign(this.usage, this.finalUsage ?? sumTokens(rows.map(row => row.tokens)));
@@ -187,8 +201,8 @@ export class CallObservation {
   finish(status: 'success' | 'failed' | 'interrupted'): CallUsage {
     if (this.closed) return this.usage; this.closed = true; this.refresh();
     this.usage.status = status; this.usage.finishedAt = new Date().toISOString(); this.usage.durationMs = Date.parse(this.usage.finishedAt) - Date.parse(this.usage.startedAt);
-    if (status === 'success' && this.resultSeen && (this.usage.agent === 'codex' || this.freshModelUsage) && this.usage.inputTokens !== null && this.usage.outputTokens !== null) this.usage.completeness = 'complete';
-    this.usage.notes = this.usage.agent === 'opencode' ? ['仅统计当前调用的原生 assistant 消息；缓存未知保持 null，内部请求数和完整读取覆盖未知；不估算费用。'] : this.usage.agent === 'codex' ? ['complete 仅表示 SDK 报告的回合 input/output 完整；缓存缺失为 null，模型与内部请求数未知。', 'cached_input_tokens 为输入的缓存子集，不与 input_tokens 相加。'] : [this.freshModelUsage ? '新会话 modelUsage 提供各模型的本次整体报告；complete 仅表示协议报告 input/output 完整，内部请求数仍只含可识别请求。' : '仅确认本次可识别的主循环/子请求；后台或内部辅助请求覆盖无法证明，整体标记 partial。', 'assistant.output_tokens 为占位值，使用 message_delta 输出；恢复调用排除可能累计的 result.usage/modelUsage。', 'Claude 普通输入、缓存读取与缓存写入分别报告，不合并为金额或跨协议输入总数。'];
+    if (status === 'success' && this.resultSeen && (this.usage.agent === 'codex' && !this.cumulativeOnly || this.freshModelUsage) && this.usage.inputTokens !== null && this.usage.outputTokens !== null) this.usage.completeness = 'complete';
+    this.usage.notes = this.usage.agent === 'opencode' ? ['仅统计当前调用的原生 assistant 消息；缓存未知保持 null，内部请求数和完整读取覆盖未知；不估算费用。'] : this.usage.agent === 'codex' ? ['complete 仅表示 SDK 报告的回合 input/output 完整；缓存缺失为 null，模型与内部请求数未知。', 'cached_input_tokens 为输入的缓存子集，不与 input_tokens 相加。', this.cumulativeOnly ? '续接 Thread 的 SDK 用量是线程累计值，本次缺少上一次累计记录，保留累计值并标记 partial，不可与其他调用相加。' : '续接 Thread 的 SDK 用量是线程累计值；已减去上一次累计，记录为本次调用增量。'] : [this.freshModelUsage ? '新会话 modelUsage 提供各模型的本次整体报告；complete 仅表示协议报告 input/output 完整，内部请求数仍只含可识别请求。' : '仅确认本次可识别的主循环/子请求；后台或内部辅助请求覆盖无法证明，整体标记 partial。', 'assistant.output_tokens 为占位值，使用 message_delta 输出；恢复调用排除可能累计的 result.usage/modelUsage。', 'Claude 普通输入、缓存读取与缓存写入分别报告，不合并为金额或跨协议输入总数。'];
     this.persist(); this.store.audit('agent-usage', this.usage);
     this.store.audit('observation-call-finish', { callId: this.usage.callId, status, readsFile: this.readsFile, readsHash: contextHash(readFileSync(this.readsFile, 'utf8')), usageFile: this.usageFile, usageHash: contextHash(readFileSync(this.usageFile, 'utf8')) });
     return this.usage;
