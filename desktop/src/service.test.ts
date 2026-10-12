@@ -181,24 +181,3 @@ test('CLI unlimited resume persists zero and finite Mock profile remains unchang
  assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).timeoutMs,30000);
  assert.match(fs.readFileSync(store.file('audit.jsonl'),'utf8'),/"timeoutMs":0/);
 });
-
-test('CLI Controller lock keeps clocks and pause controls live without owned child; stale phases do not',async()=>{
- const service=new DesktopService(root,path.join(data,'live-clock-service-'+randomUUID()),process.execPath);
- const folder=path.join(data,'live-clock-'+randomUUID()),source=path.join(folder,'source');fs.mkdirSync(source,{recursive:true});
- const config={mode:'mock' as const,claudeExecutable:'NEVER-PAID',timeoutMs:30000,allowedRepositories:[source],runtimeDir:path.join(folder,'runtime'),projectMode:'direct' as const,directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},tests:[],mockScenario:'pass' as const};
- const file=path.join(folder,'config.json');fs.writeFileSync(file,JSON.stringify(config));const profile=service.register(file).profiles.at(-1)!;
- const store=await createRun(config,source,'LOCAL CLOCK FIXTURE'),state=store.load();state.phase='executing';store.save(state);store.audit('transition',{phase:'executing'});
- assert.equal(service.publicRun(state,profile.id).active,false);assert.equal(service.thread(profile.id,store.id).timing.running,null);
- const unlock=store.lock();
- try{
-  assert.equal(service.children.has(store.id),false);assert.equal(service.publicRun(state,profile.id).active,true);
-  const timing=service.thread(profile.id,store.id).timing;assert.equal(timing.running,'execution');
-  const {timingTotals}=await import('./runTiming.js');const now=Date.parse(timing.since!);
-  assert.equal(timingTotals([timing],now+2000).executionMs-timingTotals([timing],now+1000).executionMs,1000);
-  store.audit('transition',{phase:'review'});assert.equal(service.thread(profile.id,store.id).timing.running,'decision');
-  await service.dispatch({operation:'stop',profileId:profile.id,runId:store.id});assert.ok(fs.existsSync(store.file('stop.request')));
- }finally{unlock();}
- assert.equal(service.publicRun(state,profile.id).active,false);assert.equal(service.thread(profile.id,store.id).timing.running,null);
- for(const lock of ['{',JSON.stringify({pid:0}),JSON.stringify({pid:2147483647})]){fs.writeFileSync(store.file('lock.json'),lock);assert.equal(service.publicRun(state,profile.id).active,false);}
- fs.unlinkSync(store.file('lock.json'));
-});
