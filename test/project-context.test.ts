@@ -268,6 +268,13 @@ test('stamp accepts model-selected documents, tests, source and interface files'
   }
 });
 
+test('decision maker may plan enabled-Context tasks without moduleIds', async () => {
+  for (const ids of [undefined, []]) {
+    const f = await fixture(true, { mode: 'mock' });
+    const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'work', instruction: '核心源码', acceptance: ['通过'], moduleIds: ids }], humanDecision: null }), execute: async state => { write(state.workspace, 'src/new/main.ts', 'export const added = true;'); return { mode: 'native', summary: 'fixture' }; }, review: async () => ({ verdict: 'pass', reason: 'fixture' }) };
+    const result = await drive(f.store, agents); assert.equal(result.phase, 'completed', result.reason);
+  }
+});
 test('explicit invalid module references can retry after native exploration', async () => {
   for (const ids of [['missing']]) {
     const f = await fixture(true, { mode: 'mock' }); let executed = false;

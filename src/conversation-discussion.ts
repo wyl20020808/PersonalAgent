@@ -28,7 +28,7 @@ export async function conversationDiscussion(input:ConversationDiscussionInput,o
  const unlock=store.lock();
  try{
   bindRunAttachments(store,input.attachments??[]);state=store.load();
-  const prompt=JSON.stringify({action:'与用户讨论项目问题。可以追问、比较方案、分析风险。只能使用只读工具，禁止修改文件、运行命令、派发执行任务或提交交付。用户在讨论中说开始、继续或执行也不能授权你实施。reply 为给用户的中文回复；plan 为当前完整候选方案（目标、范围、步骤、验收标准），尚不能形成方案时为空字符串。候选方案不等于批准，必须由应用中的开始执行入口转入开发。',projectPath:state.source,history:input.history.slice(-40),previousPlan:input.plan,userMessage:input.text});
+  const prompt=JSON.stringify({action:'当前是用户选择的只读讨论模式：与用户讨论项目问题，怎么讨论由你决定，可用只读工具查看项目。本模式不修改文件、不运行命令、不派发执行；转入开发由用户通过应用中的开始执行入口触发，讨论里的“开始/继续/执行”不触发实施。reply 为给用户的中文回复；plan 为当前候选方案，内容和形式由你决定，尚不能形成方案时为空字符串。',projectPath:state.source,history:input.history.slice(-40),previousPlan:input.plan,userMessage:input.text});
   store.audit('conversation-discussion-turn',{sessionId:input.sessionId,text:input.text});
   let output:ConversationReply;
   if(input.config.mode==='mock'){
