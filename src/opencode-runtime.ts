@@ -19,21 +19,29 @@ export function v1ProviderConfig(config: Record<string, any>): Record<string, an
     if (!npm) throw new FlowError('supervisor', 'OpenCode V2 provider package cannot be mapped to V1; configure a supported V1 provider');
     provider[id] = { name: p.name, npm, options: p.settings ?? {}, models: Object.fromEntries(Object.entries(p.models ?? {}).map(([key, value]) => {
       const m = value as Record<string, any>;
-      // Preserve configured IDs/body/limits; do not invent limits or tool support.
-      // V1 reports image input as unsupported for custom models without a declaration, so an
-      // undeclared model is projected as accepting images and the provider gives the real answer.
-      const input = m.modalities ? { modalities: m.modalities, ...(m.attachment === undefined ? {} : { attachment: m.attachment }) } : m.attachment === false ? { attachment: false } : { attachment: true, modalities: { input: ['text', 'image'], output: ['text'] } };
+      // Adapt declarations per model, including explicit false. Model names and
+      // provider packages do not prove tool, reasoning or image support.
+      const capabilities = m.capabilities ?? {};
+      const tools = m.tool_call ?? capabilities.tools;
+      const declaredInput = m.modalities?.input ?? capabilities.input;
+      const declaredOutput = m.modalities?.output ?? capabilities.output;
+      const input = {
+        ...(m.attachment === undefined ? {} : { attachment: m.attachment }),
+        modalities: { input: declaredInput ?? ['text'], output: declaredOutput ?? ['text'] },
+        ...(typeof tools === 'boolean' ? { tool_call: tools } : {}),
+        ...Object.fromEntries(['reasoning', 'temperature', 'interleaved'].filter(field => m[field] !== undefined).map(field => [field, m[field]])),
+      };
       // V2 uses an array; V1 expects keyed options. Only declared compatible
       // effort names get the V1 SDK spelling, never invent additional variants.
       const variants = Array.isArray(m.variants) ? Object.fromEntries(m.variants.map((variant: Record<string, any>) => {
         const { reasoning_effort, ...body } = variant.body ?? {};
         const effort = npm === '@ai-sdk/openai-compatible' && ['none','minimal','low','medium','high','xhigh','max'].includes(variant.id) ? variant.id : undefined;
         return [variant.id, { ...(effort ? { reasoningEffort: effort } : {}), ...(variant.settings ?? {}), ...body, ...(reasoning_effort === undefined ? {} : { reasoningEffort: reasoning_effort }) }];
-      })) : undefined;
+      })) : m.variants;
       return [key, { id: m.modelID ?? key, name: m.name, ...input, ...(m.limit ? { limit: m.limit } : {}), ...(m.body ? { options: m.body } : {}), ...(variants ? { variants } : {}) }];
     })) };
   }
-  return { provider, plugin: [] };
+  return { provider, plugin: [], ...(config.enabled_providers ? { enabled_providers: config.enabled_providers } : {}), ...(config.disabled_providers ? { disabled_providers: config.disabled_providers } : {}) };
 }
 export function opencodeEnvironment(directory: string, runtimeDirectory?: string): NodeJS.ProcessEnv {
   const root = runtimeDirectory ?? path.join(process.env.PERSONAL_AGENT_OPENCODE_RUNTIME_DIR ?? (process.platform === 'win32' ? 'D:/PersonalAgent-data/opencode-v1' : path.join(os.tmpdir(), 'personal-agent-opencode')), 'discovery', createHash('sha256').update(directory).digest('hex'));

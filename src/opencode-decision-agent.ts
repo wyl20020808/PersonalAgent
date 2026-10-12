@@ -100,14 +100,15 @@ export async function models(service: OpenCodeService, directory: string, signal
   if (!supportsStructuredOutput(service.openapi) && service.openapi.paths['/api/provider']) {
     const [p,m] = await Promise.all([service.client.v2.provider.list({location:{directory}},options),service.client.v2.model.list({location:{directory}},options)]);
     // 2.0.20 reports activation; the npm SDK's generated ProviderV2Info predates it.
-    providers = (p.data?.data ?? []).filter(provider => (provider as unknown as {activation?:string}).activation !== 'disabled').map(provider => ({ id: redact(provider.id), name: redact(provider.name), models: (m.data?.data ?? []).filter(model => model.providerID === provider.id && model.enabled).map(model => ({ id: redact(model.id), name: redact(model.name), limit: model.limit, capabilities: { tools: model.capabilities?.tools ?? 'unknown', structuredOutput: false, images: 'unknown' as const } })) }));
+    providers = (p.data?.data ?? []).filter(provider => (provider as unknown as {activation?:string}).activation !== 'disabled').map(provider => ({ id: redact(provider.id), name: redact(provider.name), models: (m.data?.data ?? []).filter(model => model.providerID === provider.id && model.enabled).map(model => ({ id: redact(model.id), name: redact(model.name), limit: model.limit, capabilities: { tools: model.capabilities?.tools ?? 'unknown', structuredOutput: false, images: Array.isArray(model.capabilities?.input) ? model.capabilities.input.includes('image') : 'unknown' as const } })) }));
   } else {
     const p = await service.client.provider.list({directory},options);
     const connected = new Set(p.data?.connected ?? []);
     providers = (p.data?.all ?? []).filter(provider => connected.has(provider.id)).map(provider => ({id:redact(provider.id),name:redact(provider.name),models:Object.values(provider.models).map(model => ({id:redact(model.id),name:redact(model.name),limit:model.limit,reasoningEfforts:Object.entries(model.variants??{}).filter(([id,options])=>/^[a-zA-Z0-9._-]{1,100}$/.test(id)&&options.disabled!==true).map(([id])=>id),capabilities:{tools:model.capabilities?.toolcall ?? 'unknown',structuredOutput:supportsStructuredOutput(service.openapi) && model.capabilities?.toolcall === true,images:model.capabilities?.input?.image??'unknown'}}))}));
   }
   providers = providers.filter(provider => provider.models.length);
-  return { available: providers.length > 0 && supportsStructuredOutput(service.openapi), reason: !supportsStructuredOutput(service.openapi) ? 'OpenCode service lacks official JSON Schema structured output (format); prompt refused' : providers.length ? '' : 'No connected OpenCode providers/models', providers };
+  const available = providers.some(provider => provider.models.some(model => model.capabilities.tools === true && model.capabilities.structuredOutput === true));
+  return { available, reason: !supportsStructuredOutput(service.openapi) ? 'OpenCode service lacks official JSON Schema structured output (format); prompt refused' : !providers.length ? 'No connected OpenCode providers/models' : available ? '' : 'No OpenCode model supports native tools and structured output', providers };
 }
 export async function discoverOpencodeModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startOpencodeService): Promise<ModelDiscovery> {
   const signal = AbortSignal.timeout(20000); let service: OpenCodeService | undefined;
