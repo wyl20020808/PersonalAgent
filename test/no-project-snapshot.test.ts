@@ -61,7 +61,7 @@ for (const gitProject of [false, true]) test(`large ${gitProject ? 'dirty Git' :
   assert.equal(state.phase, 'completed', state.reason);
   assert.equal(state.workspace, source); assert.equal(state.snapshotPolicy, 'none');
   assert.equal(state.claudeSessionId, 'local-plan-session'); assert.equal(state.codexThreadId, 'local-native-thread');
-  assert.equal(state.evidence!.userAccepted, true); assert.ok(state.evidence!.verificationScope);
+  assert.equal(state.evidence!.decisionAccepted, true); assert.notEqual(state.evidence!.userAccepted, true); assert.ok(state.evidence!.verificationScope);
   assert.equal(fs.existsSync(store.file('snapshot-objects')), false);
   assert.equal(fs.existsSync(store.file('project-baseline.json')), false);
   assert.equal(fs.readdirSync(store.dir).some(name => /baseline|recovery-/.test(name)), false);
@@ -91,7 +91,8 @@ test('Project Context checks only documents and checked_files; native environmen
 });
 test('manual acceptance remains explicit when no tests exist', async () => {
   const { store } = await fixture(false, false, false);
-  const paused = await controllerDrive(store, agents(false)); assert.equal(paused.phase, 'paused');
+  const local = agents(false); local.review = async () => ({ verdict: 'human', reason: 'Fixture decision maker requires user observation' });
+  const paused = await controllerDrive(store, local); assert.equal(paused.phase, 'paused');
   const digest = manualAcceptanceDigest(paused); assert.ok(digest);
   await assert.rejects(acceptManual(store, digest!, ''), /observations/);
   const state = await acceptManual(store, digest!, 'Observed selected file; full non-Git diff is unverified');
@@ -153,7 +154,7 @@ test('malformed Context edits remain auditable and cannot receive a verification
     return { mode: 'native', summary: 'Local malformed Context fixture' };
   };
   const state = await drive(store, local);
-  assert.equal(state.phase,'completed'); assert.equal(state.evidence?.userAccepted,true);
+  assert.equal(state.phase,'completed'); assert.equal(state.evidence?.decisionAccepted,true); assert.notEqual(state.evidence?.userAccepted,true);
   assert.equal(state.evidence?.passed, false);
   assert.ok(state.evidence?.contextReport?.findings.some(finding => finding.code === 'CONTEXT_INVALID'));
   assert.match(fs.readFileSync(store.file('audit.jsonl'), 'utf8'), /agent-finish/);

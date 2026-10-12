@@ -106,7 +106,7 @@ export class RealAgents implements Agents {
     assertOperationPolicy({ kind: 'model' });
     assertDecisionState(state, this.config);
     const context = await callContext(state, store, 'review', signal);
-    const evidence = reviewEvidence(state.evidence);
+    const evidence = reviewEvidence(state.evidence, store);
     const contractReferences = state.evidence?.contextReport ? reviewContractCatalog(state) : undefined;
     const contextInstruction = state.evidence?.contextReport ? ' Project Context 是检查资料与观察证据。按实际影响决定需要核查的模块、契约、源码和验证方式；必要时更新文档或提供 contextReview 说明。盖章记录真实已核实文件。已接受约束仍有效，proposed 只是建议，不可验证记录不能当作用户确认；需要改变用户已接受约束时返回 human 及具体 contextConfirmations。' : '';
     const contractReferenceInstruction = contractReferences ? ' contractReferences 提供可查阅的契约 ID、路径和状态。按实际影响选择资料；contextReview.checkedContracts 若提供，应记录实际核对的精确 ID，不编造阅读或用户确认。已接受约束需要改变时说明具体取舍并取得相应授权。' : '';

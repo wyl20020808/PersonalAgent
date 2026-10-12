@@ -171,9 +171,9 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.completedTaskIds ??= state.tasks.some(task => task.dependsOn?.length) ? [] : state.tasks.slice(0, state.taskIndex).map(task => task.id);
         assertPrerequisites(state.tasks, state.taskIndex, state.completedTaskIds);
         const current = await checkedEvidence(true, false);
-        current.decisionReview = state.evidence.decisionReview;
         current.taskDiff = state.evidence.taskDiff; current.roundDiff = state.evidence.roundDiff;
         current.contextReport = state.evidence.contextReport;
+        current.decisionReview = state.evidence.decisionReview;
         if (decisionAcceptanceDigest({ ...state, evidence: current }) === decisionAcceptanceDigest(state)) {
           store.audit('review-reused', { taskId: state.tasks[state.taskIndex]!.id, loop: state.loops, decision, reason: '旧暂停节点的已通过成果未变化，不重复送审' });
           const accepted = acceptDecision(store, state);

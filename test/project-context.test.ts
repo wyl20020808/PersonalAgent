@@ -166,7 +166,7 @@ test('real Plan/Execute/Review assembly and resume/proposal retain evidence and 
     const manifest = JSON.parse(fs.readFileSync(prompt.context.manifestPath, 'utf8')); assert.equal(manifest.targetWorkspace, f.workspace); assert.equal(manifest.prompt.hash, contextHash(JSON.stringify(prompt))); assert.ok(manifest.attached.every((entry: any) => entry.hash.length === 64 && entry.bytes >= 0));
   }
   const review = prompts.find(p => p.role === 'review')!.prompt;
-  assert.deepEqual(review.evidence, reviewEvidence(state.evidence)); assert.deepEqual(review.evidence.tests, state.evidence.tests); assert.deepEqual(review.evidence.issues, ['SAFETY_SENTINEL']); assert.equal(review.evidence.executorExitCode, 7);
+  assert.deepEqual(review.evidence, reviewEvidence(state.evidence, f.store)); assert.deepEqual(review.evidence.tests, state.evidence.tests); assert.deepEqual(review.evidence.issues, ['SAFETY_SENTINEL']); assert.equal(review.evidence.executorExitCode, 7);
   const receipts = fs.readdirSync(f.store.file('context'));
   assert.equal(receipts.filter(name => name.endsWith('.manifest.json')).length, 4);
   assert.equal(receipts.filter(name => name.endsWith('.reads.jsonl')).length, 4);
