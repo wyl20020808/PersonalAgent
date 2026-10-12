@@ -75,7 +75,7 @@ export async function startOpencodeService(executable: string | undefined, direc
   } catch (error) { await close(); throw new FlowError('supervisor', redact((error as Error)?.message ?? 'OpenCode service startup failed')); }
 }
 
-export interface DiscoveredModel { id: string; name: string; reasoningEfforts?: string[]; capabilities: { tools: boolean | 'unknown'; structuredOutput: boolean | 'unknown'; images?: boolean | 'unknown' } }
+export interface DiscoveredModel { id: string; name: string; limit?: { context: number; output: number }; reasoningEfforts?: string[]; capabilities: { tools: boolean | 'unknown'; structuredOutput: boolean | 'unknown'; images?: boolean | 'unknown' } }
 export interface DiscoveredProvider { id: string; name: string; models: DiscoveredModel[] }
 export interface ModelDiscovery { available: boolean; reason: string; providers: DiscoveredProvider[] }
 export function resolvedSchema(api: any, schema: any, seen = new Set<string>()): any {
@@ -100,11 +100,11 @@ export async function models(service: OpenCodeService, directory: string, signal
   if (!supportsStructuredOutput(service.openapi) && service.openapi.paths['/api/provider']) {
     const [p,m] = await Promise.all([service.client.v2.provider.list({location:{directory}},options),service.client.v2.model.list({location:{directory}},options)]);
     // 2.0.20 reports activation; the npm SDK's generated ProviderV2Info predates it.
-    providers = (p.data?.data ?? []).filter(provider => (provider as unknown as {activation?:string}).activation !== 'disabled').map(provider => ({ id: redact(provider.id), name: redact(provider.name), models: (m.data?.data ?? []).filter(model => model.providerID === provider.id && model.enabled).map(model => ({ id: redact(model.id), name: redact(model.name), capabilities: { tools: model.capabilities?.tools ?? 'unknown', structuredOutput: false, images: 'unknown' as const } })) }));
+    providers = (p.data?.data ?? []).filter(provider => (provider as unknown as {activation?:string}).activation !== 'disabled').map(provider => ({ id: redact(provider.id), name: redact(provider.name), models: (m.data?.data ?? []).filter(model => model.providerID === provider.id && model.enabled).map(model => ({ id: redact(model.id), name: redact(model.name), limit: model.limit, capabilities: { tools: model.capabilities?.tools ?? 'unknown', structuredOutput: false, images: 'unknown' as const } })) }));
   } else {
     const p = await service.client.provider.list({directory},options);
     const connected = new Set(p.data?.connected ?? []);
-    providers = (p.data?.all ?? []).filter(provider => connected.has(provider.id)).map(provider => ({id:redact(provider.id),name:redact(provider.name),models:Object.values(provider.models).map(model => ({id:redact(model.id),name:redact(model.name),reasoningEfforts:Object.entries(model.variants??{}).filter(([id,options])=>/^[a-zA-Z0-9._-]{1,100}$/.test(id)&&options.disabled!==true).map(([id])=>id),capabilities:{tools:model.capabilities?.toolcall ?? 'unknown',structuredOutput:supportsStructuredOutput(service.openapi) && model.capabilities?.toolcall === true,images:model.capabilities?.input?.image??'unknown'}}))}));
+    providers = (p.data?.all ?? []).filter(provider => connected.has(provider.id)).map(provider => ({id:redact(provider.id),name:redact(provider.name),models:Object.values(provider.models).map(model => ({id:redact(model.id),name:redact(model.name),limit:model.limit,reasoningEfforts:Object.entries(model.variants??{}).filter(([id,options])=>/^[a-zA-Z0-9._-]{1,100}$/.test(id)&&options.disabled!==true).map(([id])=>id),capabilities:{tools:model.capabilities?.toolcall ?? 'unknown',structuredOutput:supportsStructuredOutput(service.openapi) && model.capabilities?.toolcall === true,images:model.capabilities?.input?.image??'unknown'}}))}));
   }
   providers = providers.filter(provider => provider.models.length);
   return { available: providers.length > 0 && supportsStructuredOutput(service.openapi), reason: !supportsStructuredOutput(service.openapi) ? 'OpenCode service lacks official JSON Schema structured output (format); prompt refused' : providers.length ? '' : 'No connected OpenCode providers/models', providers };
@@ -159,6 +159,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       const model = discovery.providers.find(p => p.id === identity.providerID)?.models.find(m => m.id === identity.modelID);
       if (!discovery.available) throw new FlowError('supervisor',discovery.reason);
       if (!model || model.capabilities.tools !== true || model.capabilities.structuredOutput !== true) throw new FlowError('supervisor','OpenCode model unavailable or lacks native tools/structured output');
+      observation.context.window(model.limit?.context, `${identity.providerID}/${identity.modelID}`);
       if (identity.variant && !model.reasoningEfforts?.includes(identity.variant)) throw new FlowError('supervisor','OpenCode reasoning variant unavailable; refresh model selection');
       const parts=opencodeParts(prompt,runAttachments(state,store),model.capabilities.images);
       const client = service.client, options = { signal,throwOnError:true as const };
@@ -191,12 +192,18 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       eventTask = (async () => { for await (const event of stream.stream) {
         for (const activity of publicStream.accept(event)) {record!(activity);if(activity.kind==='output')discussionStream.text(activity.streamId!,activity.text);}
         const e = event as any, part = e.payload?.properties?.part;
+        if (e.directory === workspace && e.payload?.type === 'session.compacted' && e.payload.properties?.sessionID === sessionID) observation.context.compact('compacted', e.payload.properties.sessionID+':'+observation.context.snapshot.updatedAt);
         if (e.directory === workspace && part?.sessionID === sessionID) {if(part.type==='tool'){tools.set(part.id,part);discussionStream.opencode(part);}opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
         const info = e.payload?.properties?.info;
         if (e.directory === workspace && info?.sessionID === sessionID) observation.observeOpencodeMessage(info);
       } })();
       eventTask.catch(() => {});
       await ready;
+      if (observation.context.shouldCompact && observation.usage.resumed) {
+        observation.context.compact('compacting', observation.usage.callId);
+        store.audit('context-compact-dispatch', { backend: 'opencode', sessionId: sessionID, callId: observation.usage.callId });
+        await client.session.summarize({sessionID:sessionID!,directory:workspace,providerID:identity.providerID,modelID:identity.modelID,auto:true},{signal,throwOnError:true});
+      }
       const result = await client.session.prompt({sessionID,directory:workspace,model:{providerID:identity.providerID,modelID:identity.modelID},...(identity.variant?{variant:identity.variant}:{}),system:agentRules + interactionAgentRules,format:{type:'json_schema',schema:schema as Record<string,unknown>,retryCount:0},parts},options);
       if (result.data?.info.sessionID !== sessionID || result.data.info.role !== 'assistant' || result.data.info.path?.cwd !== workspace) throw new FlowError('safety','OpenCode response Session/workspace mismatch');
       // Final native parts also carry public tool/text receipts. Capture them

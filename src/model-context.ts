@@ -1,0 +1,110 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { atomicJson, type State, type Store } from './store.js';
+
+export interface ModelContext {
+  role: 'decision' | 'execution'; participantId?: string; backend: string;
+  configuredModel: string | null; model: string | null; sessionId: string | null;
+  usedTokens: number | null; windowTokens: number | null; compactAtTokens: number | null;
+  measurement: 'native' | 'estimated' | 'unknown'; source: string;
+  status: 'unknown' | 'normal' | 'near-limit' | 'compacting' | 'compacted' | 'exceeded';
+  compactions: number; promptEstimate: number; updatedAt: string;
+}
+export const tokenCount = (n: unknown): number | null => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 ? n : null;
+const positive = (n: unknown) => { const v = tokenCount(n); return v && v > 0 ? v : null; };
+function identity(state: State, role: ModelContext['role']) {
+  const agent = role === 'execution' ? state.config.executionAgent : state.decisionAgent ?? state.config.decisionAgent;
+  const backend = agent?.backend ?? (role === 'execution' ? 'codex' : 'claude-code');
+  const opencode = agent?.backend === 'opencode' ? ('opencode' in agent ? agent.opencode : agent) : undefined;
+  const configuredModel = opencode ? `${opencode.providerID}/${opencode.modelID}` : agent && 'model' in agent ? agent.model ?? null : null;
+  const sessionId = role === 'execution' ? backend === 'codex' ? state.codexThreadId : state.executionSession?.sessionId ?? state.claudeExecutionSessionId ?? null : state.decisionSession?.sessionId ?? state.claudeSessionId;
+  return { backend, configuredModel, sessionId };
+}
+function file(store: Store, role: ModelContext['role']) { return store.file(`context-window-${role}${store.decisionParticipant ? '-'+store.decisionParticipant.participantId : ''}.json`); }
+export function previousContext(state: State, store: Store, role: ModelContext['role']): ModelContext | undefined {
+  const p = file(store, role); if (!existsSync(p)) return;
+  const row = JSON.parse(readFileSync(p, 'utf8')) as ModelContext, current = identity(state, role);
+  if (row.backend === current.backend && row.configuredModel === current.configuredModel && current.sessionId && row.sessionId === current.sessionId) return row;
+}
+export function compactLimit(window: number | null, state: State): number | null {
+  return window ? Math.max(1, Math.floor(window * (state.config.contextManagement?.compactRatio ?? 0.85))) : null;
+}
+export function contextLimits(state: State, store: Store, role: ModelContext['role']) {
+  const current = identity(state, role), previous = previousContext(state, store, role);
+  const window = previous?.windowTokens ?? positive(state.config.contextManagement?.modelWindows?.[current.configuredModel ?? '']) ?? null;
+  return { window, compactAt: compactLimit(window, state) };
+}
+
+/** Current session occupancy, deliberately separate from billable/cumulative usage. */
+export class ContextObservation {
+  readonly snapshot: ModelContext;
+  private compactItems = new Set<string>();
+  get shouldCompact(): boolean {
+    return this.snapshot.usedTokens !== null && this.snapshot.compactAtTokens !== null && this.snapshot.usedTokens + this.snapshot.promptEstimate >= this.snapshot.compactAtTokens;
+  }
+  constructor(private state: State, private store: Store, phase: string, prompt: string) {
+    const role = phase === 'execute' ? 'execution' : 'decision', previous = previousContext(state, store, role), limits = contextLimits(state, store, role);
+    this.snapshot = { role, ...identity(state, role), ...(store.decisionParticipant ? { participantId: store.decisionParticipant.participantId } : {}), model: previous?.model ?? null, usedTokens: previous?.usedTokens ?? null, windowTokens: limits.window, compactAtTokens: limits.compactAt, measurement: previous?.measurement ?? 'unknown', source: previous?.source ?? 'native-not-reported', status: previous?.status ?? 'unknown', compactions: previous?.compactions ?? 0, promptEstimate: Math.ceil(Buffer.byteLength(prompt, 'utf8') / 3), updatedAt: new Date().toISOString() };
+    this.persist();
+  }
+  private persist() {
+    this.snapshot.sessionId = identity(this.state, this.snapshot.role).sessionId;
+    this.snapshot.updatedAt = new Date().toISOString();
+    atomicJson(file(this.store, this.snapshot.role), this.snapshot);
+    this.store.audit('model-context', this.snapshot);
+  }
+  window(value: unknown, model?: string) {
+    const n = positive(value); if (!n) return;
+    if (n === this.snapshot.windowTokens && (!model || model === this.snapshot.model)) return;
+    this.snapshot.windowTokens = n; this.snapshot.compactAtTokens = compactLimit(n, this.state);
+    if (model) this.snapshot.model = model;
+    this.persist();
+  }
+  private usage(used: unknown, source: string, measurement: ModelContext['measurement']) {
+    const n = tokenCount(used); if (n === null) return;
+    this.snapshot.usedTokens = n; this.snapshot.measurement = measurement; this.snapshot.source = source;
+    if (this.snapshot.status !== 'compacting') this.snapshot.status = this.snapshot.windowTokens && n >= this.snapshot.windowTokens ? 'exceeded' : this.snapshot.compactAtTokens && n >= this.snapshot.compactAtTokens ? 'near-limit' : 'normal';
+    this.persist();
+  }
+  compact(status: 'compacting' | 'compacted', id: string) {
+    if (status === 'compacted') {
+      if (this.compactItems.has(id)) return;
+      this.compactItems.add(id); this.snapshot.compactions++;
+      // A completion receipt is not a token count. Await the next native measurement.
+      this.snapshot.usedTokens = null; this.snapshot.measurement = 'unknown';
+    }
+    this.snapshot.status = status; this.persist();
+  }
+  observe(event: any) {
+    if (!event || event.isReplay || event.parent_tool_use_id) return;
+    if (event.type === 'context.usage') {
+      this.window(event.windowTokens, event.model);
+      this.usage(event.usedTokens, 'codex.thread/tokenUsage/updated.last', 'native');
+    } else if (event.type === 'context.compaction') this.compact(event.status, event.id);
+    else if (event.type === 'system' && event.subtype === 'compact_boundary') this.compact('compacted', event.uuid ?? event.session_id ?? this.snapshot.updatedAt);
+    else if (event.type === 'system' && event.subtype === 'status' && event.status === 'compacting') this.compact('compacting', 'claude');
+    else if (event.type === 'result' && event.modelUsage) {
+      // modelUsage token totals may be session-cumulative; ONLY read its window metadata.
+      const rows = Object.entries(event.modelUsage) as [string, any][];
+      const selected = rows.find(([model]) => model === this.snapshot.model) ?? (rows.length === 1 ? rows[0] : undefined);
+      if (selected) this.window(selected[1].contextWindow, selected[0]);
+    } else {
+      const message = event.type === 'assistant' ? event.message : event.type === 'stream_event' && event.event?.type === 'message_start' ? event.event.message : undefined;
+      if (message?.usage) {
+        this.snapshot.model = message.model ?? this.snapshot.model;
+        const u = message.usage, values = [u.input_tokens, u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0].map(tokenCount);
+        if (values.every(n => n !== null)) this.usage(values.reduce<number>((sum, n) => sum + n!, 0), 'claude.main-request.input+cache', 'estimated');
+      }
+    }
+  }
+  opencode(info: any) {
+    if (info?.role !== 'assistant' || !info.time?.completed) return;
+    this.snapshot.model = info.providerID+'/'+info.modelID;
+    const u = info.tokens, values = [u?.input, u?.output, u?.reasoning ?? 0, u?.cache?.read ?? 0, u?.cache?.write ?? 0].map(tokenCount);
+    if (values.every(n => n !== null)) this.usage(values.reduce<number>((sum,n) => sum+n!,0), 'opencode.last-assistant.tokens', 'estimated');
+  }
+}
+export function modelContexts(events: { event: string; data: any }[]): ModelContext[] {
+  const rows = new Map<string, ModelContext>();
+  for (const e of events) if (e.event === 'model-context') rows.set(`${e.data.role}:${e.data.participantId ?? ''}`, e.data);
+  return [...rows.values()];
+}

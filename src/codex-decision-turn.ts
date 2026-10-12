@@ -8,6 +8,8 @@ import { validate } from './schema.js';
 import { nativeThreadOptions } from './native-agent.js';
 
 export interface CodexDecisionTurn {
+  compactAtTokens?: number | null;
+  compactBeforeTurn?: boolean;
   readOnly?: boolean;
   attachments?:NativeAttachment[];
   workspace: string; threadId: string | null; model?: string; reasoningEffort?: ThreadOptions['modelReasoningEffort']; prompt: string; schema: object;

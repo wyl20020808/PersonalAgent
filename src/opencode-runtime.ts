@@ -45,6 +45,7 @@ export function opencodeEnvironment(directory: string, runtimeDirectory?: string
   } else if (process.env.PERSONAL_AGENT_OPENCODE_CONFIG_FILE) throw new FlowError('supervisor', 'OpenCode configured provider file not found');
   const env: NodeJS.ProcessEnv = { ...process.env, XDG_DATA_HOME: path.join(root, 'data'), XDG_STATE_HOME: path.join(root, 'state'), XDG_CONFIG_HOME: path.join(root, 'config'), XDG_CACHE_HOME: path.join(root, 'cache'), TEMP: path.join(root, 'tmp'), TMP: path.join(root, 'tmp'), OPENCODE_DB: path.join(root, 'data/opencode.db'), OPENCODE_CONFIG_DIR: path.join(root, 'config/opencode'), OPENCODE_CONFIG_CONTENT: JSON.stringify(v1ProviderConfig(config)), OPENCODE_DISABLE_PROJECT_CONFIG: 'true', OPENCODE_DISABLE_AUTOUPDATE: 'true' };
   const serviceConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT!);
+  serviceConfig.compaction = { ...config.compaction, auto: true };
   // OpenCode appends two 40-character keys to its private Git snapshot path.
   // Windows Git rejects long GIT_DIR values. These optional provider undo
   // snapshots are separate from Controller checkpoints and project backups.

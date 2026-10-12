@@ -82,7 +82,7 @@ export class RealAgents implements Agents {
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
-      cwd: store.dir, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode, ...(this.config.executionAgent?.backend === 'codex' && this.config.executionAgent.model ? { model: this.config.executionAgent.model } : {}), ...(this.config.executionAgent?.backend === 'codex' && this.config.executionAgent.reasoningEffort ? { reasoningEffort: this.config.executionAgent.reasoningEffort } : {}) }),
+      cwd: store.dir, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, streamOutput: true, input: JSON.stringify({ workspace: state.workspace, threadId: state.codexThreadId, compactAtTokens: observation.context.snapshot.compactAtTokens, compactBeforeTurn: observation.context.shouldCompact, prompt, attachments:runAttachments(state,store), executionMode: this.executionMode, ...(this.config.executionAgent?.backend === 'codex' && this.config.executionAgent.model ? { model: this.config.executionAgent.model } : {}), ...(this.config.executionAgent?.backend === 'codex' && this.config.executionAgent.reasoningEffort ? { reasoningEffort: this.config.executionAgent.reasoningEffort } : {}) }),
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };

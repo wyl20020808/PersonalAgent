@@ -13,6 +13,17 @@ import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
 
+test('chat thread transports latest context per role separately from cumulative usage and messages',async()=>{
+ const prepared=await service.prepareMock(),profile=prepared.profiles.at(-1)!,config=service.config(profile.id).config;
+ const store=await createRun(config,config.allowedRepositories[0]!,'context meter fixture');
+ store.audit('model-context',{role:'decision',usedTokens:100,windowTokens:1000});
+ store.audit('model-context',{role:'execution',usedTokens:200,windowTokens:2000});
+ store.audit('model-context',{role:'decision',usedTokens:40,windowTokens:1000});
+ const page=service.thread(profile.id,store.id);
+ assert.deepEqual(page.contexts.map(row=>[row.role,row.usedTokens]),[['decision',40],['execution',200]]);
+ assert.equal(page.messages.some(message=>message.title==='model-context'),false);
+});
+
 test('Controller runtime preflight exposes missing package before dispatch',async()=>{
  const folder=path.join(data,'missing-runtime-'+randomUUID()),fakeRoot=path.join(folder,'app');
  fs.mkdirSync(path.join(fakeRoot,'dist/src'),{recursive:true});
