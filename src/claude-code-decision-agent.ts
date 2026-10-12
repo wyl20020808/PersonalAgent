@@ -46,7 +46,9 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     }
     const attachments=runAttachments(state,store);
     const input=attachments.length?claudeInput(prompt,attachments):prompt;
-    const streaming = this.config.claudeStreaming !== false || attachments.length>0 || Boolean(request.onPublicProgress);
+    // All new invocations stream, including Runs saved with the legacy false flag.
+    // Keep that field/envelope readable without rewriting historical configuration.
+    const streaming = true;
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules + (execution ? ' 当前角色为执行者：仅实施 Controller 已校验的当前任务，使用原生工具修改并验证；不得更改 Plan、角色配置或重放已完成任务。' : '')];
     if (!execution) args.push('--autocompact', '100k');
     if (request.readOnly) args.push('--tools', 'Read,Glob,Grep', '--strict-mcp-config', '--mcp-config', JSON.stringify({mcpServers:{}}));
@@ -63,10 +65,11 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const call = recordClaudeCall(state, store, role);
     const observation = new CallObservation(state, store, role, prompt, context, resumed, 'claude');
     let completed = false, transportFailed = false;
-    try {
     const record = activityRecorder(state, store, 'claude', `claude:${execution ? 'execute:' : ''}${call}`, role);
-    let lastPublic=0,publicSequence=0,publicReply='';
-    const discussionStream=new DiscussionStream(progress=>{request.onPublicProgress?.(progress);if(progress.reply!==undefined){publicReply=progress.reply;if(publicReply&&Date.now()-lastPublic>=250){lastPublic=Date.now();record({key:'public-stream:'+ ++publicSequence,streamId:'public-answer',kind:'output',title:'Claude 正在回复',text:publicReply});}}});
+    let discussionStream:DiscussionStream|undefined;
+    try {
+    let publicSequence=0,publicReply='';
+    discussionStream=new DiscussionStream(progress=>{request.onPublicProgress?.(progress);if(progress.reply!==undefined){publicReply=progress.reply;if(publicReply)record({key:'public-stream:'+ ++publicSequence,streamId:'public-answer',kind:'output',title:'Claude 正在回复',text:publicReply});}},100);
     let streamedResult: any; let characters = 0, lastProgress = 0;
     const pendingTools = new Set<string>();
     if (streaming) { args[args.indexOf('--output-format') + 1] = 'stream-json'; args.push('--verbose', '--include-partial-messages'); }
@@ -81,7 +84,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
         if (block.type === 'tool_result') {pendingTools.delete(block.tool_use_id);guidanceTool('claude:'+block.tool_use_id,false);}
       }
       observation.observe(event);
-      discussionStream.claude(event);
+      discussionStream!.claude(event);
+      if(event.type==='assistant'||event.type==='result')discussionStream!.flush();
       if (event.type === 'result') { if (streamedResult) throw Error('Duplicate Claude final result'); streamedResult = event; }
       for (const activity of claudePublicEvents(event)) record(activity.kind==='output'&&event.type==='assistant'&&publicReply?{...activity,text:publicReply,streamId:'public-answer'}:activity);
       const delta = event.event?.delta;
@@ -94,8 +98,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
       if(['transport','timeout'].includes(classifyFailure(error,role).kind)&&(!streaming||pendingTools.size))throw new FlowError('interrupted','Claude tool results are unknown; manual recovery required');
       throw error;
     });
-    let envelope: { is_error?: boolean; session_id?: string; structured_output?: unknown; result?: string; errors?: string[] };
-    try { const parsed=streamedResult ?? JSON.parse(streaming ? result.stdout.trim().split(/\r?\n/).at(-1)! : result.stdout);if(streaming&&parsed.type!=='result')throw Error('Missing Claude final result');envelope=parsed; }
+    let envelope: { is_error?: boolean; session_id?: string; structured_output?: unknown; result?: string; errors?: string[] },legacyEnvelope=false;
+    try { const parsed=streamedResult ?? JSON.parse(streaming ? result.stdout.trim().split(/\r?\n/).at(-1)! : result.stdout);legacyEnvelope=this.config.claudeStreaming===false&&parsed.type===undefined&&(parsed.structured_output!==undefined||typeof parsed.is_error==='boolean');if(streaming&&parsed.type!=='result'&&!legacyEnvelope)throw Error('Missing Claude final result');envelope=parsed; }
     catch {
       if (['transport','timeout'].includes(classifyFailure(new Error(result.stderr), role).kind)) {
         if (!streaming || pendingTools.size) throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
@@ -103,7 +107,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
       }
       throw new Error(`Claude exited ${result.exitCode} with invalid JSON: ${result.stderr.slice(0, 1000)}`);
     }
-    if (!streaming) observation.observe(envelope);
+    if (!streaming||legacyEnvelope) observation.observe(envelope);
+    if(envelope.structured_output&&typeof envelope.structured_output==='object')discussionStream!.json(JSON.stringify(envelope.structured_output));
     if (envelope.session_id) {
       bind(envelope.session_id); confirmed = true;
     }
@@ -111,7 +116,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     store.audit('claude-exit', { call, callId: observation.usage.callId, role, exitCode: result.exitCode, sessionId: envelope.session_id ?? state[sessionKey] });
     if (result.exitCode !== 0 || envelope.is_error) {
       const message = `Claude exited ${result.exitCode}: ${envelope.errors?.join('; ') || envelope.result || result.stderr.slice(0, 1000) || 'API error without message'}`;
-      if (['transport','timeout'].includes(classifyFailure(new Error(message), role).kind) && (!streaming || pendingTools.size))
+      if (['transport','timeout'].includes(classifyFailure(new Error(message), role).kind) && (!streaming || legacyEnvelope || pendingTools.size))
         throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
       const classified = classifyFailure(new Error(message), role); throw new FlowError(classified.kind === 'unknown' ? execution ? 'executor' : 'supervisor' : classified.kind, message);
     }
@@ -120,6 +125,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const output = validate<T>(schema, envelope.structured_output); bind(state[sessionKey]!); completed = true; return { output, sessionId: state[sessionKey]!, usage: observation.usage };
     } catch (error) { transportFailed = classifyFailure(error, role).kind === 'transport'; throw error; }
     finally {
+      discussionStream?.flush();
+      record.flush();
       observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');
       // A reserved UUID is not a confirmed CLI Session. Keep its invocation in
       // audit history, but do not leave a bogus --resume target after pre-init failure.

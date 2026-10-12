@@ -23,6 +23,7 @@ const active=['planning','execute','executing','applying','verify','review'];
 export class SessionStore {
  readonly discussionCalls=new Map<string,{controller:AbortController;promise:Promise<ConversationReply>}>();
  readonly discussionJobs=new Map<string,Promise<void>>();
+ private discussionCache=new Map<string,{fingerprint:string;messages:import('./types.js').ChatMessage[]}>();
  private stoppingDiscussions=false;
  readonly inFlight=new Set<string>();
  readonly draining=new Set<string>();
@@ -105,8 +106,11 @@ export class SessionStore {
   const session=this.public(this.get(id));let discussionMessages:import('./types.js').ChatMessage[]=[],discussionError:string|undefined;
   if(session.discussionStateId)try{const store=new Store(path.join(this.service.data,'conversation-discussions',session.id),session.discussionStateId),state=store.load();
    if(state.purpose!=='conversation-discussion'||state.source!==fs.realpathSync(session.projectPath))throw Error('讨论记录与会话项目不匹配');
-   const events=this.service.audit(store).filter(e=>e.event==='agent-activity'&&e.data.kind!=='output'&&!String(e.data.title).includes('StructuredOutput'));
-   discussionMessages=projectMessages(state,events,[]).map(message=>({...message,id:'discussion:'+state.id+':'+message.id,participantRole:'决策者',decisionStage:'discussion',source:'discussion:'+session.id+':'+message.source}));
+   const fingerprint=['audit.jsonl','state.json'].map(file=>{const stat=fs.statSync(store.file(file));return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;}).join(':')+':'+session.discussionStateId;
+   let cached=this.discussionCache.get(session.id);
+   if(!cached||cached.fingerprint!==fingerprint){const events=this.service.audit(store).filter(e=>e.event==='agent-activity'&&e.data.kind!=='output'&&!String(e.data.title).includes('StructuredOutput'));
+    cached={fingerprint,messages:projectMessages(state,events,[]).map(message=>({...message,id:'discussion:'+state.id+':'+message.id,participantRole:'决策者',decisionStage:'discussion',source:'discussion:'+session.id+':'+message.source}))};this.discussionCache.set(session.id,cached);if(this.discussionCache.size>20)this.discussionCache.delete(this.discussionCache.keys().next().value!);
+   }discussionMessages=cached.messages;
   }catch(error){discussionError='讨论过程记录不可用：'+redact((error as Error).message);}
   return {session,runs:this.resolve(this.get(id)).runs,discussionMessages,discussionError};
  }
@@ -221,8 +225,7 @@ export class SessionStore {
   const runtimeDir=path.join(this.service.data,'conversation-discussions',session.id);
   const config:Config={allowedRepositories:[session.projectPath],runtimeDir,mode:session.settings.mode,projectMode:'direct',executionMode:'native',claudeExecutable:'C:/Users/WYL20/.local/bin/claude.exe',claudeStreaming:true,timeoutMs:0,mockScenario:'pass',tests:[],decisionAgent:session.settings.decisionAgent??{backend:'claude-code'}};
   const history=session.messages.filter(m=>m.id!==message.id&&m.action==='discuss'&&m.discussionReply).flatMap(m=>[{role:'user' as const,text:m.text},{role:'assistant' as const,text:m.discussionReply!}]);
-  let lastProgress=0;
-  const onProgress=(progress:import('../../src/discussion-stream.js').DiscussionProgress)=>{if(Date.now()-lastProgress<100)return;lastProgress=Date.now();const fresh=this.get(session.id),target=fresh.messages.find(m=>m.id===message.id)!;if(progress.reply!==undefined){target.discussionDraft=progress.reply;if(progress.reply)target.discussionReplyTime??=new Date().toISOString();}if(progress.status)target.discussionProgress=progress.status;fresh.updatedAt=new Date().toISOString();this.update(fresh);};
+  const onProgress=(progress:import('../../src/discussion-stream.js').DiscussionProgress)=>{const fresh=this.get(session.id),target=fresh.messages.find(m=>m.id===message.id)!;if((progress.reply===undefined||progress.reply===target.discussionDraft)&&(!progress.status||progress.status===target.discussionProgress))return;if(progress.reply!==undefined){target.discussionDraft=progress.reply;if(progress.reply)target.discussionReplyTime??=new Date().toISOString();}if(progress.status)target.discussionProgress=progress.status;fresh.updatedAt=new Date().toISOString();this.update(fresh);};
   const controller=new AbortController(),promise=conversationDiscussion({nodeExecutable:this.service.node,onProgress,runtimeDir,stateId:session.discussionStateId,projectPath:session.projectPath,sessionId:session.id,config,text,history,plan:session.discussionPlan??'',attachments:this.attachmentBytes(session,message)},id=>{const fresh=this.get(session.id);fresh.discussionStateId=id;this.update(fresh);},controller.signal);
   this.discussionCalls.set(session.id,{controller,promise});
   try{return await promise;}finally{this.discussionCalls.delete(session.id);}

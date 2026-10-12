@@ -16,6 +16,18 @@ import {claimGuidance,guidanceStatus,pendingGuidance} from '../../dist/src/steer
 import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+
+test('completed chat discussion projection caches unchanged audits and refreshes real appended notices',async()=>{
+ const {service,project}=fixture();const chat=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ await service.sessions.send({operation:'sendSession',sessionId:chat.id,messageId:randomUUID(),text:'讨论下一阶段'});const saved=await settleDiscussion(service,chat.id);
+ let reads=0;const audit=service.audit.bind(service);service.audit=store=>{reads++;return audit(store);};service.sessions.detail(chat.id);service.sessions.detail(chat.id);assert.equal(reads,0);
+ const {Store}=await import('../../dist/src/store.js');const store=new Store(path.join(service.data,'conversation-discussions',chat.id),saved.discussionStateId!);
+ const banner='Under-development features enabled: respect_system_proxy. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in C:\\Users\\fixture\\.codex\\config.toml.';
+ store.audit('agent-activity',{agent:'codex',kind:'error',title:'Codex 工具错误',text:banner,source:'codex-sdk-runStreamed',scope:'call'});
+ const result=service.sessions.detail(chat.id);assert.equal(reads,1);assert.equal(result.discussionMessages.at(-1)?.kind,'notice');assert.notEqual(result.discussionMessages.at(-1)?.status,'fail');assert.ok(result.session.messages.at(-1)?.discussionReply);
+ store.audit('agent-activity',{agent:'codex',kind:'error',title:'Codex 工具错误',text:'Authentication failed',source:'codex-sdk-runStreamed',scope:'call'});
+ assert.equal(service.sessions.detail(chat.id).discussionMessages.at(-1)?.status,'fail');
+});
 test('continue reports runtime startup failure and retries the same paused Run',async()=>{
  const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});

@@ -17,6 +17,16 @@ console.log(`Phase3 deterministic evidence root: ${root}`);
 const folder = () => path.join(root, randomUUID().slice(0, 8));
 const lines = (file: string) => fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
 
+test('public text deltas never rewrite usage files; real token updates and finish remain durable',async()=>{
+ const f=await regressionFixture(folder(),'T1'),state=f.store.load(),call=new CallObservation(state,f.store,'plan','{}');
+ const file=f.store.file(`context/${call.usage.callId}.usage.json`),before=fs.statSync(file).mtimeMs,audit=fs.statSync(f.store.file('audit.jsonl')).size;
+ for(let i=0;i<1000;i++)call.observe({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'字'}}});
+ assert.equal(fs.statSync(file).mtimeMs,before);assert.equal(fs.statSync(f.store.file('audit.jsonl')).size,audit);
+ call.observe({type:'stream_event',event:{type:'message_start',message:{id:'m',model:'fixture',usage:{input_tokens:10}}}});
+ call.observe({type:'stream_event',event:{type:'message_delta',usage:{output_tokens:5}}});call.finish('interrupted');
+ const usage=JSON.parse(fs.readFileSync(file,'utf8'));assert.equal(usage.outputTokens,5);assert.equal(usage.status,'interrupted');
+});
+
 test('shell credential flags, quoted arguments and assignments are redacted without interpreting paths', () => {
   const command = redactCommand('cat combat/core.js --password "PRIVATE SECRET" --api-key secret123 --token=abcdef authorization=credential');
   for (const value of ['PRIVATE', 'secret123', 'abcdef', 'credential']) assert.equal(command.includes(value), false);

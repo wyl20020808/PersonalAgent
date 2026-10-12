@@ -93,11 +93,16 @@ test('refresh notifications coalesce, never overlap, and stop prevents further r
  let calls=0,active=0,maximum=0,release!:()=>void;
  const gate=new Promise<void>(resolve=>release=resolve);
  const loop=refreshLoop(async()=>{calls++;maximum=Math.max(maximum,++active);try{if(calls===1)await gate;}finally{active--;}} ,10000);
- for(let i=0;i<100;i++)loop.refresh();assert.equal(calls,1);release();await sleep(30);
+ for(let i=0;i<100;i++)loop.refresh();assert.equal(calls,1);release();await sleep(150);
  assert.equal(calls,2);assert.equal(maximum,1);loop.stop();loop.refresh();await sleep(10);assert.equal(calls,2);
 });
+test('continuous notifications keep IPC reads bounded to ten per second',async()=>{
+ let calls=0;const loop=refreshLoop(async()=>{calls++;},10000),burst=setInterval(()=>{for(let i=0;i<100;i++)loop.refresh();},5);
+ try{await sleep(260);assert.ok(calls>=2&&calls<=4);}finally{clearInterval(burst);loop.stop();}
+ const stopped=calls;await sleep(120);assert.equal(calls,stopped);
+});
 test('failed refresh retries; stopping during an in-flight read cancels follow-up',async()=>{
- let calls=0;const loop=refreshLoop(async()=>{calls++;throw Error('offline');},10000,5);await sleep(25);loop.stop();assert.ok(calls>=2);const stopped=calls;await sleep(20);assert.equal(calls,stopped);
+ let calls=0;const loop=refreshLoop(async()=>{calls++;throw Error('offline');},10000,5);await sleep(150);loop.stop();assert.ok(calls>=2);const stopped=calls;await sleep(20);assert.equal(calls,stopped);
  let release!:()=>void;const gate=new Promise<void>(r=>release=r);let count=0;const pending=refreshLoop(async()=>{count++;await gate;},1);pending.refresh();pending.stop();release();await sleep(10);assert.equal(count,1);
 });
 test('file browser handles directories, rejects escapes, unknown roots and binary previews; SVG stays text',()=>{
