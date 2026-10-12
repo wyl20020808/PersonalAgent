@@ -15,6 +15,7 @@ import {conversationDiscussion as runtimeConversationDiscussion} from '../../dis
 import type {ConversationReply} from '../../src/conversation-discussion.js';
 import type {Config} from '../../src/schema.js';
 import {chatRoute} from './chatRouting.js';
+import {validateParallelProject} from './parallelProject.js';
 const conversationDiscussion=runtimeConversationDiscussion as typeof import('../../src/conversation-discussion.js').conversationDiscussion;
 
 type Saved=Omit<Conversation,'budget'|'status'|'lastMessage'>;
@@ -39,10 +40,12 @@ export class SessionStore {
  update(session:Saved){const items=this.read(),index=items.findIndex(s=>s.id===session.id);if(index<0)throw Error('会话不存在');items[index]=session;this.save(items);}
  create(r:Request):Conversation {
   const project=this.service.inspectProject(r.projectPath!);
+  const group=r.projectGroupPath?this.service.inspectProject(validateParallelProject(project.path,r.projectGroupPath)):undefined;
   const primary=r.decisionDiscussion?.participants.find(p=>p.id===r.decisionDiscussion?.primary)?.agent;
   if(primary&&r.decisionAgent&&JSON.stringify(primary)!==JSON.stringify(r.decisionAgent))throw Error('主决策者配置不匹配');
   const session:Saved={id:randomUUID(),chatMode:r.chatMode??'develop',title:'新会话',manualTitle:false,projectPath:project.path,projectName:project.name,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),mockExplicit:r.mode==='mock',settings:{executionAgent:structuredClone(r.executionAgent??{backend:"codex"}),decisionAgent:structuredClone(primary??r.decisionAgent??{backend:'claude-code'}),...(r.decisionDiscussion?{decisionDiscussion:structuredClone(r.decisionDiscussion)}:{}),mode:r.mode??'real',projectMode:r.projectMode??'direct',maxClaudeCalls:r.maxClaudeCalls??5,maxLoops:r.maxLoops??8,maxReworks:r.maxReworks??1},selectedTests:r.selectedTests??[],directAuthorized:project.directAuthorized,runs:[],messages:[]};
 
+  if(group){session.projectGroupPath=group.path;session.projectGroupName=group.name;}
   if(session.selectedTests.some(t=>!project.testCommands.includes(t)))throw Error('测试命令与项目检测不匹配');
   const items=this.read();items.push(session);this.save(items);return this.public(session);
  }
@@ -248,6 +251,7 @@ export class SessionStore {
  }
  private async sendLocked(r:Request,process:boolean,discussionExecution=false){
   const session=this.get(r.sessionId!);if(session.legacy)throw Error('历史会话只供回放；请新建会话并明确授权项目');
+  if(session.projectGroupPath)validateParallelProject(session.projectPath,session.projectGroupPath);
   let message=session.messages.find(m=>m.id===r.messageId);
   if(!process&&message){if(message.text!==r.text!.trim()||(message.attachmentDigest??attachmentDigest())!==attachmentDigest(r.attachments))throw Error('Message ID reused with different content');return this.public(session);}
   if(process&&(!message||!['pending','failed'].includes(message.status)))throw Error('需求已处理或已取消');
