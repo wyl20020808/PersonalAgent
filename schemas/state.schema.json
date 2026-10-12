@@ -1186,6 +1186,9 @@
         }
       }
     },
+    "userRequired": {
+      "type": "boolean"
+    },
     "reworkReplan": {
       "type": "object",
       "additionalProperties": false,

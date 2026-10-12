@@ -55,3 +55,14 @@ test('state or user activity changing during runtime preflight wins the takeover
  local.validateControllerRuntime=async()=>{const saved=local.sessions.get(session.id);saved.messages.push({id:randomUUID(),time:new Date().toISOString(),text:'user arrived',status:'recorded'});local.sessions.update(saved);};
  await local.supervise(Date.now()+SUPERVISION_INTERVAL_MS+100);assert.equal(launches.length,0);assert.equal(fs.existsSync(store.file('automatic-supervision.json')),false);await local.stopOwned();
 });
+
+test('a Run that pauses again keeps its problem identity: three takeovers, then it waits for the user',async()=>{
+ const {local,store,launches}=await fixture();await local.dispatch({operation:'automaticDevelopment',automaticDevelopment:true});
+ // Each takeover ends with the Run saved in the same paused node, as a real unresolved problem does.
+ local.launch=(run)=>{launches.push({id:run.id});store.save(store.load());};
+ let now=Date.parse(local.registry().automaticDevelopment!.enabledAt);
+ for(let scan=0;scan<6;scan++){now=Math.max(now,Date.parse(store.load().updatedAt))+SUPERVISION_INTERVAL_MS+1000;await local.supervise(now);}
+ assert.equal(launches.length,3);
+ const receipt=JSON.parse(fs.readFileSync(store.file('automatic-supervision.json'),'utf8'));assert.equal(receipt.attempts,3);assert.equal(receipt.takeovers,3);
+ await local.stopOwned();
+});

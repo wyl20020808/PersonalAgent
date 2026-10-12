@@ -75,6 +75,8 @@ export async function createRun(config: Config, source: string, goal: string, op
 }
 export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; timeoutMs?: number }, intent: 'resume' | 'visual' | 'rework' = 'resume', automatic?: AutomaticResume): Promise<State> {
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined; let automaticFailure: State['failure'];
+  // A question the decision maker still returns right after an automatic delegation stays with the user.
+  let delegated = !!automatic;
   try {
     state = store.load();
     if (automatic) {
@@ -191,7 +193,9 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         }
       }
       state.feedback = [state.feedback, `${automatic ? 'Automatic delegation to decision maker' : 'User decision'}: ${decision}`, automatic ? `暂停原因：${state.reason}` : ''].filter(Boolean).join('\n');
-      if (automatic && state.nextPhase !== 'verify' && state.nextPhase !== 'review') {
+      if (!automatic) delete state.userRequired;
+      // An ended connection or timeout failure resumes where it stopped; other nodes go back to the decision maker.
+      if (automatic && state.nextPhase !== 'verify' && state.nextPhase !== 'review' && !['transport', 'timeout'].includes(automaticFailure?.kind ?? '')) {
         state.automaticPlanning = { reason: state.reason || state.failure?.message || '后台发现未完成的调度节点' };
         state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
         state.nextPhase = 'planning';
@@ -238,8 +242,13 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         assertPlanningContext(state, store);
         const plan = validate<Plan>(planSchema, await agentOperation('claude', 'plan', signal => agents.plan(state, store, signal)));
         assertDiscussionPlan(state, plan);
-        if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; checkpoint('paused', plan.humanDecision); continue; }
+        if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; if (delegated) state.userRequired = true; checkpoint('paused', plan.humanDecision); continue; }
         if (!plan.tasks.length&&!state.guidancePending&&!state.automaticPlanning) throw new Error('Plan must include tasks or request human decision');
+        if (!plan.tasks.length&&!state.guidancePending&&state.automaticPlanning&&state.taskIndex<state.tasks.length) {
+          // An automatic replan cannot close work no acceptance has confirmed.
+          state.feedback = '自动委托的重新规划不能用空计划结束尚未验收的任务。返回仍需执行或确认的任务，由正式验收确认完成；需要用户决定时返回 humanDecision。';
+          throw new FlowError('supervisor', state.feedback);
+        }
         if (!state.guidancePending&&!state.automaticPlanning&&!state.reworkReplan&&plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
         if (new Set(plan.tasks.map(task => task.id)).size !== plan.tasks.length) throw new Error('Duplicate task IDs');
         const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
@@ -282,6 +291,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.nativeExecution = agents.executionMode === 'native';
         state.loops++; state.nextPhase = 'execute'; state.evidence = null; state.executorExitCode = -1; checkpoint('executing');
         assertExecutionState(state);
+        delegated = false;
         const result = await agentOperation(state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend === 'opencode' ? 'opencode' : 'codex', 'execute', signal => agents.execute(state, store, signal));
         if (stop.signal.aborted) throw new Error('Stopped');
         if ('mode' in result && result.mode === 'native') {
@@ -346,7 +356,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
             if (roundDiff !== undefined) state.evidence.roundDiff = roundDiff;
             state.evidence.decisionReview = review;
             store.audit('review-evidence', state.evidence);
-            state.nextPhase = 'verify'; checkpoint('paused', review.reason);
+            state.nextPhase = 'verify'; if (delegated) state.userRequired = true; checkpoint('paused', review.reason);
             for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
           }
           else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
@@ -367,7 +377,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         if (review.verdict === 'pass') {
           acceptDecision(store, state);
         } else if (review.verdict === 'human') {
-          state.nextPhase = 'verify'; checkpoint('paused', review.reason);
+          state.nextPhase = 'verify'; if (delegated) state.userRequired = true; checkpoint('paused', review.reason);
           for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
         } else if (review.verdict === 'fail') {
           state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason);

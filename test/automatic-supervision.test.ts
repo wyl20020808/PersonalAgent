@@ -9,7 +9,8 @@ import {createRun,drive} from '../src/controller.js';
 import {MockAgents,type Agents} from '../src/adapters.js';
 import type {Config} from '../src/schema.js';
 import {atomicJson} from '../src/store.js';
-import {supervisionBlock,supervisionDue,supervisionSignature,SUPERVISION_INTERVAL_MS} from '../src/automatic-supervision.js';
+import {supervisionBlock,supervisionDue,supervisionSignature,SUPERVISION_INTERVAL_MS,SUPERVISION_MAX_TAKEOVERS} from '../src/automatic-supervision.js';
+import {classifyFailure} from '../src/failure.js';
 import {crashRestartReason,processAlive,recordCrashRestart} from '../src/crash-watchdog.js';
 
 const root=path.resolve('.validation','automatic-supervision-'+randomUUID());fs.mkdirSync(root,{recursive:true});
@@ -56,7 +57,7 @@ test('automatic crash recovery consumes durable native result without another ex
 test('automatic recovery replans remaining work with the decision maker and retains accepted IDs',async()=>{
  const {store,config}=await fixture();
  await drive(store,new MockAgents(config),'Fixture continuation');
- const state=store.load();state.phase='paused';state.nextPhase='execute';state.taskIndex=1;state.completedTaskIds=['hello'];state.reason='Recoverable executor interruption';state.failure={kind:'transport',recoverable:true,message:state.reason,stage:'execute'};store.save(state);
+ const state=store.load();state.phase='paused';state.nextPhase='execute';state.taskIndex=1;state.completedTaskIds=['hello'];state.reason='Recoverable executor interruption';state.failure={kind:'executor',recoverable:true,message:state.reason,stage:'execute'};store.save(state);
  const mock=new MockAgents(config),executed:string[]=[];
  const agents:Agents={executionMode:'native',plan:async(current)=>{
   assert.equal(current.automaticPlanning?.reason,state.reason);assert.deepEqual(current.completedTaskIds,['hello']);return {tasks:current.tasks.slice(1),humanDecision:null};
@@ -108,4 +109,46 @@ test('external watchdog survives its owner exiting and launches one fake applica
  const exit=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});assert.equal(exit,0,stderr);
  for(let attempt=0;attempt<100&&!fs.existsSync(marker);attempt++)await new Promise(resolve=>setTimeout(resolve,20));
  assert.equal(fs.readFileSync(marker,'utf8'),data);assert.equal(JSON.parse(fs.readFileSync(path.join(data,'supervision-restarts.json'),'utf8')).length,1);
+});
+
+async function interrupted(kind:'transport'|'executor'){
+ const {store,config}=await fixture();
+ await drive(store,new MockAgents(config),'Fixture continuation');
+ const state=store.load();state.phase='paused';state.nextPhase='execute';state.taskIndex=1;state.completedTaskIds=['hello'];state.reason='Recoverable interruption';state.failure={kind,recoverable:true,message:state.reason,stage:'execute'};store.save(state);
+ return {store,config,state};
+}
+
+test('ended connection failure resumes the same task without another planning call',async()=>{
+ const {store,config,state}=await interrupted('transport'),mock=new MockAgents(config),executed:string[]=[];
+ const agents:Agents={executionMode:'native',plan:async()=>{throw Error('planning must not be called');},execute:async(current,local,signal)=>{executed.push(current.tasks[current.taskIndex]!.id);return mock.execute(current,local,signal);},review:(current,local)=>mock.review(current,local)};
+ const result=await drive(store,agents,undefined,undefined,undefined,'resume',{expectedUpdatedAt:state.updatedAt});
+ assert.equal(result.phase,'completed');assert.deepEqual(executed,['done']);assert.deepEqual(result.completedTaskIds,['hello','done']);
+});
+
+test('automatic replan cannot close unaccepted work with an empty plan',async()=>{
+ const {store,config,state}=await interrupted('executor'),mock=new MockAgents(config);
+ const agents:Agents={executionMode:'native',plan:async()=>({tasks:[],humanDecision:null}),execute:(current,local,signal)=>mock.execute(current,local,signal),review:(current,local)=>mock.review(current,local)};
+ const result=await drive(store,agents,undefined,undefined,undefined,'resume',{expectedUpdatedAt:state.updatedAt});
+ assert.equal(result.phase,'paused');assert.equal(result.failure?.kind,'supervisor');assert.deepEqual(result.tasks.map(task=>task.id),['hello','done']);assert.deepEqual(result.completedTaskIds,['hello']);assert.match(result.feedback,/空计划/);
+});
+
+test('a question returned again after automatic delegation waits for the user; a user decision clears it',async()=>{
+ const {store,config}=await fixture(),paused=store.load(),mock=new MockAgents(config);
+ assert.equal(paused.phase,'paused');assert.equal(paused.userRequired,undefined);assert.equal(supervisionBlock(paused),undefined);
+ const asking:Agents={executionMode:'native',plan:current=>mock.plan(current),execute:(current,local,signal)=>mock.execute(current,local,signal),review:async()=>({verdict:'human',reason:'Still needs the user'})};
+ const again=await drive(store,asking,undefined,undefined,undefined,'resume',{expectedUpdatedAt:paused.updatedAt});
+ assert.equal(again.phase,'paused');assert.equal(again.userRequired,true);assert.match(supervisionBlock(again)!,/要求用户决定/);
+ await assert.rejects(drive(store,asking,undefined,undefined,undefined,'resume',{expectedUpdatedAt:again.updatedAt}),/要求用户决定/);
+ const resumed=await drive(store,asking,'User answers the question');
+ assert.equal(resumed.phase,'paused');assert.equal(resumed.userRequired,undefined);assert.equal(supervisionBlock(resumed),undefined);
+});
+
+test('takeover bound per user input and quota wording are enforced',async()=>{
+ const {store}=await fixture(),state=store.load(),base=Date.parse(state.updatedAt),later=base+100*SUPERVISION_INTERVAL_MS;
+ const receipt={signature:'another problem',attempts:1,lastAttemptAt:base,takeovers:SUPERVISION_MAX_TAKEOVERS,userAt:base};
+ assert.equal(supervisionDue(state,later,base,base,receipt),false);
+ assert.equal(supervisionDue(state,later,base,base,{...receipt,takeovers:SUPERVISION_MAX_TAKEOVERS-1}),true);
+ assert.equal(supervisionDue(state,later,base,base+1,receipt),true);
+ const limit=classifyFailure(new Error("Claude exited 1: You've hit your session limit · resets 1:30pm (Asia/Shanghai)"),'executing');
+ assert.equal(limit.kind,'budget');assert.match(supervisionBlock({...state,phase:'paused',failure:limit})!,/人工核查/);
 });
