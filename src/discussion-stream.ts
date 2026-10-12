@@ -1,7 +1,7 @@
 export type DiscussionProgress={reply?:string;status?:string};
 
 /** Decode only the reply string of a partially received root JSON object. */
-export function partialDiscussionReply(source:string):string|undefined{
+export function partialDiscussionReply(source:string,field='reply'):string|undefined{
  let cursor=0;
  const whitespace=()=>{while(/\s/.test(source[cursor]??'')&&cursor<source.length)cursor++;};
  const string=():{value:string;complete:boolean}=>{
@@ -16,7 +16,7 @@ export function partialDiscussionReply(source:string):string|undefined{
  while(cursor<source.length){
   whitespace();if(source[cursor]!== '"')return undefined;const key=string();if(!key.complete)return undefined;
   whitespace();if(source[cursor++]!==':')return undefined;whitespace();
-  if(key.value==='reply')return source[cursor]==='"'?string().value:undefined;
+  if(key.value===field)return source[cursor]==='"'?string().value.replace(/[\uD800-\uDBFF]$/,''):undefined;
   let depth=0;
   while(cursor<source.length){const character=source[cursor];if(character==='"'){if(!string().complete)return undefined;continue;}if(!depth&&(character===','||character==='}'))break;if(character==='{'||character==='[')depth++;if(character==='}'||character===']')depth--;cursor++;}
   if(source[cursor++]!==',')return undefined;

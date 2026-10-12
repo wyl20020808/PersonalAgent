@@ -122,6 +122,21 @@ export function opencodePublicEvents(event: any, directory: string, sessionID: s
   if (part.type === 'text') return [{key:`${part.id}:${part.text}`,streamId:part.id,kind:'output',title:'OpenCode 公开输出',text:redact(part.text ?? '')}];
   return [{key:`${part.id}:${part.state?.status}:${JSON.stringify(part.state)}`,kind:'tool',title:`OpenCode 工具 · ${redact(part.tool ?? '')}`,text:redact(JSON.stringify({callID:part.callID,tool:part.tool,status:part.state?.status,input:part.state?.input,output:part.state?.output,error:part.state?.error,metadata:part.state?.metadata}))}];
 }
+
+/** New servers send separate deltas. Only previously owned public text accepts them. */
+export class OpenCodePublicStream {
+ private texts=new Map<string,any>();
+ constructor(private directory:string,private sessionID:string){}
+ accept(event:any):PublicActivity[]{
+  if(event.directory!==this.directory)return [];
+  const props=event.payload?.properties,part=props?.part;
+  if(part?.sessionID===this.sessionID){if(part.type==='text'&&!part.synthetic&&!part.ignored)this.texts.set(part.id,{...part});return opencodePublicEvents(event,this.directory,this.sessionID);}
+  if(event.payload?.type!=='message.part.delta'||props?.sessionID!==this.sessionID||props.field!=='text'||typeof props.delta!=='string')return [];
+  const previous=this.texts.get(props.partID);if(!previous||previous.messageID!==props.messageID)return [];
+  const updated={...previous,text:(previous.text??'')+props.delta};this.texts.set(props.partID,updated);
+  return opencodePublicEvents({directory:this.directory,payload:{properties:{part:updated}}},this.directory,this.sessionID);
+ }
+}
 export class OpenCodeDecisionAgent implements DecisionAgent {
   constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startOpencodeService) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
@@ -165,6 +180,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
         sessionID = session.data.id; bindDecisionSession(state,store,sessionID);
       }
       const record = activityRecorder(state,store,'opencode',`opencode:${call}`);
+      const publicStream=new OpenCodePublicStream(workspace,sessionID!);
       let readyResolve!: () => void, readyReject!: (error: Error) => void;
       const ready = new Promise<void>((resolve,reject) => { readyResolve = resolve; readyReject = reject; });
       const stream = await client.global.event({signal:AbortSignal.any([eventsStop.signal,signal]),sseMaxRetryAttempts:0,fetch:async input => {
@@ -172,7 +188,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
         catch (error) { readyReject(new Error('OpenCode event subscription failed')); throw error; }
       }});
       eventTask = (async () => { for await (const event of stream.stream) {
-        for (const activity of opencodePublicEvents(event,workspace,sessionID!)) record(activity);
+        for (const activity of publicStream.accept(event)) record(activity);
         const e = event as any, part = e.payload?.properties?.part;
         if (e.directory === workspace && part?.sessionID === sessionID) {if(part.type==='tool')tools.set(part.id,part);discussionStream.opencode(part);opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
         const info = e.payload?.properties?.info;
@@ -185,7 +201,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       // Final native parts also carry public tool/text receipts. Capture them
       // even when the HTTP result overtakes the tail of the volatile SSE stream.
       for (const part of result.data.parts ?? []) {
-        for (const activity of opencodePublicEvents({directory:workspace,payload:{properties:{part}}},workspace,sessionID)) record(activity);
+        for (const activity of publicStream.accept({directory:workspace,payload:{properties:{part}}})) record(activity);
         if (part.sessionID === sessionID) {if(part.type==='tool')tools.set(part.id,part);opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
       }
       observation.observeOpencodeMessage(result.data.info);

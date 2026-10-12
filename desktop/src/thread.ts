@@ -78,8 +78,16 @@ function activityCategory(data:any):string {
 }
 export {groupMessages} from './threadGrouping.js';
 export function messagePage(messages:ChatMessage[],after?:string){
- const index=after?messages.findIndex(m=>m.id===after):-1;
+ const version=after?.match(/^(.*):v2:(-?\d+)$/),watermark=version?Number(version[2]):undefined;
+ const id=version&&Number.isSafeInteger(watermark)&&(watermark??-2)>=-1?version[1]:after;
+ const index=id?messages.findIndex(m=>m.id===id):-1;
  const reset=Boolean(after&&index<0),start=index<0?0:index+1;
- const page=messages.slice(start,start+150);
- return {messages:page,cursor:page.at(-1)?.id??after??null,hasMore:start+page.length<messages.length,reset,total:messages.length};
+ const latest=messages.reduce((value,m)=>Math.max(value,m.timelineIndex??-1),-1);
+ // The visible ID stays stable while a text/tool stream grows. Re-send changes
+ // before the chronological cursor as well as newly appended messages.
+ const changed=version&&!reset?messages.slice(0,start).filter(m=>m.timelineIndex!==undefined&&m.timelineIndex>watermark!).sort((a,b)=>a.timelineIndex!-b.timelineIndex!):[];
+ const updates=changed.slice(0,150),page=messages.slice(start,start+150-updates.length);
+ const nextId=page.at(-1)?.id??(index>=0?id:undefined);
+ const nextWatermark=changed.length>updates.length?updates.at(-1)!.timelineIndex!:latest;
+ return {messages:[...updates,...page],cursor:nextId?`${nextId}:v2:${nextWatermark}`:null,hasMore:changed.length>updates.length||start+page.length<messages.length,reset,total:messages.length};
 }

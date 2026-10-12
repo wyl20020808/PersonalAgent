@@ -1,5 +1,6 @@
 import type {ChatMessage,SessionMessage,DecisionAgent} from './types.js';
 import {localFilePath} from './fileReferences.js';
+import {partialDiscussionReply} from '../../dist/src/discussion-stream.js';
 
 export function imageFilePath(value:string):string|undefined{
  const file=localFilePath(value);return file&&/\.(?:png|jpe?g|gif|webp)$/i.test(file)?file:undefined;
@@ -65,7 +66,7 @@ export function activityStatus(data:Activity):string {
  return toolPresentation(data)?.status??'recorded';
 }
 
-const publicProtocols=['opencode-sdk','codex-sdk-runStreamed','claude-cli-stream-json'];
+const publicProtocols=['opencode-sdk','codex-sdk-runStreamed','codex-app-server','claude-cli-stream-json'];
 function publicReceipt(value:unknown,depth=0):string {
  if(depth>=4)return typeof value==='string'?value:JSON.stringify(value,null,2);
  if(typeof value==='string'){
@@ -90,6 +91,10 @@ export function publicMessageText(message:ChatMessage):string {
   }catch{
    // Recognize only the adapter envelope header; never guess partial receipt contents.
    if(/^\s*\{\s*"role"\s*:\s*"execution"\s*,\s*"phase"\s*:\s*"execute"\s*,/.test(message.text))return message.status==='running'?'正在接收执行结果…':'执行记录不完整，无法整理正文。请展开原始记录查看。';
+  }
+  if(/^\s*\{/.test(message.text)){
+   for(const field of ['reply','summary','reason']){const text=partialDiscussionReply(message.text,field);if(text!==undefined)return text;}
+   try{JSON.parse(message.text);}catch{return '';}
   }
  }
  return message.text;

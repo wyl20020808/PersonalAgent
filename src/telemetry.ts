@@ -7,7 +7,7 @@ export function redact(text:string):string {
     .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|secret)\s*["']?\s*[:=]\s*["']?)[^\s,"'\r\n}]+/gi,'$1[已隐藏凭据]')
     .replace(/Bearer\s+[\w.\/-]+/gi,'Bearer [已隐藏凭据]');
 }
-export interface PublicActivity {key:string;kind:string;title:string;text:string;streamId?:string}
+export interface PublicActivity {key:string;kind:string;title:string;text:string;streamId?:string;source?:'codex-app-server'}
 export function activityRecorder(state:State,store:Store,agent:'claude'|'codex'|'opencode',scope:string,phase?:'plan'|'review'|'execute'){
   const seen=new Set<string>();let count=0,limited=false;
   if(existsSync(store.file('audit.jsonl')))for(const line of readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').filter(Boolean)){
@@ -22,7 +22,7 @@ export function activityRecorder(state:State,store:Store,agent:'claude'|'codex'|
     const fullTextFile=text.length>6000?`activity-${createHash('sha256').update(scope+key).digest('hex')}.txt`:undefined;
     if(fullTextFile)writeFileSync(store.file(fullTextFile),text,'utf8');
     store.audit('agent-activity',{scope,agent,...(phase?{phase}:{}),runId:state.id,taskId:state.tasks[state.taskIndex]?.id??null,loop:state.loops,
-      key,streamId:event.streamId,kind:event.kind.slice(0,80),title:redact(event.title).slice(0,160),text:text.slice(0,6000),truncated:!!fullTextFile,fullTextFile,fullTextHash:fullTextFile?createHash('sha256').update(text).digest('hex'):undefined,source:agent==='opencode'?'opencode-sdk':agent==='claude'?'claude-cli-stream-json':'codex-sdk-runStreamed'});
+      key,streamId:event.streamId,kind:event.kind.slice(0,80),title:redact(event.title).slice(0,160),text:text.slice(0,6000),truncated:!!fullTextFile,fullTextFile,fullTextHash:fullTextFile?createHash('sha256').update(text).digest('hex'):undefined,source:agent==='opencode'?'opencode-sdk':agent==='claude'?'claude-cli-stream-json':event.source==='codex-app-server'?event.source:'codex-sdk-runStreamed'});
   };
 }
 

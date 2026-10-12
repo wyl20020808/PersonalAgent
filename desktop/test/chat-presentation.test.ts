@@ -83,3 +83,9 @@ test('unrecognized JSON stays intact; partial envelopes show a notice and tools 
  assert.equal(publicMessageText({...message,kind:'tool',text,details:{protocol:'opencode-sdk'}}),text);
  assert.equal(publicMessageText({...message,kind:'output',text:JSON.stringify({mode:'native',summary:'done'}),details:{protocol:'codex-sdk-runStreamed'}}),'done');
 });
+
+test('public reply, summary and reason decode while streaming without exposing incomplete JSON or partial Unicode',()=>{
+ const render=(text:string)=>publicMessageText({...message,kind:'output',text,details:{protocol:'codex-app-server'}});
+ assert.equal(render('{"reply":"正在核对'),'正在核对');assert.equal(render('{"reason":"需要核对'),'需要核对');assert.equal(render('{"summary":"检查完成"}'),'检查完成');
+ assert.equal(render('{"tasks":['),'');assert.equal(render('{"reply":"中文\\n换行\\uD83D'),'中文\n换行');assert.equal(render('{"reply":"中文\\uD83D\\uDE00'),'中文😀');
+});

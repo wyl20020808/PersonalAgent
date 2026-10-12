@@ -51,7 +51,7 @@ export class CodexDecisionAgent implements DecisionAgent {
           } else {
             if (!ownedThread) throw new FlowError('safety', 'Codex Decision event without owned Thread');
             if (event.type === 'observation') { const data=event.data;if(data?.item&&['command_execution','file_change','mcp_tool_call'].includes(data.item.type)){if(data.type==='item.completed')pendingTools.delete(data.item.id);else pendingTools.add(data.item.id);}discussionStream.codex(event.data);codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
-            else if (event.type === 'activity') record(event.data);
+            else if (event.type === 'activity') {record(event.data);if(event.data?.kind==='output')discussionStream.text(event.data.streamId??'codex',event.data.text??'');}
             else if (event.type === 'result') { seenResult = true; output = event.data; }
             else throw Error('Unexpected Codex Decision worker protocol');
           }
