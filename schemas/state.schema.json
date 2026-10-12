@@ -1186,6 +1186,23 @@
         }
       }
     },
+    "reworkReplan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "reworks"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "reworks": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "guidancePending": {
       "type": "object",
       "additionalProperties": false,
