@@ -19,7 +19,7 @@ import { opencodeEnvironment } from './opencode-runtime.js';
 import { timeoutSignal } from './timeout.js';
 import { createOpencodeTransport, transportErrorDetails } from './opencode-transport.js';
 
-export interface OpenCodeService { client: OpencodeClient; openapi: any; fetch?: typeof globalThis.fetch; close(): Promise<void> }
+export interface OpenCodeService { client: OpencodeClient; openapi: any; fetch?: typeof globalThis.fetch; diagnostics?:()=>{pid?:number;closed:boolean;code:number|null;signal:string|null;requestedClose:boolean}; close(): Promise<void> }
 export type OpenCodeLauncher = (executable: string | undefined, directory: string, signal: AbortSignal, runtimeDirectory?: string) => Promise<OpenCodeService>;
 export function resolveOpencodeExecutable(explicit?: string): string {
   const configured = explicit ?? process.env.PERSONAL_AGENT_OPENCODE_EXECUTABLE;
@@ -42,8 +42,10 @@ export async function startOpencodeService(executable: string | undefined, direc
   });
   const transport = createOpencodeTransport();
   let closed = false;
-  const exited = new Promise<void>(resolve => { child.once('close', () => { closed = true; resolve(); }); child.once('error', () => { closed = true; resolve(); }); });
-  const close = async () => { try { if (!closed && child.pid) await terminateTree(child.pid); await exited; } finally { await transport.close(); } };
+  let exitCode:number|null=null,exitSignal:string|null=null,requestedClose=false;
+  const diagnostics=()=>({pid:child.pid,closed,code:exitCode,signal:exitSignal,requestedClose});
+  const exited = new Promise<void>(resolve => { child.once('close', (code,signal) => { exitCode=code;exitSignal=signal;closed = true; resolve(); }); child.once('error', () => { closed = true; resolve(); }); });
+  const close = async () => { try { if (!closed && child.pid){requestedClose=true;await terminateTree(child.pid);} await exited; } finally { await transport.close(); } };
   try {
     const url = await new Promise<string>((resolve, reject) => {
       let pending = '';
@@ -69,7 +71,7 @@ export async function startOpencodeService(executable: string | undefined, direc
     else { const legacy = await fetch(`${url}/doc`, { signal, headers, redirect:'error' }); openapi = await legacy.json(); }
     if (!openapi?.paths) throw new FlowError('supervisor','OpenCode OpenAPI unavailable');
     const client = createOpencodeClient({ baseUrl: url, directory, throwOnError: true, headers, fetch: transport.fetch });
-    return { client, openapi, fetch: transport.fetch, close };
+    return { client, openapi, fetch: transport.fetch, diagnostics, close };
   } catch (error) { await close(); throw new FlowError('supervisor', redact((error as Error)?.message ?? 'OpenCode service startup failed')); }
 }
 
@@ -216,6 +218,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
     } finally {
       eventsStop.abort(); await eventTask?.catch(() => {});
       try{await service?.close();}catch(error){blockGuidanceHandoff('OpenCode 决策进程退出未确认；保留现场');throw error;}
+      finally{if(service?.diagnostics)store.audit('opencode-service-exit',{role,sessionId:sessionID,...service.diagnostics()});}
       observation.finish(completed?'success':signal.aborted?'interrupted':'failed');
     }
   }
