@@ -178,13 +178,13 @@ test('timeout/cancel preserves writes, aborts native Session and requires human 
  }
 });
 test('Controller durable result recovery does not replay confirmed task',async()=>{
- const f=await fixture(),server=fake(),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');const calls=server.prompts;
+ const f=await fixture({timeoutMs:15000}),server=fake(),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');const calls=server.prompts;
  const saved=f.store.load();saved.phase='executing';saved.taskIndex=0;saved.completedTaskIds=[];f.store.save(saved);
  const recovered=await drive(f.store,real(f,server));assert.equal(recovered.phase,'completed');assert.equal(server.prompts,calls+1); // only Review repeated
  assert.ok(records(f.store).some(e=>e.event==='native-result-recovered'));
 });
 test('Controller transports decision acceptance without a machine test veto or forged user approval',async()=>{
- const f=await fixture({maxReworks:0}),server=fake({failTest:true}),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.decisionAccepted,true);assert.notEqual(done.evidence?.userAccepted,true);assert.ok(!records(f.store).some(e=>e.event==='manual-acceptance'));
+ const f=await fixture({maxReworks:0,timeoutMs:15000}),server=fake({failTest:true}),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(done.evidence?.passed,false);assert.equal(done.evidence?.decisionAccepted,true);assert.notEqual(done.evidence?.userAccepted,true);assert.ok(!records(f.store).some(e=>e.event==='manual-acceptance'));
  await assert.rejects(()=>previewDelivery(f.store,f.source,''));
 });
 test('persisted execution model immutable; sessions cannot alias decision roles or other Run',async()=>{
