@@ -1,6 +1,6 @@
 # OpenCode 兼容配置丢失推理强度
 
-状态：转换缺陷已修复并通过针对性验证，DEV 应用更新及真实任务切换尚未执行。
+状态：已解决。转换缺陷修复、TEST 验证、获批 DEV 完整批次更新和两个真实角色切换已完成；游戏成果验收另外进行。
 
 执行方：外部 Codex；基线为本地 TEST `9f5d4781363ac1497de5c7c5e6c76340d07766bb`，任务分支 `fix/opencode-variants-20261012`。DEV 运行版本为 `46d81b45d78f9b8c582cf87b689a1137ae389808`。
 
@@ -16,4 +16,4 @@
 
 额外回归初次发现两项 TEST 基线既有失败：测试 HTTP 服务未实现原生 Session PATCH permission 更新，因此多决策者 Review 被生产检查正确拒绝；历史 fixture 的 `userAccepted=true` 断言不符合现行决策者自动验收行为。仅修正测试服务的权限更新响应，并断言 decisionAccepted=true 且未伪造用户审批，没有弱化生产权限校验。最终 OpenCode adapter、配置与角色切换回归合计 42/42；Desktop 全回归 152/152；聊天文件与终端的隔离 headless fixture 通过。最终日志为 `variant-final-tests.log`、`variant-desktop-tests.log`。真实 Electron 可见界面与远端模型调用没有在本修复中冒充已通过。
 
-DEV 手动入口已存在：打开暂停会话，输入框上方的“决策者”或“执行者”按钮，选择 OpenCode、provider/model、推理强度后确认。手动和脚本使用同一后端校验；当前 DEV 的转换缺陷仍会阻止 medium，手动无法替代本修复。主窗口可继续正常使用，两个原 Run、历史 Session、任务进度保持暂停状态。
+DEV 手动入口已存在：打开暂停会话，输入框上方的“决策者”或“执行者”按钮，选择 OpenCode、provider/model、推理强度后确认。手动和脚本使用同一后端校验。2026-10-12 用户批准完整 TEST 候选 5c03edd 并安全更新 DEV，两个原 CC 角色正式切换为 hgapi-openai/gpt-6.1-sol variant medium。校园真实 Review 已调用成功。另一个此前未覆盖的 Claude→OpenCode 中断恢复问题补齐后，经用户批准更新完整后续候选 5d25779，小地图在原 Run、t01、任务工作树中实际执行 OpenCode 工具。校园当前的资产 Owner 授权停点没有被假冒批准。主窗口已安全恢复，同一 OpenWorld 项目下两个会话和所有既有进度保留。
