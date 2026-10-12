@@ -8,6 +8,7 @@ import { collectEvidence, prepare, observeWorkspace, git, workspaceHead, workspa
 import { lockProject, captureProject } from './project-files.js';
 import { observationScope, contextObservation, gitObservation } from './project-observation.js';
 import type { Agents } from './adapters.js';
+import { AUTOMATIC_DECISION, supervisionBlock, type AutomaticResume } from './automatic-supervision.js';
 import { gitProcess, validateGitObjects } from './git-process.js';
 import { classifyFailure, FlowError } from './failure.js';
 import { assertOperationPolicy, readInteractionPolicy } from './interaction-policy.js';
@@ -70,10 +71,17 @@ export async function createRun(config: Config, source: string, goal: string, op
   store.audit('project-observation-policy', { policy: 'none', coverage: observationScope });
   return store;
 }
-export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; timeoutMs?: number }, intent: 'resume' | 'visual' | 'rework' = 'resume'): Promise<State> {
-  const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined;
+export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; timeoutMs?: number }, intent: 'resume' | 'visual' | 'rework' = 'resume', automatic?: AutomaticResume): Promise<State> {
+  const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined; let automaticFailure: State['failure'];
   try {
     state = store.load();
+    if (automatic) {
+      if (intent !== 'resume' || state.updatedAt !== automatic.expectedUpdatedAt) throw new Error('Automatic decision state changed');
+      const blocked = supervisionBlock(state, existsSync(store.file(`native-result-${state.loops}.json`)));
+      if (blocked || existsSync(store.file('stop.request')) || pendingContextConfirmations(store).length) throw new Error(blocked ?? 'Automatic decision requires human action');
+      decision = AUTOMATIC_DECISION;
+      automaticFailure = state.failure;
+    }
     if(state.purpose==='conversation-discussion')throw Error('讨论 Session 不能交给开发调度器；请从会话明确开始执行');
     if (!['resume', 'visual', 'rework'].includes(intent)) throw new Error('Unknown resume intent');
     if (intent === 'rework' && (!decision?.trim() || !['paused', 'failed', 'stopped'].includes(state.phase) || !state.tasks[state.taskIndex] || !['execute', 'verify', 'review'].includes(state.nextPhase))) throw new Error('返工需要明确修改意见、暂停的当前任务；规划或提案应用中断请先恢复原流程');
@@ -157,7 +165,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       store.audit('native-result-recovered', { loop: state.loops, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, note: '重新运行当前配置测试和审查；未恢复或覆盖项目文件' });
     }
     if (state.phase === 'executing' && !state.nativeExecution && existsSync(journalFile(store, state))) checkpoint('applying');
-    if (['paused', 'executing', 'stopped', 'failed'].includes(state.phase)) {
+    if (automatic || ['paused', 'executing', 'stopped', 'failed'].includes(state.phase)) {
       if (!decision?.trim()) {
         if (state.phase !== 'paused') {
           if (state.phase === 'executing') { state.nextPhase = 'execute'; state.reworkPending = true; state.failure = classifyFailure(new FlowError('interrupted', 'Execution interrupted before durable result; existing file changes are preserved'), 'executing'); }
@@ -167,7 +175,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       }
       if (pendingContextConfirmations(store).length) { checkpoint('paused', '待确认契约必须通过正式文档决策入口处理；普通恢复指令不能确认'); return state; }
       // Reuse an old pass only for the exact unchanged result, never for rework.
-      if (intent === 'resume' && state.phase === 'paused' && state.nextPhase === 'verify' && state.evidence?.acceptanceMode === 'decision-user' && recordedPass(store, state)) {
+      if (!automatic && intent === 'resume' && state.phase === 'paused' && state.nextPhase === 'verify' && state.evidence?.acceptanceMode === 'decision-user' && recordedPass(store, state)) {
         state.completedTaskIds ??= state.tasks.some(task => task.dependsOn?.length) ? [] : state.tasks.slice(0, state.taskIndex).map(task => task.id);
         assertPrerequisites(state.tasks, state.taskIndex, state.completedTaskIds);
         const current = await checkedEvidence(true, false);
@@ -180,7 +188,13 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           if (accepted.phase === 'completed') return accepted;
         }
       }
-      state.feedback = [state.feedback, `User decision: ${decision}`].filter(Boolean).join('\n');
+      state.feedback = [state.feedback, `${automatic ? 'Automatic delegation to decision maker' : 'User decision'}: ${decision}`, automatic ? `暂停原因：${state.reason}` : ''].filter(Boolean).join('\n');
+      if (automatic && state.nextPhase !== 'verify' && state.nextPhase !== 'review') {
+        state.automaticPlanning = { reason: state.reason || state.failure?.message || '后台发现未完成的调度节点' };
+        state.completedTaskIds ??= state.tasks.slice(0, state.taskIndex).map(task => task.id);
+        state.nextPhase = 'planning';
+        if (state.discussion) state.discussion.closed = true;
+      }
       if (intent === 'rework') { state.nextPhase = 'execute'; state.reworkPending = true; }
       if (existsSync(store.file('stop.request'))) unlinkSync(store.file('stop.request'));
       if (state.phase === 'executing') { state.nextPhase = 'execute'; state.reworkPending = true; }
@@ -193,7 +207,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         // Keep pending identities until each node passes actual independent acceptance.
       }
       checkpoint(state.nextPhase === 'review' ? 'verify' : state.nextPhase);
-      store.audit('human-decision', { decision, intent });
+      store.audit(automatic ? 'automatic-decision' : 'human-decision', { decision, intent, expectedUpdatedAt: automatic?.expectedUpdatedAt, failureKind: automaticFailure?.kind });
     }
     while (!['completed', 'paused', 'failed', 'stopped'].includes(state.phase)) {
       try {
@@ -223,8 +237,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         const plan = validate<Plan>(planSchema, await agentOperation('claude', 'plan', signal => agents.plan(state, store, signal)));
         assertDiscussionPlan(state, plan);
         if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; checkpoint('paused', plan.humanDecision); continue; }
-        if (!plan.tasks.length&&!state.guidancePending) throw new Error('Plan must include tasks or request human decision');
-        if (!state.guidancePending&&plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
+        if (!plan.tasks.length&&!state.guidancePending&&!state.automaticPlanning) throw new Error('Plan must include tasks or request human decision');
+        if (!state.guidancePending&&!state.automaticPlanning&&plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
         if (new Set(plan.tasks.map(task => task.id)).size !== plan.tasks.length) throw new Error('Duplicate task IDs');
         const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
         if (context.enabled && state.purpose !== 'context-onboarding') {
@@ -235,13 +249,14 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           }
         }
         const guidance=state.guidancePending;
-        const completed=guidance?state.tasks.filter(task=>state.completedTaskIds?.includes(task.id)):[];
-        if(guidance&&plan.tasks.some(task=>completed.some(previous=>previous.id===task.id)))throw new FlowError('validation','引导计划不能重复已验收任务 ID；需要修改既有成果时使用新任务 ID');
+        const completed=guidance||state.automaticPlanning?state.tasks.filter(task=>state.completedTaskIds?.includes(task.id)):[];
+        if((guidance||state.automaticPlanning)&&plan.tasks.some(task=>completed.some(previous=>previous.id===task.id)))throw new FlowError('validation','引导计划不能重复已验收任务 ID；需要修改既有成果时使用新任务 ID');
         state.tasks = orderTasks([...completed,...plan.tasks], state.config);
         state.taskIndex=completed.length;state.completedTaskIds=completed.map(task=>task.id);
         state.reworks=0;state.reviewRepairs=0;state.reworkPending=false;state.failure=null;
         const inputs=guidance?processingGuidance(store):[];
         if(guidance){state.guidanceHistory=[...(state.guidanceHistory??[]),...inputs];delete state.guidancePending;state.feedback='';}
+        delete state.automaticPlanning;
         if (state.discussion) state.discussion.closed = true;
         state.phase='execute';state.nextPhase='execute';store.save(state);
         for(const input of inputs){finishGuidance(store,input);store.audit('guidance-applied',{messageId:input.id,completedTaskIds:state.completedTaskIds,tasks:plan.tasks});}

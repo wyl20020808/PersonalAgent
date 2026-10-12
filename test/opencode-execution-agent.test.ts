@@ -253,6 +253,18 @@ test('Claude quota interruption can switch to OpenCode only after explicit recov
  assert.equal(attempt.executionSession?.backend,'opencode');assert.equal(attempt.executionAttempt?.status,'success');assert.equal(server.prompts,1);
  assert.equal(fs.readFileSync(path.join(f.source,'partial.txt'),'utf8'),'preserved Claude work\n');assert.equal(attempt.id,state.id);
 });
+test('automatic delegation resumes only a known ended failure, without a forged human decision',async()=>{
+ const f=await fixture(),server=fake(),state=pending(f);
+ state.executionAttempt={loop:state.loops-1,taskId:'core',status:'failed'};f.store.save(state);
+ f.store.audit('opencode-execute-dispatch',{role:'execute',taskId:'core',loop:state.loops-1});
+ const adapter=new OpenCodeExecutionAgent(f.config,server.launcher);
+ f.store.audit('automatic-decision',{failureKind:'interrupted'});
+ await assert.rejects(()=>adapter.execute(state,f.store,new AbortController().signal,'{}'),/explicit human recovery/);assert.equal(server.prompts,0);
+ f.store.audit('automatic-decision',{failureKind:'transport'});
+ await adapter.execute(state,f.store,new AbortController().signal,'{}');assert.equal(server.prompts,1);assert.equal(state.executionAttempt?.status,'success');
+ assert.equal(fs.readFileSync(f.store.file('audit.jsonl'),'utf8').includes('"event":"human-decision"'),false);
+});
+
 test('isolated workspace binding keeps source unchanged; missing authorization and live discussion reject',async()=>{
  const f=await fixture({projectMode:'isolated',directAuthorization:undefined}),server=fake(),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),'initial\n');assert.equal(fs.readFileSync(path.join(done.workspace,'core.js'),'utf8'),'fixed\n');assert.equal(done.executionSession?.workspace,fs.realpathSync(done.workspace));
  const g=await fixture({decisionDiscussion:{participants:[{id:'a',agent:choice},{id:'b',agent:choice}],primary:'a',rounds:0}}),pendingState=pending(g);
