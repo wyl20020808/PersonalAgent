@@ -14,7 +14,7 @@ import AgentLogo from './AgentLogo.js';
 import ImagePreview from './ImagePreview.js';
 import QueuedMessages from './QueuedMessages.js';
 import ProjectExplorer from './ProjectExplorer.js';
-import FilePreview,{FileCards,FileButton,FilePreviewContext,ChangesButton,ChangesPreview} from './FilePreview.js';
+import FilePreview,{FileCards,FileButton,FileOperationSummary,FilePreviewContext,ChangesButton,ChangesPreview} from './FilePreview.js';
 
 import {refreshLoop} from './refreshLoop.js';
 import {readAttachment,attachmentAccept,MAX_ATTACHMENTS} from './attachments.js';
@@ -50,15 +50,16 @@ function ToolContent({message}:{message:ChatMessage}){
  </div>;
 }
 function CompactOperation({message}:{message:ChatMessage}){
+ const [expanded,setExpanded]=useState(false);
  const tool=toolPresentation({kind:message.kind,text:message.text,title:message.title,source:message.details?.protocol});
  const failed=['fail','failed'].includes(message.status);
  const commandPrefix=message.status==='running'?'运行中':tool?.durationMs!==undefined?`已在 ${Math.ceil(tool.durationMs/1000)} 秒内运行`:'已运行';
- const preview=tool?.command?.trim()?`${commandPrefix} ${tool.command}`:tool?.paths?.length?`文件 ${tool.paths.join('、')}`:publicMessageText(message);
- return <details className={`compact-operation status-${message.status}`} data-message-id={message.id}>
-  <summary>{tool?.paths?.length?<FileCode2 size={13}/>:<SquareTerminal size={13}/>}<span className="compact-operation-preview" title={preview}>{preview.replace(/\s+/g,' ')}</span>{failed&&<span className="negative">失败{tool?.exitCode!==undefined?` · ${tool.exitCode}`:''}</span>}</summary>
-  <div className="compact-operation-body">
-  {tool&&(tool.command?.trim()||tool.paths?.length||tool.output?.trim())?<>{tool.command?.trim()&&<pre className="compact-command">{tool.command}</pre>}{tool.paths?.length?<FileCards message={message}/>:null}{tool.output?.trim()&&<pre className="compact-output">{tool.output}</pre>}</>:message.text.trim()&&<pre className="compact-output">{publicMessageText(message)}</pre>}
-  </div>
+ const preview=tool?.command?.trim()?`${commandPrefix} ${tool.command}`:publicMessageText(message);
+ return <details className={`compact-operation status-${message.status}`} data-message-id={message.id} onToggle={event=>setExpanded(event.currentTarget.open)}>
+  <summary>{tool?.paths?.length?<FileCode2 size={13}/>:<SquareTerminal size={13}/>}<span className="compact-operation-preview" title={tool?.paths?.length?undefined:preview}>{tool?.paths?.length&&!tool.command?.trim()?<FileOperationSummary message={message} paths={tool.paths} label={tool.label}/>:preview.replace(/\s+/g,' ')}</span>{failed&&<span className="negative">失败{tool?.exitCode!==undefined?` · ${tool.exitCode}`:''}</span>}</summary>
+  {expanded&&<div className="compact-operation-body">
+  {tool&&(tool.command?.trim()||tool.paths?.length||tool.output?.trim())?<>{tool.command?.trim()?<div className="compact-terminal"><div className="compact-terminal-label">Shell</div><pre className="compact-command">{'$ '+tool.command}</pre>{tool.output?.trim()&&<pre className="compact-output">{tool.output}</pre>}</div>:tool.output?.trim()&&<pre className="compact-output">{tool.output}</pre>}{tool.paths?.length?<FileCards message={message}/>:null}</>:message.text.trim()&&<pre className="compact-output">{publicMessageText(message)}</pre>}
+  </div>}
  </details>;
 }
 function MessageText({message}:{message:ChatMessage}){
