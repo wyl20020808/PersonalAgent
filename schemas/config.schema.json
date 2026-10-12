@@ -172,7 +172,6 @@
     "acceptanceStages": {
       "type": "object",
       "minProperties": 1,
-      "maxProperties": 20,
       "propertyNames": {
         "pattern": "^[a-zA-Z0-9_-]{1,64}$"
       },
@@ -438,9 +437,14 @@
           ]
         },
         "rounds": {
-          "enum": [
-            0,
-            1
+          "anyOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
           ]
         }
       },
@@ -563,7 +567,6 @@
     "taskStages": {
       "type": "object",
       "minProperties": 1,
-      "maxProperties": 20,
       "propertyNames": {
         "pattern": "^[a-zA-Z0-9_-]{1,64}$"
       },

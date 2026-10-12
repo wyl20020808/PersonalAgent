@@ -20,7 +20,7 @@ import { OpenCodeDecisionAgent, type OpenCodeLauncher } from '../src/opencode-de
 
 const root=path.resolve('.validation','p2a-'+randomUUID());fs.mkdirSync(root,{recursive:true});
 const plan:Plan={humanDecision:null,tasks:[{id:'hello',instruction:'Create hello.txt',acceptance:['hello.txt contains hello and newline']}]};
-async function fixture(rounds:0|1=1,primary:'a'|'b'='a',overrides:Partial<Config>={},context=false){
+async function fixture(rounds:DecisionDiscussion['rounds']=1,primary:'a'|'b'='a',overrides:Partial<Config>={},context=false){
  const dir=path.join(root,randomUUID()),source=path.join(dir,'source');fs.mkdirSync(source,{recursive:true});fs.writeFileSync(path.join(source,'seed.txt'),'keep\n');
  // A mandatory full-project capture would reject this hardlink before either decision call.
  fs.linkSync(path.join(source,'seed.txt'),path.join(source,'seed-link.txt'));
@@ -31,17 +31,19 @@ async function fixture(rounds:0|1=1,primary:'a'|'b'='a',overrides:Partial<Config
  return {config,source,store:await createRun(config,source,'Write hello; preserve existing seed')};
 }
 function records(store:Store){return fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(s=>JSON.parse(s));}
-function protocol(options:{failB?:boolean;hangB?:boolean;invalidOpinion?:boolean;invalidFinal?:boolean;human?:boolean;abort?:AbortController;wrongExecute?:boolean}={}){
- const prompts:any[]=[],executions:any[]=[],sessions=new Map<string,string>();let failB=options.failB;
+function protocol(options:{failB?:boolean;hangB?:boolean;invalidOpinion?:boolean;invalidFinal?:boolean;human?:boolean;abort?:AbortController;wrongExecute?:boolean;chosenRounds?:number;failRound?:number}={}){
+ const prompts:any[]=[],executions:any[]=[],sessions=new Map<string,string>();let failB=options.failB,failRound=options.failRound;
  const run:typeof runProcess=async(executable,args,request)=>{
   if(executable===process.execPath){const payload=JSON.parse(request.input!);executions.push(payload);fs.writeFileSync(path.join(payload.workspace,'hello.txt'),options.wrongExecute?'wrong\n':'hello\n');request.onLine?.(JSON.stringify({type:'thread',id:'local-sdk-worker-thread'}));request.onLine?.(JSON.stringify({type:'result',data:{mode:'native',summary:'Local SDK worker fixture; no remote call'}}));return {exitCode:0,stdout:'',stderr:''};}
   const prompt=JSON.parse(request.input!),model=args[args.indexOf('--model')+1],sid=args[args.indexOf(args.includes('--resume')?'--resume':'--session-id')+1]!;
   if(sessions.has(sid))assert.equal(sessions.get(sid),model);else sessions.set(sid,model!);
   prompts.push({prompt,model,sid,args});
   if(failB&&model==='opus'&&prompt.decisionStage==='draft'){failB=false;throw Error('fixture B unavailable');}
+  if(failRound!==undefined&&model==='opus'&&prompt.decisionStage==='discussion'&&prompt.exchange.round===failRound){failRound=undefined;throw Error('fixture later round unavailable');}
   if(options.hangB&&model==='opus'&&prompt.decisionStage==='draft')await new Promise<void>((_resolve,reject)=>{const abort=()=>reject(Error('Fixture decision timeout'));request.signal!.addEventListener('abort',abort,{once:true});if(request.signal!.aborted)abort();});
   if(options.abort&&model==='opus'&&prompt.decisionStage==='draft'){options.abort.abort();throw Error('Stopped');}
   let output:any=prompt.decisionStage==='discussion'?{summary:`${model} independent opinion`,disagreements:['Different proposal'],amendments:['Keep seed']}:prompt.decisionStage?structuredClone(plan):{verdict:'pass',reason:'Local review fixture'};
+  if(prompt.decisionStage==='draft'&&prompt.discussionPolicy?.primary&&options.chosenRounds!==undefined)output.discussionRounds=options.chosenRounds;
   if(options.invalidOpinion&&prompt.decisionStage==='discussion')output={summary:'missing fields'};
   if(options.invalidFinal&&prompt.decisionStage==='synthesis')output={humanDecision:null,tasks:[plan.tasks[0],plan.tasks[0]]};
   if(options.human&&prompt.decisionStage==='synthesis')output={humanDecision:'Need explicit requirement clarification',tasks:[]};
@@ -104,7 +106,7 @@ test('participant/model changes and shared Sessions are rejected, unsupported ro
  const f=await fixture(),p=protocol();await drive(f.store,new RealAgents(f.config,p.run));const state=f.store.load();
  state.config.decisionDiscussion!.rounds=0;assert.throws(()=>f.store.save(state),/Immutable/);
  const shared=f.store.load();shared.discussion!.participants[1]!.session=structuredClone(shared.discussion!.participants[0]!.session);shared.discussion!.participants[1]!.claudeSessionId=shared.discussion!.participants[0]!.claudeSessionId;assert.throws(()=>assertDiscussion(shared),/share/);
- for(const bad of [{...f.config,decisionDiscussion:{...f.config.decisionDiscussion,rounds:2}},{...f.config,decisionDiscussion:{participants:[{id:'a',agent:{backend:'unsupported'}},{id:'b',agent:{backend:'claude-code'}}],rounds:1,primary:'a'}},{...f.config,executionAgent:{backend:'opencode'}}])assert.throws(()=>validate(configSchema,bad));
+ for(const bad of [{...f.config,decisionDiscussion:{...f.config.decisionDiscussion,rounds:-1}},{...f.config,decisionDiscussion:{participants:[{id:'a',agent:{backend:'unsupported'}},{id:'b',agent:{backend:'claude-code'}}],rounds:1,primary:'a'}},{...f.config,executionAgent:{backend:'opencode'}}])assert.throws(()=>validate(configSchema,bad));
 });
 test('legacy single decision and dual Mock runs retain accurate local-only labels',async()=>{
  const single=await fixture(0,'a',{mode:'mock',decisionDiscussion:undefined,decisionAgent:undefined});const singleState=await drive(single.store,new MockAgents(single.config));assert.equal(singleState.phase,'completed');assert.equal(singleState.discussion,undefined);assert.equal(singleState.claudeCalls,0);
@@ -155,4 +157,33 @@ for(const mixed of [false,true])test(`${mixed?'Claude Code + OpenCode':'OpenCode
  assert.equal(state.discussion!.participants[1]!.calls,4);assert.equal(state.discussion!.participants[0]!.calls,2);
  for(const event of records(f.store).filter(e=>e.event==='agent-activity'&&e.data.agent==='opencode'))assert.equal(event.data.participantAgent.backend,'opencode');
  assert.ok([...server.sessions.values()].every(s=>/:[ab]$/.test(s.title)));
+});
+
+for (const rounds of ['auto', 3] as const) test(`discussion rounds ${rounds}: primary chooses flexible multi-round exchange`, async () => {
+ const f=await fixture(rounds,'b'),p=protocol({chosenRounds:rounds==='auto'?3:0}),state=await drive(f.store,new RealAgents(f.config,p.run));
+ assert.equal(state.phase,'completed',state.reason);assert.equal(p.executions.length,1);
+ const opinions=p.prompts.filter(row=>row.prompt.decisionStage==='discussion');assert.equal(opinions.length,6);
+ assert.equal(p.prompts.find(row=>row.prompt.decisionStage==='synthesis').prompt.exchange.rounds,3);
+ assert.equal(Object.keys(state.discussion!.steps).length,9);
+ assert.equal(p.prompts.length,10);
+ const review=p.prompts.find(row=>!row.prompt.decisionStage)!.prompt;
+ assert.ok(review.planningObservation.evidenceReference);
+ assert.ok(fs.existsSync(review.planningObservation.evidenceReference));
+});
+test('auto discussion permits primary to choose no peer rounds',async()=>{
+ const f=await fixture('auto'),p=protocol({chosenRounds:0}),state=await drive(f.store,new RealAgents(f.config,p.run));
+ assert.equal(state.phase,'completed',state.reason);assert.equal(p.prompts.length,4);
+});
+
+
+test('auto later-round failure resumes without repeating successful drafts or opinions',async()=>{
+ const f=await fixture('auto'),p=protocol({chosenRounds:3,failRound:1});let state=await drive(f.store,new RealAgents(f.config,p.run));
+ assert.equal(state.phase,'paused');assert.equal(p.executions.length,0);
+ state=await drive(f.store,new RealAgents(f.config,p.run),'retry failed discussion call');
+ assert.equal(state.phase,'completed',state.reason);
+ assert.equal(p.prompts.filter(r=>r.prompt.decisionStage==='draft').length,2);
+ assert.equal(p.prompts.filter(r=>r.prompt.decisionStage==='discussion'&&r.prompt.exchange.round===0).length,2);
+ const later=p.prompts.filter(r=>r.prompt.decisionStage==='discussion'&&r.prompt.exchange.round===2);
+ assert.equal(later.length,2);assert.equal(Object.keys(later[0].prompt.exchange.previousOpinions).length,2);
+ assert.ok(later[0].prompt.exchange.historyReference);assert.equal(p.executions.length,1);
 });

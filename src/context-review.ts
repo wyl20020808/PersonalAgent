@@ -20,7 +20,8 @@ export function assertPlanningContext(state: State, store: Store): void {
   const paths = [...new Set([...Object.keys(baseline.files), ...Object.keys(current.files)])].sort().filter(relative => !relative.startsWith(`${contextRoot}/`) && projectFileHash(baseline,relative) !== projectFileHash(current,relative));
   if (paths.length) {
     store.audit('context-planning-change', { baseline: file, before: baseline.digest, after: current.digest, paths });
-    throw new FlowError('supervisor', `规划期间业务文件修改尚未处理，不能进入 Execute；恢复业务文件后继续规划：${paths.join(', ')}`);
+    // Authorized planning may include implementation. Keep the observation,
+    // rather than requiring the decision maker to undo its own work.
   }
 }
 
@@ -43,7 +44,7 @@ export function freezeTaskContext(state: State, store: Store): void {
   const context = loadProjectContext(state.workspace, state.projectContextEnabled === true, { runtimeDir: state.config.runtimeDir, source: state.source });
   if (!context.enabled) return;
   const task = state.tasks[state.taskIndex]!;
-  if (task.moduleIds?.some(id => !context.modules.some(doc => doc.metadata.id === id))) throw Error('任务 moduleIds 含不存在的模块');
+  if (task.moduleIds?.some(id => !context.modules.some(doc => doc.metadata.id === id))) throw Error('显式 moduleIds 引用不存在');
   const payload = { taskId: task.id, moduleIds: [...(task.moduleIds ?? [])], context, snapshot: contextObservation(state) };
   mkdirSync(store.file('context'), { recursive: true });
   const baseline = { ...payload, digest: contextHash(JSON.stringify(payload)) };

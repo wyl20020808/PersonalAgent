@@ -50,7 +50,7 @@ const desktopDecisionSchema={oneOf:[{type:'object',additionalProperties:false,re
 const desktopExecutionSchema=desktopDecisionSchema;
 const desktopDiscussionSchema={type:'object',additionalProperties:false,required:['participants','primary','rounds'],properties:{
  participants:{type:'array',minItems:2,maxItems:3,items:{type:'object',additionalProperties:false,required:['id','agent'],properties:{id:{enum:['a','b','c']},agent:desktopDecisionSchema}}},
- primary:{enum:['a','b','c']},rounds:{enum:[0,1]}
+ primary:{enum:['a','b','c']},rounds:{anyOf:[{const:'auto'},{type:'integer',minimum:0}]}
 }};
 const schemas:Record<string,object>=Object.create(null);
 const schema=(operation:string,properties:Record<string,object>={},required:string[]=Object.keys(properties))=>schemas[operation]={type:'object',additionalProperties:false,required:['operation',...required],properties:{operation:{const:operation},...properties}};

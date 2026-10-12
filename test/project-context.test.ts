@@ -70,11 +70,11 @@ test('parser rejects invalid fields, duplicate YAML keys and IDs, unsafe paths, 
   fs.writeFileSync(overview, overviewOriginal + '\n'.repeat(61)); assert.throws(() => loadProjectContext(f.workspace), /60 行/);
   fs.writeFileSync(overview, overviewOriginal); fs.writeFileSync(contract, contractOriginal + '\n'.repeat(81)); assert.throws(() => loadProjectContext(f.workspace), /80 行/);
 });
-test('checked_files max 20, directory prefix membership and stale hashes are format checks only', async () => {
+test('checked_files count is chosen by the decision maker; membership and hashes remain validated', async () => {
   const f = await fixture(), relative = `${contextRoot}/modules/core.md`;
   const metadata = { id: 'core', name: '核心', paths: ['src/core/'], depends_on: [], checked_files: Object.fromEntries(Array.from({ length: 20 }, (_, n) => [`src/core/${n}.ts`, 'a'.repeat(64)])) };
   write(f.workspace, relative, document('module', metadata)); assert.equal(Object.keys(loadProjectContext(f.workspace).modules[0]!.metadata.checked_files).length, 20);
-  metadata.checked_files['src/core/extra.ts'] = 'b'.repeat(64); write(f.workspace, relative, document('module', metadata)); assert.throws(() => loadProjectContext(f.workspace), /模块字段/);
+  metadata.checked_files['src/core/extra.ts'] = 'b'.repeat(64); write(f.workspace, relative, document('module', metadata)); assert.equal(Object.keys(loadProjectContext(f.workspace).modules[0]!.metadata.checked_files).length, 21);
 });
 test('context-stamp hashes actual bytes and preserves other metadata/body; failure never partly updates', async () => {
   const f = await fixture(), file = path.join(f.workspace, contextRoot, 'modules/core.md');
@@ -256,12 +256,12 @@ test('execute always receives catalog and concrete executable stamp example, no 
   assert.equal((await callContext(state, f.store, 'execute', new AbortController().signal))!.stampCommand, null);
 });
 
-test('stamp rejects obvious non-core objects atomically but accepts HTML, source and interface files', async () => {
+test('stamp accepts model-selected documents, tests, source and interface files', async () => {
   const f = await fixture(), module = path.join(f.workspace, contextRoot, 'modules/core.md');
   for (const file of ['README.md', 'notes.md', 'package-lock.json', '.gitignore', 'result.json', 'main.test.ts', 'tests/main.ts', 'generated/main.js', 'browser-validation.mjs', 'validate-bots.cjs', 'chrome-acceptance.mjs']) {
-    const name = 'src/core/' + file; write(f.workspace, name, 'fixture'); const before = fs.readFileSync(module);
-    assert.throws(() => stampContext(f.workspace, 'core', ['src/core/main.ts', name]), /核心源码入口/);
-    assert.deepEqual(fs.readFileSync(module), before);
+    const name = 'src/core/' + file; write(f.workspace, name, 'fixture');
+    const stamped = stampContext(f.workspace, 'core', ['src/core/main.ts', name]);
+    assert.equal(stamped.files[name], contextHash(Buffer.from('fixture')));
   }
   for (const name of ['index.html', 'api.d.ts', 'engine.cpp', 'interface.h', 'main.js', 'styles.css']) {
     write(f.workspace, 'src/core/' + name, 'fixture'); stampContext(f.workspace, 'core', ['src/core/' + name]);
@@ -275,12 +275,12 @@ test('decision maker may plan enabled-Context tasks without moduleIds', async ()
     const result = await drive(f.store, agents); assert.equal(result.phase, 'completed', result.reason);
   }
 });
-test('new enabled development plans block nonexistent moduleIds and can retry after native exploration', async () => {
+test('explicit invalid module references can retry after native exploration', async () => {
   for (const ids of [['missing']]) {
     const f = await fixture(true, { mode: 'mock' }); let executed = false;
     const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'work', instruction: '核心源码', acceptance: ['通过'], moduleIds: ids }], humanDecision: null }), execute: async () => { executed = true; return { mode: 'native', summary: 'never' }; }, review: async () => ({ verdict: 'pass', reason: 'fixture' }) };
     const result = await drive(f.store, agents); assert.equal(result.phase, 'paused'); assert.equal(result.nextPhase, 'planning'); assert.equal(executed, false); assert.equal(result.loops, 0);
-    assert.match(result.feedback, /相关/);
+    assert.match(result.feedback, /不存在/);
     agents.plan = async state => {
       // Native exploration can establish a new business responsibility before returning a plan.
       write(state.workspace, `${contextRoot}/modules/new-business.md`, document('module', { id: 'new-business', name: '新业务', paths: ['src/new/'], depends_on: [], checked_files: {} }));
@@ -347,5 +347,17 @@ test('onboarding rejects deletion of business, runtime-like, nonstandard and ove
     const agents: Agents = { executionMode: 'native', plan: async () => ({ tasks: [{ id: 'docs', instruction: 'fixture', acceptance: ['fixture'] }], humanDecision: null }), execute: async state => { fs.unlinkSync(path.join(state.workspace, name)); return { mode: 'native', summary: 'rejected fixture' }; }, review: async () => ({ verdict: 'pass', reason: 'never' }) };
     const result = await drive(store, agents); assert.equal(result.phase, 'failed'); assert.match(result.reason, /建档产物范围错误/); assert.equal(readProject(f.source).digest, before.digest);
     await assert.rejects(previewDelivery(store, f.source, 'project-files'));
+  }
+});
+
+test('enabled Context permits omitted or empty module references', async () => {
+  for (const ids of [undefined, []]) {
+    const f = await fixture(true, { mode: 'mock' }); let executed = 0;
+    const agents: Agents = { executionMode: 'native',
+      plan: async () => ({ tasks: [{ id: 'work', instruction: 'inspect core', acceptance: ['verified'], moduleIds: ids }], humanDecision: null }),
+      execute: async state => { executed++; write(state.workspace, 'src/core/main.ts', 'export const updated = true;'); return { mode: 'native', summary: 'fixture' }; },
+      review: async () => ({ verdict: 'pass', reason: 'local fixture review' }) };
+    const state = await drive(f.store, agents);
+    assert.equal(state.phase, 'completed', state.reason); assert.equal(executed, 1);
   }
 });
