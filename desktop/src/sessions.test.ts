@@ -8,6 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {DesktopService,validateRequest} from './test-service.js';
 import {groupMessages} from './threadGrouping.js';
+import {sessionProject} from './sessionProject.js';
 import {projectMessages} from './thread.js';
 import type {ChatMessage,Conversation} from './types.js';
 import type {State} from '../../src/store.js';
@@ -16,6 +17,42 @@ import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const settleDiscussion=async(service:DesktopService,id:string)=>{for(let i=0;i<150;i++){if(!service.sessions.discussionJobs.has(id))return service.sessions.detail(id).session;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('Discussion did not settle');};
+
+async function parallelFixture(){
+ const result=fixture();await git(result.project,['init','-b','dev']);await git(result.project,['add','user.txt']);await git(result.project,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','Parallel baseline']);
+ const task=path.join(result.data,'minimap');await git(result.project,['worktree','add','-b','feature/minimap',task]);return {...result,task};
+}
+test('same project group launches independent worktrees while same execution directory stays queued',async()=>{
+ const {service,data,project,task}=await parallelFixture();let launches=0;service.launch=()=>{launches++;};
+ const first=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:first.id,messageId:randomUUID(),text:'campus feature',directAcknowledged:true});
+ const original=service.sessions.detail(first.id).runs[0],store=service.store(original.profileId,original.id),before=fs.readFileSync(store.file('state.json'));
+ const second=await service.dispatch({operation:'createSession',projectPath:task,projectGroupPath:project,mode:'mock'}) as Conversation;
+ assert.deepEqual(sessionProject(second),sessionProject(first));assert.notEqual(second.projectPath,first.projectPath);
+ assert.notEqual(service.sessions.lockPath(service.sessions.get(first.id)),service.sessions.lockPath(service.sessions.get(second.id)));
+ await service.sessions.send({operation:'sendSession',sessionId:second.id,messageId:randomUUID(),text:'minimap feature',directAcknowledged:true});
+ assert.equal(launches,2);const run=service.sessions.detail(second.id).runs[0];assert.equal(run.source,fs.realpathSync(task));assert.equal(run.workspace,fs.realpathSync(task));assert.notEqual(run.profileId,original.profileId);
+ assert.deepEqual(fs.readFileSync(store.file('state.json')),before);
+ const third=service.sessions.create({operation:'createSession',projectPath:task,projectGroupPath:project,mode:'mock'});
+ const queued=await service.sessions.send({operation:'sendSession',sessionId:third.id,messageId:randomUUID(),text:'other feature',directAcknowledged:true});assert.equal(queued.messages[0].status,'pending');assert.equal(queued.runs.length,0);assert.equal(launches,2);
+ const reopened=new DesktopService(root,data,process.execPath),restored=reopened.sessions.detail(second.id);assert.equal(restored.session.projectGroupPath,fs.realpathSync(project));assert.equal(restored.runs[0].id,run.id);assert.equal(restored.session.unavailableRuns?.length,0);
+});
+test('parallel project binding rejects primary directory, unrelated repository and worktree subdirectories',async()=>{
+ const {service,project,task,data}=await parallelFixture();
+ assert.throws(()=>service.sessions.create({operation:'createSession',projectPath:project,projectGroupPath:project}),/不同的独立/);
+ const unrelated=path.join(data,'unrelated');fs.mkdirSync(unrelated);await git(unrelated,['init']);
+ assert.throws(()=>service.sessions.create({operation:'createSession',projectPath:unrelated,projectGroupPath:project}),/不属于此项目/);
+ const nested=path.join(task,'nested');fs.mkdirSync(nested);assert.throws(()=>service.sessions.create({operation:'createSession',projectPath:nested,projectGroupPath:project}),/根目录/);
+ assert.equal(service.sessions.read().length,0);
+});
+test('parallel worktree membership is revalidated before starting a persisted session',async()=>{
+ const {service,project,task}=await parallelFixture();let launches=0;service.launch=()=>{launches++;};
+ const session=service.sessions.create({operation:'createSession',projectPath:task,projectGroupPath:project,mode:'mock'});
+ fs.renameSync(path.join(task,'.git'),path.join(task,'detached-git'));
+ await assert.rejects(service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'feature',directAcknowledged:true}),/无法绑定并行工作树/);
+ assert.equal(launches,0);assert.equal(service.sessions.get(session.id).runs.length,0);
+ fs.renameSync(path.join(task,'detached-git'),path.join(task,'.git'));
+});
 
 test('Discuss dropdown and slash share persistent multi-turn discussion without launching development',async()=>{
  for(const dropdown of [true,false]){
