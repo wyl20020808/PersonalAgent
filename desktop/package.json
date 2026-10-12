@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "start": "electron .",
-    "test": "node --import ../scripts/regression-policy.mjs --test --test-concurrency=1 out/windowPlacement.test.js out/modelCatalog.test.js out/service.test.js out/thread.test.js out/threadGrouping.test.js out/unified.test.js out/sessions.test.js out/workbench.test.js out/fileChanges.test.js out/fileReferences.test.js out/interaction-policy.test.js",
+    "test": "node --import ../scripts/regression-policy.mjs --test --test-concurrency=1 out/supervision.test.js out/windowPlacement.test.js out/modelCatalog.test.js out/service.test.js out/thread.test.js out/threadGrouping.test.js out/unified.test.js out/sessions.test.js out/workbench.test.js out/fileChanges.test.js out/fileReferences.test.js out/interaction-policy.test.js",
     "test:workbench-ui": "node preview-workbench.mjs",
     "check": "tsc --noEmit"
   },

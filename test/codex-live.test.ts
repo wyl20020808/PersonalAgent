@@ -32,7 +32,7 @@ test('OpenCode separate delta events require owned text metadata; tool input and
 
 function fixture(){
  const root=path.resolve('.validation','live-rpc-'+randomUUID());fs.mkdirSync(root,{recursive:true});
- fs.writeFileSync(path.join(root,'app-server'),`import fs from 'node:fs';import readline from 'node:readline';fs.writeFileSync('server.pid',String(process.pid));const out=e=>console.log(JSON.stringify(e));readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);fs.appendFileSync('requests.jsonl',line+'\\n');if(r.method==='initialize')out({id:r.id,result:{}});if(r.method==='thread/start'||r.method==='thread/resume')out({id:r.id,result:{thread:{id:r.params.threadId??'owned-thread',cwd:process.cwd()}}});if(r.method==='turn/start'){out({id:r.id,result:{turn:{id:'owned-turn'}}});if(r.params.input[0].text==='HANG')return;const p={threadId:r.params.threadId,turnId:'owned-turn'};out({method:'item/agentMessage/delta',params:{...p,threadId:'other',itemId:'reply',delta:'PRIVATE'}});out({method:'item/agentMessage/delta',params:{...p,itemId:'reply',delta:'你'}});setTimeout(()=>{out({method:'item/agentMessage/delta',params:{...p,itemId:'reply',delta:'好'}});out({method:'item/completed',params:{...p,item:{id:'reply',type:'agentMessage',text:'你好'}}});out({method:'turn/completed',params:{...p,turn:{id:'owned-turn',status:'completed'}}});},30);}});`);
+ fs.writeFileSync(path.join(root,'app-server'),`import fs from 'node:fs';import readline from 'node:readline';fs.writeFileSync('server.pid',String(process.pid));const out=e=>console.log(JSON.stringify(e));readline.createInterface({input:process.stdin}).on('line',line=>{const r=JSON.parse(line);fs.appendFileSync('requests.jsonl',line+'\\n');if(r.method==='initialize')out({id:r.id,result:{}});if(r.method==='thread/start'||r.method==='thread/resume')out({id:r.id,result:{thread:{id:r.params.threadId??'owned-thread',cwd:process.cwd()}}});if(r.method==='thread/compact/start'){out({id:r.id,result:{}});const p={threadId:r.params.threadId,turnId:'compact-turn'};out({method:'turn/started',params:{...p,turn:{id:'compact-turn'}}});out({method:'item/started',params:{...p,item:{id:'compact-item',type:'contextCompaction'}}});out({method:'item/completed',params:{...p,item:{id:'compact-item',type:'contextCompaction'}}});out({method:'turn/completed',params:{...p,turn:{id:'compact-turn',status:'completed'}}});}if(r.method==='turn/start'){out({id:r.id,result:{turn:{id:'owned-turn'}}});if(r.params.input[0].text==='HANG')return;const p={threadId:r.params.threadId,turnId:'owned-turn'};out({method:'item/agentMessage/delta',params:{...p,threadId:'other',itemId:'reply',delta:'PRIVATE'}});out({method:'item/agentMessage/delta',params:{...p,itemId:'reply',delta:'你'}});setTimeout(()=>{out({method:'item/agentMessage/delta',params:{...p,itemId:'reply',delta:'好'}});out({method:'item/completed',params:{...p,item:{id:'reply',type:'agentMessage',text:'你好'}}});out({method:'turn/completed',params:{...p,turn:{id:'owned-turn',status:'completed'}}});},30);}});`);
  return {root,client:streamingCodex({codexPathOverride:process.execPath})};
 }
 test('owned RPC stream resumes original Thread, transports effort/schema, closes service and emits deltas before completion',async()=>{
@@ -47,4 +47,16 @@ test('abort interrupts an owned RPC turn and confirms child process exit',async(
  const f=fixture(),stop=new AbortController();const {events}=await f.client.startThread({workingDirectory:f.root}).runStreamed('HANG',{signal:stop.signal});
  const timer=setTimeout(()=>stop.abort(),300);try{await assert.rejects(async()=>{for await(const _e of events){}},/Stopped/);}finally{clearTimeout(timer);}
  const pid=Number(fs.readFileSync(path.join(f.root,'server.pid'),'utf8'));assert.throws(()=>process.kill(pid,0));
+});
+
+test('preflight compaction waits for native completion on original Thread before starting work',async()=>{
+ const f=fixture(),client=streamingCodex({codexPathOverride:process.execPath,compactBeforeTurn:true,config:{model_auto_compact_token_limit:850}}),seen:any[]=[];
+ const {events}=await client.resumeThread('original-thread',{workingDirectory:f.root}).runStreamed('reply',{signal:AbortSignal.timeout(10000)});
+ for await(const e of events)seen.push(e);
+ assert.deepEqual(seen.filter(e=>e.type==='context.compaction').map(e=>e.status),['compacting','compacted']);
+ assert.equal(seen.at(-1).type,'turn.completed');
+ const requests=fs.readFileSync(path.join(f.root,'requests.jsonl'),'utf8').trim().split('\n').map(s=>JSON.parse(s));
+ assert.ok(requests.findIndex(r=>r.method==='thread/compact/start')<requests.findIndex(r=>r.method==='turn/start'));
+ assert.equal(requests.find(r=>r.method==='thread/compact/start').params.threadId,'original-thread');
+ assert.equal(requests.find(r=>r.method==='thread/resume').params.config.model_auto_compact_token_limit,850);
 });

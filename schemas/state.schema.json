@@ -576,6 +576,25 @@
             }
           ]
         },
+        "contextManagement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "compactRatio": {
+              "type": "number",
+              "minimum": 0.5,
+              "maximum": 0.95
+            },
+            "modelWindows": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 10000000
+              }
+            }
+          }
+        },
         "transportRetryDelaysMs": {
           "type": "array",
           "maxItems": 5,
@@ -1119,6 +1138,7 @@
           "properties": {
             "kind": {
               "enum": [
+                "context",
                 "transport",
                 "executor",
                 "supervisor",
@@ -1153,6 +1173,18 @@
           "additionalProperties": false
         }
       ]
+    },
+    "automaticPlanning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      }
     },
     "guidancePending": {
       "type": "object",
