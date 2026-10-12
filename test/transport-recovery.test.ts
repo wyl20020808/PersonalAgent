@@ -29,6 +29,46 @@ function sdk(events:ThreadEvent[]):Pick<Codex,'startThread'|'resumeThread'>{
   return {startThread:()=>thread,resumeThread:()=>thread} as unknown as Pick<Codex,'startThread'|'resumeThread'>;
 }
 const reconnect={type:'error',message:'Reconnecting... 1/5 (stream disconnected before completion: Transport error: network error: error decoding response body)'} as const;
+test('OpenCode certificate verification errors recover execution and review in the retained session',async()=>{
+ for(const role of ['execute','review'] as const){
+  const {state,store}=await fixture();
+  const sessionId=`owned-${role}`;let calls=0;
+  if(role==='execute')state.executionSession={backend:'opencode',providerID:'hgapi-openai',modelID:'gpt-6.1-sol',sessionId,workspace:state.workspace,directory:state.workspace,runId:state.id};
+  else state.codexThreadId=sessionId;
+  const session=()=>role==='execute'?state.executionSession?.sessionId:state.codexThreadId;
+  const result=await recoverTransport(state,store,new AbortController().signal,role,session,async()=>{
+   calls++;assert.equal(session(),sessionId);
+   if(calls===1){
+    fs.writeFileSync(path.join(state.workspace,'partial.txt'),'preserved');
+    const failure=providerFailure({name:'UnknownError',data:{message:'unknown certificate verification error'}},role==='execute'?'executor':'supervisor');
+    assert.equal(failure.kind,'transport');throw failure;
+   }
+   return 'resumed';
+  });
+  assert.equal(result,'resumed');assert.equal(calls,2);assert.equal(session(),sessionId);
+  assert.equal(state.loops,0);assert.equal(state.reworks,0);
+  assert.equal(fs.readFileSync(path.join(state.workspace,'partial.txt'),'utf8'),'preserved');
+  const audit=fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  assert.equal(audit.filter(e=>e.event==='transport-recovery-start').length,1);
+  assert.equal(audit.at(-1).event,'transport-recovery-success');
+ }
+});
+test('persistent certificate verification errors exhaust five retries without reopening after restart',async()=>{
+ const {state,store}=await fixture();delete state.config.transportRetryDelaysMs;state.codexThreadId='owned';let calls=0;
+ const operation=async()=>{calls++;throw providerFailure({name:'UnknownError',data:{message:'unknown certificate verification error'}},'executor');};
+ const waits:number[]=[];
+ await assert.rejects(recoverTransport(state,store,new AbortController().signal,'execute',()=>state.codexThreadId,operation,async ms=>{waits.push(ms);}),/5 次.*unknown certificate verification error/);
+ assert.equal(calls,6);assert.equal(waits.length,5);
+ for(const [i,base] of [5000,15000,30000,45000,60000].entries())assert.ok(waits[i]!>=base&&waits[i]!<base+1000);
+ await assert.rejects(recoverTransport(state,new Store(state.config.runtimeDir,state.id),new AbortController().signal,'execute',()=>state.codexThreadId,operation),/耗尽/);
+ assert.equal(calls,6);assert.equal(state.codexThreadId,'owned');
+});
+test('certificate recovery keeps authentication safety and unknown provider failures outside retry',()=>{
+ for(const message of ['unknown certificate verification error','UnknownError: unknown certificate verification error'])assert.equal(classifyFailure(Error(message),'execute').kind,'transport');
+ for(const [message,kind] of [['401 unknown certificate verification error','authentication'],['429 unknown certificate verification error','budget'],['unsafe unknown certificate verification error','safety'],['tool results are unknown; manual recovery required: unknown certificate verification error','interrupted']] as const)assert.equal(classifyFailure(Error(message),'execute').kind,kind);
+ assert.equal(classifyFailure(new FlowError('safety','unknown certificate verification error'),'execute').kind,'safety');
+ for(const message of ['certificate has expired','self-signed certificate','unable to verify the first certificate','some other unknown error'])assert.equal(providerFailure({name:'UnknownError',data:{message}},'executor').kind,'executor');
+});
 test('model capacity retries the retained review session without treating quota as capacity',async()=>{
  const {store,state}=await fixture({transportRetryDelaysMs:[0,0,0,0,0]});
  const message='Codex Decision SDK worker exited 1: Selected model is at capacity. Please try a different model.';
