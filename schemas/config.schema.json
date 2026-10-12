@@ -554,6 +554,25 @@
         }
       ]
     },
+    "contextManagement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compactRatio": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 0.95
+        },
+        "modelWindows": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 10000000
+          }
+        }
+      }
+    },
     "transportRetryDelaysMs": {
       "type": "array",
       "maxItems": 5,

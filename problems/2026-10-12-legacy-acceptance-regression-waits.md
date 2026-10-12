@@ -10,4 +10,14 @@
 
 ## 最新 TEST 组合复核
 
+模型上下文任务（2026-10-12）补充证据：`call-observation.test.ts` 的 T1/T2/T3 固定回归及 Git 版本回归共四项沿用旧暂停预期；扩大检查 19/23。在干净 `test@aa52a965e0855dcda40566228b8286cd3732e4a4` 独立工作区过滤 T1，同样复现 `completed` 与 `paused` 不符。直接相关的观测检查 11/11，通过。该任务没有修改旧固定回归脚本或生产验收协议；与本记录合并登记，不重复创建问题文件。
+
 本轮整合最新 TEST 的 `b939c22` 夹具等待修正后，桌面巡检与完整 thread 组合 35/35 通过，日志 `.validation/automatic-combined-desktop.log`。上述六项 thread 问题已由该独立任务修正，不再作为本功能剩余阻碍。此前失败批次保留。固定任务旧 `paused` 断言尚未处理，本记录仍为待处理，不标记整体已解决。
+
+## 第二份外部审查 F1/F11：MAIN 回归非稳定结果
+
+本轮只读核对 `C:/Users/WYL20/AppData/Local/Temp/opencode/pa-test.log` 与 `pa-test2.log`：第一轮 253/254，通过数 253、失败 1；第二轮 254/254。失败为 `test failures trigger rework; Claude cannot override independent failures`，期望 completed、实际 failed；首轮该用例 duration_ms=27786.4885。日志指向 `D:/PersonalAgent/dist/test/controller.test.js:47`，不是当前 TEST 验收。
+
+可确认两份日志的结果不一致，但本轮没有重新执行全套测试，也没有失败 state/failure.kind。根因未确认，不能归结为 30 秒 Git 超时、真实 Run 付费成果报废，或因第二轮通过就宣称问题解决。测试还沿用“独立检查不能被 Claude 覆盖”的旧验收职责，与当前决策者自主验收规则需分别核对。
+
+下一步：独立维护任务保留失败 Run 的状态、错误种类、命令和进程退出证据，再做有界复现与基线对照；不要盲目重复完整测试或调整生产错误分类来掩盖失败。Git 超时包装的独立缺陷见 [既有记录](2026-10-12-git-timeout-classification.md)。

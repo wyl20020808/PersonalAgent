@@ -5,6 +5,7 @@ import { atomicJson, type State, type Store } from './store.js';
 import { contextHash, contextPath } from './project-context.js';
 import { auditRecords } from './context-trust.js';
 import { redact } from './telemetry.js';
+import { ContextObservation } from './model-context.js';
 
 export type CallPhase = 'plan' | 'execute' | 'review';
 export type Tokens = { inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null; cacheCreationTokens: number | null };
@@ -34,6 +35,7 @@ export interface CallUsage extends Tokens {
 // The installed SDK 0.161.0 exposes commands and turn usage, but no Read item or model identifier.
 // Send only the fields needed for observation across the worker boundary, never tool output/content.
 export function codexObservation(event: any): object | null {
+  if (['context.usage', 'context.compaction'].includes(event.type)) return event;
   if (event.type === 'turn.completed') return { type: event.type, usage: event.usage };
   if (['item.started', 'item.updated', 'item.completed'].includes(event.type) && event.item?.type === 'command_execution') {
     const { id, type, command, status, exit_code } = event.item;
@@ -44,6 +46,7 @@ export function codexObservation(event: any): object | null {
 }
 
 export class CallObservation {
+  readonly context: ContextObservation;
   readonly usage: CallUsage;
   private readonly readsFile: string;
   private readonly usageFile: string;
@@ -60,6 +63,7 @@ export class CallObservation {
   private cumulativeOnly = false;
 
   constructor(private readonly state: State, private readonly store: Store, phase: CallPhase, prompt: string, navigation?: Record<string, any>, resumed = false, decisionBackend?: 'claude' | 'opencode' | 'codex') {
+    this.context = new ContextObservation(state, store, phase, prompt);
     const callId = navigation?.callId ?? randomUUID(), agent = phase === 'execute' ? decisionBackend ?? 'codex' : decisionBackend ?? 'claude';
     mkdirSync(store.file('context'), { recursive: true });
     const manifestPath = store.file(`context/${callId}.manifest.json`);
@@ -106,12 +110,14 @@ export class CallObservation {
   }
   observeOpencodeMessage(info: any): void {
     if (this.closed || this.usage.agent !== 'opencode' || info.role !== 'assistant' || typeof info.id !== 'string') return;
+    this.context.opencode(info);
     const u = info.tokens;
     this.requests.set(info.id,{model:typeof info.modelID === 'string' ? `${info.providerID}/${info.modelID}` : null,tokens:{inputTokens:count(u?.input),outputTokens:count(u?.output),cacheReadTokens:count(u?.cache?.read),cacheCreationTokens:count(u?.cache?.write)}});
     this.resultSeen = true; this.refresh(); this.persist();
   }
   observe(event: any): void {
     if (this.closed || !event || event.isReplay === true) return;
+    this.context.observe(event);
     if(event.type==='stream_event'&&!['message_start','message_delta'].includes(event.event?.type))return;
     if (this.usage.agent === 'codex') {
       if (event.type === 'turn.completed') { this.finalUsage = this.codexTurn(tokens(event.usage, true)); this.resultSeen = true; }
@@ -203,8 +209,8 @@ export class CallObservation {
   }
 }
 
-export function runUsage(store: Store) {
-  const events = auditRecords(store.file('audit.jsonl')), calls = new Map<string, CallUsage>();
+export function runUsage(store: Store, verifiedEvents?: readonly any[]) {
+  const events = verifiedEvents ?? auditRecords(store.file('audit.jsonl')), calls = new Map<string, CallUsage>();
   for (const event of events) if (['observation-call-start', 'usage-progress', 'agent-usage'].includes(event.event) && event.data.runId === store.id) calls.set(event.data.callId, event.data as CallUsage);
   const rows = [...calls.values()];
   const groups = [...new Set(rows.map(row => `${row.taskId ?? '(plan)'}:${row.phase}:${row.rework ? 'rework' : 'initial'}`))].map(key => { const selected = rows.filter(row => `${row.taskId ?? '(plan)'}:${row.phase}:${row.rework ? 'rework' : 'initial'}` === key); return { key, calls: selected.length, ...sumTokens(selected), complete: selected.every(row => row.completeness === 'complete' && row.status === 'success') }; });

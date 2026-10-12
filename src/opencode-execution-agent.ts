@@ -113,6 +113,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       service = await this.launcher(choice.opencode.executable, workspace, signal, path.join(state.config.runtimeDir, 'opencode', state.id, 'execution'));
       const discovery = await executionModels(service, workspace, signal);
       const model = discovery.providers.find(p => p.id === choice.opencode.providerID)?.models.find(m => m.id === choice.opencode.modelID);
+      observation.context.window(model?.limit?.context, `${choice.opencode.providerID}/${choice.opencode.modelID}`);
       if (!discovery.available || model?.capabilities.tools !== true || model.capabilities.structuredOutput !== true) throw new FlowError('supervisor', discovery.reason || 'OpenCode execution model unavailable or lacks tools/structured output');
       if (choice.opencode.variant && !model.reasoningEfforts?.includes(choice.opencode.variant)) throw new FlowError('supervisor','OpenCode reasoning variant unavailable; refresh model selection');
       const parts=opencodeParts(prompt,runAttachments(state,store),model.capabilities.images);
@@ -149,6 +150,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       eventTask = (async () => { for await (const event of stream.stream) {
         const e = event as any;
         if (e.directory !== workspace) continue;
+        if (e.payload?.type === 'session.compacted' && e.payload.properties?.sessionID === sessionID) observation.context.compact('compacted', sessionID+':'+observation.context.snapshot.updatedAt);
         const part = e.payload?.properties?.part;
         if (part?.sessionID === sessionID) consumePart(part);
         else for(const activity of publicStream.accept(e))record({...activity,text:JSON.stringify({role:'execution',phase:'execute',sessionId:sessionID,providerID:choice.opencode.providerID,modelID:choice.opencode.modelID,receipt:activity.text})});
@@ -156,6 +158,11 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         if (info?.sessionID === sessionID) observation.observeOpencodeMessage(info);
       } })(); eventTask.catch(() => {});
       await ready;
+      if (observation.context.shouldCompact && observation.usage.resumed) {
+        observation.context.compact('compacting', observation.usage.callId);
+        store.audit('context-compact-dispatch', { backend: 'opencode', sessionId: sessionID, callId: observation.usage.callId });
+        await client.session.summarize({sessionID:sessionID!,directory:workspace,providerID:choice.opencode.providerID,modelID:choice.opencode.modelID,auto:true},{signal,throwOnError:true});
+      }
       state.executionAttempt = { loop: state.loops, taskId: task.id, status: 'running' }; store.save(state); dispatched = true;
       store.audit('opencode-execute-dispatch', { callId: observation.usage.callId, runId: state.id, taskId: task.id, loop: state.loops, workspace, sessionId: sessionID, providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, role: 'execution', mode: state.config.mode });
       const response = await Promise.race([

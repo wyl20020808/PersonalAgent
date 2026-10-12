@@ -64,8 +64,8 @@ test('legacy unscoped evidence stays accessible without injecting old diff; UTF-
 test('Claude decision uses native early compaction while resuming the same Session and keeping user settings', async () => {
   const f = await fixture(), state = f.store.load(), sessions: string[] = [];
   const run: typeof runProcess = async (_program, args, options) => {
-    assert.equal(args[args.indexOf('--autocompact') + 1], '100k');
-    assert.equal(options.env!.CLAUDE_CODE_AUTO_COMPACT_WINDOW, '100000');
+    assert.equal(args[args.indexOf('--autocompact') + 1], 'auto');
+    assert.equal(options.env!.CLAUDE_CODE_AUTO_COMPACT_WINDOW, process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
     const id = args[args.indexOf(args.includes('--resume') ? '--resume' : '--session-id') + 1]!;
     sessions.push(id); options.onLine?.(JSON.stringify({ type: 'system', subtype: 'init', session_id: id }));
     options.onLine?.(JSON.stringify({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 110000 } }));

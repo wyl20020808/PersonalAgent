@@ -1,3 +1,4 @@
+import {modelContexts} from '../../dist/src/model-context.js';
 import {Store} from '../../dist/src/store.js';
 import {projectMessages} from './thread.js';
 import {bindRunAttachments,readNativeAttachment,stageRunAttachments} from '../../dist/src/multimodal.js';
@@ -23,7 +24,7 @@ const active=['planning','execute','executing','applying','verify','review'];
 export class SessionStore {
  readonly discussionCalls=new Map<string,{controller:AbortController;promise:Promise<ConversationReply>}>();
  readonly discussionJobs=new Map<string,Promise<void>>();
- private discussionCache=new Map<string,{fingerprint:string;messages:import('./types.js').ChatMessage[]}>();
+ private discussionCache=new Map<string,{fingerprint:string;contexts:ReturnType<typeof modelContexts>;messages:import('./types.js').ChatMessage[]}>();
  private stoppingDiscussions=false;
  readonly inFlight=new Set<string>();
  readonly draining=new Set<string>();
@@ -103,16 +104,16 @@ export class SessionStore {
  }
  list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
  detail(id:string){
-  const session=this.public(this.get(id));let discussionMessages:import('./types.js').ChatMessage[]=[],discussionError:string|undefined;
+  const session=this.public(this.get(id));let discussionMessages:import('./types.js').ChatMessage[]=[],discussionContexts:ReturnType<typeof modelContexts>=[],discussionError:string|undefined;
   if(session.discussionStateId)try{const store=new Store(path.join(this.service.data,'conversation-discussions',session.id),session.discussionStateId),state=store.load();
    if(state.purpose!=='conversation-discussion'||state.source!==fs.realpathSync(session.projectPath))throw Error('讨论记录与会话项目不匹配');
    const fingerprint=['audit.jsonl','state.json'].map(file=>{const stat=fs.statSync(store.file(file));return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;}).join(':')+':'+session.discussionStateId;
    let cached=this.discussionCache.get(session.id);
-   if(!cached||cached.fingerprint!==fingerprint){const events=this.service.audit(store).filter(e=>e.event==='agent-activity'&&e.data.kind!=='output'&&!String(e.data.title).includes('StructuredOutput'));
-    cached={fingerprint,messages:projectMessages(state,events,[]).map(message=>({...message,id:'discussion:'+state.id+':'+message.id,participantRole:'决策者',decisionStage:'discussion',source:'discussion:'+session.id+':'+message.source}))};this.discussionCache.set(session.id,cached);if(this.discussionCache.size>20)this.discussionCache.delete(this.discussionCache.keys().next().value!);
-   }discussionMessages=cached.messages;
+   if(!cached||cached.fingerprint!==fingerprint){const audit=this.service.audit(store);const events=audit.filter(e=>e.event==='agent-activity'&&e.data.kind!=='output'&&!String(e.data.title).includes('StructuredOutput'));
+    cached={fingerprint,contexts:modelContexts(audit),messages:projectMessages(state,events,[]).map(message=>({...message,id:'discussion:'+state.id+':'+message.id,participantRole:'决策者',decisionStage:'discussion',source:'discussion:'+session.id+':'+message.source}))};this.discussionCache.set(session.id,cached);if(this.discussionCache.size>20)this.discussionCache.delete(this.discussionCache.keys().next().value!);
+   }discussionMessages=cached.messages;discussionContexts=cached.contexts;
   }catch(error){discussionError='讨论过程记录不可用：'+redact((error as Error).message);}
-  return {session,runs:this.resolve(this.get(id)).runs,discussionMessages,discussionError};
+  return {session,runs:this.resolve(this.get(id)).runs,discussionMessages,discussionContexts,discussionError};
  }
  private guidanceStore(session:Saved,runId:string){const ref=session.runs.find(run=>run.id===runId);if(!ref)throw Error('消息 Run 与会话归属不匹配');const run=this.run(ref,session);return this.service.store(run.profileId,run.id);}
  attachment(r:Request){
