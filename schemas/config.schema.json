@@ -556,13 +556,13 @@
     },
     "transportRetryDelaysMs": {
       "type": "array",
-      "maxItems": 3,
+      "maxItems": 5,
       "items": {
         "type": "integer",
         "minimum": 0,
         "maximum": 60000
       },
-      "description": "Additional retries after provider recovery, default [5000,15000,30000]; [] disables them."
+      "description": "Additional retries after provider recovery, default [5000,15000,30000,45000,60000]; [] disables them."
     },
     "taskStages": {
       "type": "object",

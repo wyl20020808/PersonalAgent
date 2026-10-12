@@ -90,13 +90,16 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
         if (Date.now() - lastProgress > 1000) { lastProgress = Date.now(); record({key: `delta:${characters}`, kind: 'receiving', title: 'Claude 输出接收中', text: `已接收 ${characters} 个公开文本或结构化字符；尚未通过 Schema 校验`}); }
       }
     } : undefined;
-    const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, input, onLine, streamOutput: streaming });
+    const result = await this.run(this.config.claudeExecutable, args, { cwd: state.workspace, env, signal, interaction: { kind: 'model' }, timeoutMs: state.config.timeoutMs, input, onLine, streamOutput: streaming }).catch(error=>{
+      if(['transport','timeout'].includes(classifyFailure(error,role).kind)&&(!streaming||pendingTools.size))throw new FlowError('interrupted','Claude tool results are unknown; manual recovery required');
+      throw error;
+    });
     let envelope: { is_error?: boolean; session_id?: string; structured_output?: unknown; result?: string; errors?: string[] };
     try { const parsed=streamedResult ?? JSON.parse(streaming ? result.stdout.trim().split(/\r?\n/).at(-1)! : result.stdout);if(streaming&&parsed.type!=='result')throw Error('Missing Claude final result');envelope=parsed; }
     catch {
-      if (classifyFailure(new Error(result.stderr), role).kind === 'transport') {
+      if (['transport','timeout'].includes(classifyFailure(new Error(result.stderr), role).kind)) {
         if (!streaming || pendingTools.size) throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
-        throw new FlowError('transport', `Claude exited ${result.exitCode}: ${result.stderr.slice(0,1000)}`);
+        throw new FlowError(classifyFailure(new Error(result.stderr),role).kind, `Claude exited ${result.exitCode}: ${result.stderr.slice(0,1000)}`);
       }
       throw new Error(`Claude exited ${result.exitCode} with invalid JSON: ${result.stderr.slice(0, 1000)}`);
     }
@@ -108,7 +111,7 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     store.audit('claude-exit', { call, callId: observation.usage.callId, role, exitCode: result.exitCode, sessionId: envelope.session_id ?? state[sessionKey] });
     if (result.exitCode !== 0 || envelope.is_error) {
       const message = `Claude exited ${result.exitCode}: ${envelope.errors?.join('; ') || envelope.result || result.stderr.slice(0, 1000) || 'API error without message'}`;
-      if (classifyFailure(new Error(message), role).kind === 'transport' && (!streaming || pendingTools.size))
+      if (['transport','timeout'].includes(classifyFailure(new Error(message), role).kind) && (!streaming || pendingTools.size))
         throw new FlowError('interrupted', 'Claude tool results are unknown; manual recovery required');
       const classified = classifyFailure(new Error(message), role); throw new FlowError(classified.kind === 'unknown' ? execution ? 'executor' : 'supervisor' : classified.kind, message);
     }
@@ -135,14 +138,18 @@ export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements
     const source = realpathSync(state.source), workspace = realpathSync(state.workspace);
     if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || workspace !== (state.config.projectMode === 'direct' ? source : realpathSync(store.file('workspace'))) || state.config.projectMode === 'direct' && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'Claude Execute workspace authorization mismatch');
     if (state.executionAttempt) {
-      if (state.executionAttempt.loop === state.loops) throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       if (state.executionAttempt.status !== 'success') {
         const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
         let last = -1;
         events.forEach((e, index) => { if (e.event === 'claude-execute-dispatch' || e.event === 'opencode-execute-dispatch') last = index; });
         const following=events.slice(last+1);
+        const safeIndex=following.findIndex(e=>e.event==='claude-execute-retry-safe'&&e.data.loop===state.loops&&e.data.sessionId===state.executionSession?.sessionId);
+        const automatic=state.executionAttempt.loop===state.loops&&safeIndex>=0&&following.slice(safeIndex+1).some(e=>e.event==='transport-recovery-start'&&e.data.role==='execute'&&e.data.sessionId===state.executionSession?.sessionId);
         const guided=following.some(e=>e.event==='guidance-interrupted'&&e.data.loop===state.executionAttempt!.loop)&&following.some(e=>e.event==='guidance-applied');
-        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+        if(state.executionAttempt.loop===state.loops&&!automatic)throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
+        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided&&!automatic) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+      } else if(state.executionAttempt.loop===state.loops){
+        throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       }
     }
     if (state.claudeExecutionSessionId && [state.claudeSessionId, state.decisionSession?.sessionId, ...state.discussion?.participants.map(p => p.session?.sessionId) ?? []].includes(state.claudeExecutionSessionId)) throw new FlowError('safety', 'Claude execution cannot share a Decision Session');
@@ -155,6 +162,7 @@ export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements
       state.executionAttempt.status = 'success'; state.executorExitCode = 0; store.save(state);
       return result.output;
     } catch (error) {
+      if(!signal.aborted&&['transport','timeout'].includes(classifyFailure(error,'execute').kind))store.audit('claude-execute-retry-safe',{loop:state.loops,sessionId:state.executionSession?.sessionId,taskId:task.id,note:'Owned process ended and streaming tool results known'});
       state.executionAttempt.status = signal.aborted ? 'interrupted' : 'failed'; state.executorExitCode = -1; store.save(state); throw error;
     }
   }

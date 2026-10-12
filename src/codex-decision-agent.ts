@@ -25,6 +25,7 @@ export class CodexDecisionAgent implements DecisionAgent {
       discussionStage: store.decisionParticipant?.discussionStage ?? null };
     state.claudeCalls = (state.claudeCalls ?? 0) + 1; store.save(state);
     const observation = new CallObservation(state, store, role, prompt, context, !!threadId, 'codex');
+    const pendingTools=new Set<string>();
     const record = activityRecorder(state, store, 'codex', observation.usage.callId, role);
     const discussionStream=new DiscussionStream(request.onPublicProgress);
     store.audit('codex-decision-call-start', { ...scope, callId: observation.usage.callId, call: state.claudeCalls, threadId, configuredModel: state.decisionAgent.model ?? null });
@@ -46,7 +47,7 @@ export class CodexDecisionAgent implements DecisionAgent {
             store.audit('codex-decision-thread', { ...scope, callId: observation.usage.callId, sessionId: event.id, resumed: !!threadId });
           } else {
             if (!ownedThread) throw new FlowError('safety', 'Codex Decision event without owned Thread');
-            if (event.type === 'observation') { discussionStream.codex(event.data);codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
+            if (event.type === 'observation') { const data=event.data;if(data?.item&&['command_execution','file_change','mcp_tool_call'].includes(data.item.type)){if(data.type==='item.completed')pendingTools.delete(data.item.id);else pendingTools.add(data.item.id);}discussionStream.codex(event.data);codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
             else if (event.type === 'activity') record(event.data);
             else if (event.type === 'result') { seenResult = true; output = event.data; }
             else throw Error('Unexpected Codex Decision worker protocol');
@@ -60,6 +61,7 @@ export class CodexDecisionAgent implements DecisionAgent {
       const validated = validate<T>(schema, output); completed = true;
       return { output: validated, sessionId: ownedThread, usage: observation.usage };
     } catch (error) {
+      if(pendingTools.size&&['transport','timeout'].includes(classifyFailure(error,role).kind))throw new FlowError('interrupted','Codex tool results are unknown; manual recovery required');
       if (error instanceof FlowError) throw error;
       const classified = classifyFailure(error, role);
       throw new FlowError(classified.kind === 'unknown' || classified.kind === 'validation' || classified.kind === 'executor' ? 'supervisor' : classified.kind, (error as Error).message);

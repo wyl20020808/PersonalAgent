@@ -23,7 +23,7 @@ const choice:Extract<DecisionChoice,{backend:'opencode'}>={backend:'opencode',op
 const task={id:'core',instruction:'Update core.js',acceptance:['core.js is fixed']};
 const plan={humanDecision:null,tasks:[task]};
 const api={paths:{'/session':{post:{requestBody:{content:{'application/json':{schema:{properties:{permission:{type:'array'}}}}}}}},'/session/{sessionID}/message':{post:{requestBody:{content:{'application/json':{schema:{properties:{agent:{type:'string'},format:{properties:{type:{const:'json_schema'}}}}}}}}}},...Object.fromEntries(['/agent','/experimental/tool','/experimental/tool/ids','/global/event','/session/{sessionID}','/session/status','/session/{sessionID}/abort'].map(p=>[p,{}]))}};
-type Options={imageSupport?:boolean;missingCreation?:boolean;badStatus?:boolean;badFinish?:string;hang?:boolean;badOwner?:boolean;badModel?:boolean;missingTools?:boolean;missingProtocol?:boolean;error?:boolean;textOnly?:boolean;unfinished?:boolean;wrongSession?:boolean;wrongPart?:boolean;failTest?:boolean;busy?:boolean;closeFailure?:boolean;streamFailure?:boolean;afterWrite?:(directory:string)=>void};
+type Options={upstreamFailures?:number;unknownTool?:boolean;imageSupport?:boolean;missingCreation?:boolean;badStatus?:boolean;badFinish?:string;hang?:boolean;badOwner?:boolean;badModel?:boolean;missingTools?:boolean;missingProtocol?:boolean;error?:boolean;textOnly?:boolean;unfinished?:boolean;wrongSession?:boolean;wrongPart?:boolean;failTest?:boolean;busy?:boolean;closeFailure?:boolean;streamFailure?:boolean;afterWrite?:(directory:string)=>void};
 function fake(options:Options={}){
  const sessions=new Map<string,any>(),requests:any[]=[];let prompts=0,closes=0,aborts=0;
  const launcher:OpenCodeLauncher=async(_exe,directory,_signal,runtime)=>{
@@ -48,6 +48,10 @@ function fake(options:Options={}){
    if(id&&tail==='/message'){
     prompts++;const execution=body.format.schema.properties.mode, discussion=body.format.schema.properties.disagreements;
     const parts:any[]=[];
+    if(prompts<=(options.upstreamFailures??0)){
+     if(options.unknownTool)parts.push({id:'unknown-write',sessionID:id,type:'tool',tool:'bash',callID:'unknown',state:{status:'running',input:{command:'write'}}});
+     return send({info:{id:'msg_'+prompts,sessionID:id,role:'assistant',providerID:'fixture',modelID:'local',path:{cwd:directory},error:{name:'UnknownError',data:{message:'Upstream request failed'}}},parts});
+    }
     if(execution){
      fs.writeFileSync(path.join(directory,'core.js'),options.failTest?'incorrect\n':'fixed\n');options.afterWrite?.(directory);
      for(const part of [{id:'edit-'+prompts,sessionID:id,type:'tool',tool:'edit',callID:'native-edit',state:{status:'completed',input:{filePath:path.join(directory,'core.js')},output:'LOCAL MOCK write',metadata:{diff:'local fixture diff'}}},{id:'bash-'+prompts,sessionID:id,type:'tool',tool:'bash',callID:'native-bash',state:{status:'completed',input:{command:'node verify.js'},output:'LOCAL MOCK check',metadata:{exit:0}}}])parts.push(part);
@@ -79,6 +83,28 @@ function real(f:Awaited<ReturnType<typeof fixture>>,server:ReturnType<typeof fak
 },new OpenCodeDecisionAgent(f.config,server.launcher),config=>new OpenCodeDecisionAgent(config,server.launcher),new OpenCodeExecutionAgent(f.config,server.launcher));}
 const records=(store:Awaited<ReturnType<typeof fixture>>['store'])=>fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(s=>JSON.parse(s));
 function pending(f:Awaited<ReturnType<typeof fixture>>){const state=f.store.load();state.tasks=[task];state.phase='executing';state.nativeExecution=true;state.loops=1;f.store.save(state);return state;}
+
+test('OpenCode execution retries five ended calls on same Session without repeating completed writes',async()=>{
+ const f=await fixture({timeoutMs:0,transportRetryDelaysMs:[0,0,0,0,0]}),server=fake({upstreamFailures:5}),state=pending(f);
+ fs.writeFileSync(path.join(f.source,'partial.txt'),'preserved');
+ const result=await real(f,server).execute(state,f.store,new AbortController().signal);
+ assert.ok('mode' in result&&result.mode==='native');assert.equal(server.prompts,6);assert.equal(server.sessions.size,1);assert.equal(server.closes,6);
+ assert.equal(state.loops,1);assert.equal(fs.readFileSync(path.join(f.source,'partial.txt'),'utf8'),'preserved');
+ const receipts=records(f.store);assert.equal(receipts.filter(e=>e.event==='opencode-execute-retry-safe').length,5);
+ assert.ok(server.requests.filter(r=>r.route.endsWith('/message')).slice(1).every(r=>JSON.stringify(r.body).includes('先检查已有修改和工具结果')));
+});
+
+test('OpenCode unknown write outcome prevents automatic retry despite upstream failure',async()=>{
+ const f=await fixture({transportRetryDelaysMs:[0,0,0,0,0]}),server=fake({upstreamFailures:5,unknownTool:true}),state=pending(f);
+ await assert.rejects(real(f,server).execute(state,f.store,new AbortController().signal),/tool results are unknown/);
+ assert.equal(server.prompts,1);assert.equal(records(f.store).filter(e=>e.event==='opencode-execute-retry-safe').length,0);
+});
+
+test('OpenCode decision retries an ended upstream error on original Session',async()=>{
+ const f=await fixture({timeoutMs:0,transportRetryDelaysMs:[0,0,0,0,0]}),server=fake({upstreamFailures:1});
+ const result=await real(f,server).plan(f.store.load(),f.store,new AbortController().signal);
+ assert.equal(result.tasks.length,1);assert.equal(server.prompts,2);assert.equal(server.sessions.size,1);
+});
 
 test('reasoning variants reach actual SDK HTTP bodies for Plan Execute Review and invalid variants fail before prompt',async()=>{
  const selected={...choice,opencode:{...choice.opencode,variant:'max'}};

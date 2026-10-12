@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import {DiscussionStream} from './discussion-stream.js';
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2';
 import { terminateTree } from './process.js';
-import { FlowError } from './failure.js';
+import { FlowError, providerFailure } from './failure.js';
 import { validate, type Config } from './schema.js';
 import { recordClaudeCall } from './agent-usage.js';
 import { CallObservation } from './call-observation.js';
@@ -131,6 +131,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
     const observation = new CallObservation(state,store,role,prompt,request.context,!!state.decisionSession,'opencode');
     const timeout = timeoutSignal(request.timeoutMs), signal = AbortSignal.any([request.signal,timeout]);
     let service: OpenCodeService | undefined, sessionID: string | undefined, completed = false;
+    const tools=new Map<string,any>();
     const discussionStream=new DiscussionStream(request.onPublicProgress);
     const eventsStop = new AbortController(); let eventTask: Promise<void> | undefined;
     try {
@@ -171,7 +172,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       eventTask = (async () => { for await (const event of stream.stream) {
         for (const activity of opencodePublicEvents(event,workspace,sessionID!)) record(activity);
         const e = event as any, part = e.payload?.properties?.part;
-        if (e.directory === workspace && part?.sessionID === sessionID) {discussionStream.opencode(part);opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
+        if (e.directory === workspace && part?.sessionID === sessionID) {if(part.type==='tool')tools.set(part.id,part);discussionStream.opencode(part);opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
         const info = e.payload?.properties?.info;
         if (e.directory === workspace && info?.sessionID === sessionID) observation.observeOpencodeMessage(info);
       } })();
@@ -183,17 +184,17 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       // even when the HTTP result overtakes the tail of the volatile SSE stream.
       for (const part of result.data.parts ?? []) {
         for (const activity of opencodePublicEvents({directory:workspace,payload:{properties:{part}}},workspace,sessionID)) record(activity);
-        if (part.sessionID === sessionID) {opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
+        if (part.sessionID === sessionID) {if(part.type==='tool')tools.set(part.id,part);opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
       }
       observation.observeOpencodeMessage(result.data.info);
-      if (result.data.info.error) throw new FlowError('supervisor',`OpenCode ${result.data.info.error.name}`);
+      if (result.data.info.error) throw providerFailure(result.data.info.error,'supervisor');
       // SDK 1.18.35 calls the native field "structured". Never parse text parts.
       const output = validate<T>(schema,result.data.info.structured);
       completed = true; store.audit('opencode-exit',{call,callId:observation.usage.callId,role,sessionId:sessionID});
       return {output,sessionId:sessionID,usage:observation.usage};
     } catch (error) {
       store.audit('opencode-request-error', { role, sessionId: sessionID, message: redact((error as Error)?.message ?? 'OpenCode SDK request failed'), ...transportErrorDetails(error) });
-      if (signal.aborted && service && sessionID) {
+      if (service && sessionID) {
         const cleanupSignal = AbortSignal.timeout(5000);
         let idle=false;
         try {
@@ -204,12 +205,14 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
             await new Promise(resolve => setTimeout(resolve,25));
           }
         } catch { store.audit('opencode-abort-incomplete',{role,sessionId:sessionID}); }
-        if(!idle)blockGuidanceHandoff('OpenCode 决策调用退出未确认；保留现场，不能并发派发下一调用');
+        if(!idle){blockGuidanceHandoff('OpenCode 决策调用退出未确认；保留现场，不能并发派发下一调用');throw new FlowError('interrupted','OpenCode Decision idle state unknown; manual recovery required');}
+        if([...tools.values()].some(part=>part.tool!=='StructuredOutput'&&(['pending','running'].includes(part.state.status)||part.state.metadata?.interrupted)))throw new FlowError('interrupted','OpenCode tool results are unknown; manual recovery required');
       }
-      if (timeout.aborted) throw new FlowError('supervisor',`OpenCode Timeout after ${request.timeoutMs} ms`);
+      if (timeout.aborted) throw new FlowError('timeout',`OpenCode Timeout after ${request.timeoutMs} ms`);
       if (request.signal.aborted) throw new Error('Stopped');
       const message = (error as Error)?.message ?? 'OpenCode SDK request failed';
-      throw new FlowError(error instanceof FlowError ? error.kind : /JSON Schema/.test(message) ? 'validation' : 'supervisor',redact(message));
+      const failure=error instanceof FlowError?error:providerFailure(error,'supervisor');
+      throw new FlowError(failure.kind,redact(message));
     } finally {
       eventsStop.abort(); await eventTask?.catch(() => {});
       try{await service?.close();}catch(error){blockGuidanceHandoff('OpenCode 决策进程退出未确认；保留现场');throw error;}
