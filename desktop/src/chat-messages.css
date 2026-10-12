@@ -1,4 +1,12 @@
 /* Message layout follows the function in this Run, independently of provider. */
+/* Long public text and evidence stay inside their own scroll regions. */
+.chat-feed .message-text-scroll{max-height:min(360px,50vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;min-width:0}
+.chat-feed .message-text-scroll:focus-visible{outline:2px solid #6488bc;outline-offset:3px}
+.chat-feed .message-protocol{margin-top:8px;color:#8491a3;font-size:12px}
+.chat-feed .message-protocol summary{cursor:pointer}
+.chat-feed .message-protocol pre,.chat-feed .raw-evidence pre,.chat-feed .system-evidence,.chat-feed .chat-plan details>ul,.chat-feed .chat-plan details>.markdown,.chat-feed .chat-plan details>p,.preview-content .markdown,.context-goal>p{max-height:min(360px,50vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;overflow-wrap:anywhere}
+.chat-feed .message-protocol pre{white-space:pre-wrap;font:12px/1.65 "Cascadia Code",Consolas,monospace;color:#66768a}
+.chat-feed .message-content pre,.chat-feed .chat-plan details[open],.preview-content pre{max-height:min(360px,50vh);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .chat-feed .group-message.lane-decision,.chat-feed .group-message.lane-system{align-self:flex-start;flex-direction:row}
 .chat-feed .group-message.lane-execution{align-self:flex-end;flex-direction:row-reverse}
 .chat-feed .group-message.lane-user{align-self:center;flex-direction:row;width:auto;max-width:min(82%,760px)}
