@@ -12,6 +12,15 @@ import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
 
+test('Claude image results retain original input, update status and preserve final raw evidence',()=>{
+ const use={hash:'a',time:'2026-10-12T08:00:00Z',event:'agent-activity',data:{agent:'claude',kind:'tool',title:'Claude 工具 · Read',scope:'call-1',source:'claude-cli-stream-json',text:JSON.stringify({id:'read-1',input:{file_path:'D:/proof/a.png'}})}};
+ for(const failed of [false,true]){
+  const result={...use,hash:'b',data:{...use.data,kind:failed?'error':'tool',title:'Claude 工具结果',text:JSON.stringify({tool_use_id:'read-1',is_error:failed,content:'native result'})}};
+  const messages=projectMessages(state,[use,result],[]);assert.equal(messages.length,1);assert.equal(messages[0].status,failed?'fail':'success');assert.deepEqual(messages[0].details?.paths,['D:/proof/a.png']);assert.equal(messages[0].details?.evidenceMessageId,'audit:b');assert.match(messages[0].text,/file_path/);
+ }
+ assert.equal(projectMessages(state,[use,{...use,hash:'c',data:{...use.data,scope:'different-call'}}],[]).length,2);
+});
+
 test('file started/completed events replace one operation and retain the completed evidence',()=>{
  const event=(hash:string,status:string,scope='codex:1',streamId?:string)=>({hash,time:'2026-10-12T10:00:00.000Z',event:'agent-activity',data:{agent:'codex',kind:'tool',title:'Codex 文件操作',scope,streamId,source:'codex-sdk-runStreamed',text:status+'\n'+JSON.stringify([{path:'D:/Demo/code.py',kind:'update'}])}});
  for(const streamId of [undefined,'file-1']){

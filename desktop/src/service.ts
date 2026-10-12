@@ -24,7 +24,7 @@ import {runTiming,timingTotals,type RunTiming} from './runTiming.js';
 import {SessionStore} from './sessions.js';
 import {validateParallelProject} from './parallelProject.js';
 import {messageFiles,recordedDiff,parseFileChanges} from './fileChanges.js';
-import {toolPresentation} from './chatPresentation.js';
+import {toolPresentation,imageFilePath} from './chatPresentation.js';
 import type {ChatFilePreview,ChatMessage} from './types.js';
 import {collectScreenshots,screenshotBytes} from '../../dist/src/screenshots.js';
 import {projectTarget} from '../../dist/src/project-files.js';
@@ -227,7 +227,9 @@ export class DesktopService {
   const index=messages.findIndex(message=>message.id===messageId);if(index<0)throw Error('文件事件不存在');
   const original=messages[index],evidence=this.messageEvidence(profileId,id,original.details?.evidenceMessageId??messageId);
   const message:ChatMessage={...original,text:evidence.text||original.text,details:original.details?.diffTruncated?{...original.details,diff:(evidence.event as any).data?.diff??original.details.diff,diffTruncated:false}:original.details};messages[index]=message;
-  if(!messageFiles(message).includes(fileName))throw Error('文件未在该条事件中列出');
+  const normalizedImage=imageFilePath(fileName),listed=messageFiles(message);
+  if(!listed.includes(fileName)&&!(normalizedImage&&listed.includes(normalizedImage)))throw Error('文件未在该条事件中列出');
+  if(normalizedImage)fileName=normalizedImage;
   // Relative paths retain Run containment; explicit local links can open read-only outside it.
   const relative=(name:string)=>{
    if(!path.isAbsolute(name))return name.replaceAll('\\','/');

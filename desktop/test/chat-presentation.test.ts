@@ -1,9 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activityStatus,toolPresentation,messageLane,publicMessageText,messagePreview} from '../src/chatPresentation.js';
+import {activityStatus,toolPresentation,messageLane,publicMessageText,messagePreview,imageFilePath} from '../src/chatPresentation.js';
 import {groupMessages} from '../src/threadGrouping.js';
 import type {ChatMessage} from '../src/types.js';
 const command=(text:string)=>({kind:'tool',title:'Codex 执行事件',source:'codex-sdk-runStreamed',text});
+
+test('image receipts retain local paths and distinguish actual view write pending and failed',()=>{
+ for(const [source,receipt] of [
+  ['codex-sdk-runStreamed',{tool:'view_image',status:'completed',arguments:{path:'D:/proof/result.png'}}],
+  ['opencode-sdk',{tool:'read',status:'completed',input:{filePath:'D:/proof/result.png'}}],
+  ['claude-cli-stream-json',{name:'Read',input:{file_path:'D:/proof/result.png'},id:'tool-1'}],
+ ] as const){const tool=toolPresentation({kind:'tool',source,text:JSON.stringify(receipt)});assert.deepEqual(tool?.images,['D:/proof/result.png']);assert.equal(tool?.imageAction,'view');}
+ const write=toolPresentation({kind:'tool',source:'opencode-sdk',text:JSON.stringify({receipt:{tool:'write',status:'completed',input:{filePath:'preview.webp'}}})});assert.equal(write?.imageAction,'write');
+ const failed=toolPresentation({kind:'tool',source:'opencode-sdk',text:JSON.stringify({receipt:{tool:'read',status:'error',error:'missing',input:{filePath:'missing.png'}}})});assert.equal(failed?.status,'fail');
+ const wrapper=toolPresentation({kind:'tool',source:'codex-sdk-runStreamed',text:JSON.stringify({tool:'exec',status:'completed',arguments:{code:'image(await tools.view_image({path: "D:/proof/a.png"}));'}})});assert.deepEqual(wrapper?.paths,['D:/proof/a.png']);assert.equal(wrapper?.imageAction,'view');
+ for(const path of ['https://example.com/p.png','data:image/png;base64,abc','//server/private.png','javascript:evil.png'])assert.equal(imageFilePath(path),undefined);
+ assert.equal(imageFilePath('file:///D:/proof/a.png'),'D:/proof/a.png');
+ assert.deepEqual(toolPresentation({kind:'tool',source:'codex-sdk-runStreamed',text:JSON.stringify({tool:'view_image',status:'completed',input:{path:'file:///D:/proof/a.png'}})})?.images,['D:/proof/a.png']);
+});
 test('output words cannot override command exit status',()=>{
  assert.equal(activityStatus(command('npm test\ncompleted · exit_code=0\n0 failed; example exit_code=1')),'success');
  assert.equal(activityStatus(command('npm test\nfailed · exit_code=1\nexit_code=0')),'fail');

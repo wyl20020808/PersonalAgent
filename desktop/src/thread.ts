@@ -7,8 +7,16 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
  const decisionRole:ChatMessage['role']=(state.decisionAgent??state.config?.decisionAgent)?.backend==='codex'?'codex':(state.decisionAgent??state.config?.decisionAgent)?.backend==='opencode'?'opencode':'claude',decisionName=decisionRole==='codex'?'Codex':decisionRole==='opencode'?'OpenCode':'Claude Code';
  const executionRole=state.config?.executionAgent?.backend==='claude-code'?'claude':state.config?.executionAgent?.backend==='opencode'?'opencode':'codex',executionName=executionRole==='claude'?'Claude Code':executionRole==='opencode'?'OpenCode':'Codex';
  const result:ChatMessage[]=[];const streams=new Map<string,number>();let taskIndex=0,loop=0;
+ const imageCalls=new Map<string,{input:unknown;title:string;paths:string[]}>();
  for(const [timelineIndex,e] of events.entries()){
-   const d=e.data??{};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
+   const d={...(e.data??{})};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
+   let imagePaths:string[]|undefined;
+   if(e.event==='agent-activity'&&d.source==='claude-cli-stream-json')try{
+    const receipt=JSON.parse(d.text),view=toolPresentation(d);
+    if(typeof receipt.id==='string'&&view?.images?.length){imageCalls.set(d.scope+':'+receipt.id,{input:receipt.input,title:d.title,paths:view.images});d.streamId='image:'+receipt.id;imagePaths=view.images;}
+    const call=typeof receipt.tool_use_id==='string'?imageCalls.get(d.scope+':'+receipt.tool_use_id):undefined;
+    if(call&&typeof receipt.is_error==='boolean'){d.title=call.title;d.text=JSON.stringify({...receipt,input:call.input});d.streamId='image:'+receipt.tool_use_id;imagePaths=call.paths;}
+   }catch{/* Unknown receipts retain their public raw event. */}
    let role:ChatMessage['role']='controller',title=e.event,text='',kind='system',details:ChatMessage['details']=undefined,status='recorded';
    if(e.event==='created'){role='user';title='项目目标';text=d.goal??state.goal;kind='goal';status='executed';}
    else if(e.event==='human-decision'){role='user';title='Controller 已收到人工决策';text=d.decision+'\n\n收到决策不代表已开始执行；请查看后续派单或暂停事件。';kind='decision';status='recorded';}
@@ -20,7 +28,7 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    else if(e.event==='discussion-step-failed'){title=`决策者 ${d.participantId.toUpperCase()} · ${d.discussionStage} 调用失败`;text=d.error;kind='error';status=d.status;}
    else if(e.event==='discussion-replan-output'){role=d.participantAgent.backend==='codex'?'codex':d.participantAgent.backend==='opencode'?'opencode':'claude';title='主决策者 Replan · 非双决策讨论';text=d.output.humanDecision??'基于用户新指令重新规划；提案仍须 Controller 校验。';kind='plan';details={tasks:d.output.tasks};}
    else if(e.event==='discussion-output'){role=d.participantAgent.backend==='codex'?'codex':d.participantAgent.backend==='opencode'?'opencode':'claude';title=({draft:'初步计划',discussion:'讨论意见',synthesis:'主决策者总结 · 最终 Plan 提案'} as Record<string,string>)[d.discussionStage];text=d.mode==='mock'?'本地 Mock 适配器输出，未调用远端模型。':'真实决策调用的结构化输出；最终提案仍须 Controller 校验。';kind='discussion';if(d.output.tasks){details={tasks:d.output.tasks};text+='\n'+(d.output.humanDecision??'');}else text+='\n\n'+d.output.summary+'\n\n分歧：\n'+d.output.disagreements.map((s:string)=>'- '+s).join('\n')+'\n\n修改建议：\n'+d.output.amendments.map((s:string)=>'- '+s).join('\n');}
-   else if(e.event==='agent-activity'){role=d.participantAgent?(d.participantAgent.backend==='codex'?'codex':d.participantAgent.backend==='opencode'?'opencode':'claude'):d.agent==='claude'?(d.phase==='execute'?'claude':decisionRole):d.agent;title=d.title;text=d.text;kind=d.kind;details={protocol:d.source,fullTextHash:d.fullTextHash};status=activityStatus(d);}
+   else if(e.event==='agent-activity'){role=d.participantAgent?(d.participantAgent.backend==='codex'?'codex':d.participantAgent.backend==='opencode'?'opencode':'claude'):d.agent==='claude'?(d.phase==='execute'?'claude':decisionRole):d.agent;title=d.title;text=d.text;kind=d.kind;details={protocol:d.source,fullTextHash:d.fullTextHash,...(imagePaths?{paths:imagePaths}:{})};status=activityStatus(d);}
    else if(e.event==='agent-start'&&state.discussion&&d.role==='plan'){title='决策周期开始';text='按绑定的参与者配置顺序调用；完成最终 Plan 前不派发执行者。';kind='dispatch';}
    else if(e.event==='agent-start'){role=d.role==='execute'?executionRole:d.agent==='claude'?decisionRole:d.agent;title=d.role==='execute'?executionName+' 正在执行':decisionName+' 正在决策';text=`阶段：${d.role}`;kind='dispatch';status='running';}
    else if(e.event==='agent-finish'){role=state.discussion&&d.role==='plan'?'controller':d.role==='execute'?executionRole:d.agent==='claude'?decisionRole:d.agent;title='Agent 实际文件变更';text=`耗时 ${d.durationMs} ms；${d.changed===null?'文件变更未自动验证':d.changed?'观测到文件修改':'未观测到文件修改'}${d.verificationScope?'\n'+d.verificationScope:''}`;kind='changes';details={diff:redact(d.diff??''),protocol:d.verificationScope?'Controller limited Git observation':'Controller Git snapshot'};}

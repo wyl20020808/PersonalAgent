@@ -11,6 +11,23 @@ import {git} from '../../dist/src/workspace.js';
 
 const patch='diff --git a/src/code.ts b/src/code.ts\n--- a/src/code.ts\n+++ b/src/code.ts\n@@ -8,2 +8,3 @@\n keep\n-old\n+new\n+extra\n';
 const tool:ChatMessage={id:'audit:'+ 'a'.repeat(64),role:'codex',runId:'run',taskId:'task',loop:2,time:'',title:'Codex 文件操作',kind:'tool',status:'success',source:'audit',text:'completed\n'+JSON.stringify([{path:'D:/Demo/src/code.ts',kind:'update'}]),details:{protocol:'codex-sdk-runStreamed'}};
+
+test('image tool and generated Markdown use event-bound read-only preview, never arbitrary files',async()=>{
+ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','images-'+randomUUID()),service=new DesktopService(root,data,process.execPath),project=path.join(data,'project');
+ fs.mkdirSync(project,{recursive:true});const image=path.join(project,'result.png');fs.writeFileSync(image,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK9sAAAAASUVORK5CYII=','base64'));service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct'}),sent=await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'image preview',directAcknowledged:true}),ref=sent.runs[0],store=service.store(ref.profileId,ref.id);
+ store.audit('agent-activity',{agent:'codex',kind:'tool',title:'Codex 查看图片',text:JSON.stringify({tool:'view_image',status:'completed',input:{path:image}}),source:'codex-sdk-runStreamed'});
+ const message=service.thread(ref.profileId,ref.id).messages.find(item=>item.title==='Codex 查看图片')!,before=fs.readFileSync(store.file('audit.jsonl'));
+ const preview=await service.readChatFile(ref.profileId,ref.id,message.id,image);assert.match(preview.file?.dataUrl??'',/^data:image\/png;base64,/);
+ assert.ok(fs.readFileSync(store.file('audit.jsonl')).equals(before));
+ store.audit('agent-activity',{agent:'codex',kind:'tool',title:'Codex URI 查看图片',text:JSON.stringify({tool:'view_image',status:'completed',input:{path:'file:///'+image.replaceAll('\\','/')}}),source:'codex-sdk-runStreamed'});
+ const uri=service.thread(ref.profileId,ref.id).messages.find(item=>item.title==='Codex URI 查看图片')!;assert.match((await service.readChatFile(ref.profileId,ref.id,uri.id,image.replaceAll('\\','/'))).file?.dataUrl??'',/^data:image\/png/);
+ await assert.rejects(service.readChatFile(ref.profileId,ref.id,message.id,path.join(project,'unlisted.png')),/未在/);
+ assert.ok(fs.readFileSync(store.file('audit.jsonl')).subarray(0,before.length).equals(before));
+ store.audit('agent-activity',{agent:'codex',kind:'output',title:'生成结果',text:`![结果](${image.replaceAll('\\','/')})`,source:'codex-sdk-runStreamed'});
+ const generated=service.thread(ref.profileId,ref.id).messages.find(item=>item.title==='生成结果')!;assert.match((await service.readChatFile(ref.profileId,ref.id,generated.id,image.replaceAll('\\','/'))).file?.dataUrl??'',/^data:image\/png/);
+ fs.unlinkSync(image);assert.ok((await service.readChatFile(ref.profileId,ref.id,message.id,image)).contentError);
+});
 test('unified diff counts content only and retains old/new line numbers',()=>{
  const [file]=parseFileChanges(patch);assert.equal(file.path,'src/code.ts');assert.equal(file.added,2);assert.equal(file.removed,1);
  assert.deepEqual(file.lines.find(line=>line.text==='-old'),{kind:'remove',text:'-old',oldLine:9});assert.deepEqual(file.lines.find(line=>line.text==='+extra'),{kind:'add',text:'+extra',newLine:10});

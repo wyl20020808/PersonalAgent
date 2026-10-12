@@ -25,6 +25,7 @@ import { timeoutSignal } from './timeout.js';
 import { recoverTransport } from './transport-recovery.js';
 import { codexGuidanceBoundary } from './guidance-handoff.js';
 import { processingGuidance } from './steering.js';
+import {observeCodexImages} from './codex-images.js';
 import { decisionOperatingMode, planningAction, reviewAction } from './decision-guidance.js';
 
 export class RealAgents implements Agents {
@@ -77,6 +78,7 @@ export class RealAgents implements Agents {
     if (this.config.executionAgent?.backend === 'claude-code') return new ClaudeCodeExecutionAgent(this.config, this.run).execute(state, store, signal, prompt, context);
     const observation = new CallObservation(state, store, 'execute', prompt, context, !!state.codexThreadId);
     const pendingTools=new Set<string>();
+    const images=observeCodexImages(state.workspace,()=>state.codexThreadId,record);
     let completed = false;
     try {
     const result = await this.run(process.execPath, [fileURLToPath(new URL('./codex-worker.js', import.meta.url))], {
@@ -84,7 +86,7 @@ export class RealAgents implements Agents {
       onLine(line) {
         if (!line.trim()) return;
         const event = JSON.parse(line) as { type: string; id?: string; data?: unknown };
-        if (event.type === 'thread') { if (state.decisionSession?.backend === 'codex' && state.decisionSession.sessionId === event.id || state.discussion?.participants.some(p => p.session?.backend === 'codex' && p.session.sessionId === event.id)) throw new FlowError('safety', 'Execution cannot share a Decision Thread'); state.codexThreadId = event.id!; store.save(state); store.audit('codex-thread', { id: event.id }); }
+        if (event.type === 'thread') { if (state.decisionSession?.backend === 'codex' && state.decisionSession.sessionId === event.id || state.discussion?.participants.some(p => p.session?.backend === 'codex' && p.session.sessionId === event.id)) throw new FlowError('safety', 'Execution cannot share a Decision Thread'); state.codexThreadId = event.id!; store.save(state);images.poll(); store.audit('codex-thread', { id: event.id }); }
         else if (event.type === 'activity') record(event.data as import('./telemetry.js').PublicActivity);
         else if (event.type === 'observation') {const data=event.data as any;if(data?.item&&['command_execution','file_change','mcp_tool_call'].includes(data.item.type)){if(data.type==='item.completed')pendingTools.delete(data.item.id);else pendingTools.add(data.item.id);}codexGuidanceBoundary(event.data);observation.observe(event.data);}
         else if (event.type === 'result') { if (edits !== undefined) throw new Error('Duplicate SDK worker result'); edits = event.data; }
@@ -100,7 +102,7 @@ export class RealAgents implements Agents {
     } catch(error){
       if(pendingTools.size&&['transport','timeout'].includes(classifyFailure(error,'execute').kind))throw new FlowError('interrupted','Codex tool results are unknown; manual recovery required');
       throw error;
-    } finally { observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
+    } finally { images.finish();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
   async review(state: State, store: Store, signal: AbortSignal): Promise<Review> {
     assertOperationPolicy({ kind: 'model' });

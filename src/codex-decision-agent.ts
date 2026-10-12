@@ -11,6 +11,7 @@ import { assertOperationPolicy, interactionAgentRules } from './interaction-poli
 import { nativeAgentEnv } from './workspace.js';
 import {DiscussionStream} from './discussion-stream.js';
 import { codexGuidanceBoundary } from './guidance-handoff.js';
+import {observeCodexImages} from './codex-images.js';
 
 export class CodexDecisionAgent implements DecisionAgent {
   constructor(readonly config: Config, private readonly run: typeof runProcess = runProcess) {}
@@ -30,6 +31,7 @@ export class CodexDecisionAgent implements DecisionAgent {
     const discussionStream=new DiscussionStream(request.onPublicProgress);
     store.audit('codex-decision-call-start', { ...scope, callId: observation.usage.callId, call: state.claudeCalls, threadId, configuredModel: state.decisionAgent.model ?? null });
     let output: unknown, seenResult = false, ownedThread: string | null = null, completed = false, turnCompleted = false;
+    const images=observeCodexImages(request.workspace,()=>ownedThread,record);
     try {
       const result = await this.run(request.nodeExecutable??process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
         cwd: store.dir, env: nativeAgentEnv(), signal, interaction: { kind: 'model' }, timeoutMs: request.timeoutMs, streamOutput: true,
@@ -44,6 +46,7 @@ export class CodexDecisionAgent implements DecisionAgent {
           if (event.type === 'thread') {
             if (ownedThread || typeof event.id !== 'string' || !event.id.trim() || (threadId && threadId !== event.id) || event.id === state.codexThreadId) throw new FlowError('safety', 'Codex Decision Thread ownership mismatch');
             ownedThread = event.id; bindDecisionSession(state, store, event.id);
+            images.poll();
             store.audit('codex-decision-thread', { ...scope, callId: observation.usage.callId, sessionId: event.id, resumed: !!threadId });
           } else {
             if (!ownedThread) throw new FlowError('safety', 'Codex Decision event without owned Thread');
@@ -65,6 +68,6 @@ export class CodexDecisionAgent implements DecisionAgent {
       if (error instanceof FlowError) throw error;
       const classified = classifyFailure(error, role);
       throw new FlowError(classified.kind === 'unknown' || classified.kind === 'validation' || classified.kind === 'executor' ? 'supervisor' : classified.kind, (error as Error).message);
-    } finally { observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
+    } finally { images.finish();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
 }

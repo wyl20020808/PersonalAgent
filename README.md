@@ -128,6 +128,8 @@ node .\dist\scripts\smoke-codex.js
 
 Codex、Claude Code、OpenCode 的规划、执行和审查在临时上游故障或请求超时时，默认最多额外重试五次，基础间隔 5/15/30/45/60 秒。沿用原 Session，先确认旧调用结束和工具结果，再检查已有成果；额度、认证、主动停止及未知写入结果不盲目重试。耗尽后暂停并保留原因和重试审计，详见 [五次恢复说明](docs/TRANSIENT_FIVE_RETRIES_20261012.md)。
 
+聊天中的本地图片工具记录可点击查看，成功查看数量与处理中/失败状态分别展示；生成结果中的本地 Markdown 图片支持缩略图和只读预览。支持 PNG/JPEG/GIF/WebP，不自动加载远程图片。预览展示当前文件，查看不代表验收，详见 [聊天图片记录与预览](docs/CHAT_IMAGE_RECEIPTS_20261012.md)。
+
 项目锁仍与旧版本共用同一位置。新恢复锁记录持有者 PID，以独有恢复声明避免多个新进程同时回收；仅 `ESRCH` 确认退出的持有者可自动回收。活动进程、无法查询的 PID、旧空锁和损坏锁都不会按时间强制清理；身份不明时提示人工检查。PID 复用可能保守地阻挡恢复，不宣称任意崩溃均可自动恢复。
 
 当前测试区分历史快照 Run 与新 Run：历史测试明确构造旧状态并保留原安全断言；新测试验证有限 Git/Context 观察与未验证范围提示。局部测试通过不表示全库回归、GUI 或 Work Mode 已通过。当前修复记录见 [局部修复验证](docs/SAFE_RELIABILITY_FIXES_V1_VALIDATION.md) 和 [后续三项验证](docs/SAFE_RELIABILITY_FOLLOWUP_V1_VALIDATION.md)。
