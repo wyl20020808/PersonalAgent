@@ -65,7 +65,8 @@ async function replay(references = original.review.contextReview!.checkedContrac
 
 test('Controller preserves original T1 decision receipt without machine normalization', async () => {
   const before = JSON.stringify(original.review), f = await replay();
-  assert.equal(f.result.phase, 'completed', f.result.reason); assert.equal(f.result.evidence!.userAccepted, true);
+  assert.equal(f.result.phase, 'completed', f.result.reason); assert.equal(f.result.evidence!.decisionAccepted, true);
+  assert.notEqual(f.result.evidence!.userAccepted, true);
   const saved = f.events.find(e => e.event === 'review')!;
   assert.deepEqual(saved.data, original.review); assert.equal(JSON.stringify(original.review), before);
   assert.deepEqual(f.result.evidence!.decisionReview, original.review);
@@ -85,9 +86,10 @@ test('missing contract references remain visible for decision and user judgment'
   }
 });
 
-test('forged document status stays untrusted while decision receipt waits for user acceptance', async () => {
+test('forged document status stays untrusted and decision completion cannot impersonate user approval', async () => {
   const f = await replay([catalog[0]!.path], true, false);
-  assert.equal(f.result.phase, 'paused');
+  assert.equal(f.result.phase, 'completed');
+  assert.equal(f.result.evidence!.decisionAccepted,true);
   assert.equal(f.result.evidence!.decisionReview!.verdict,'pass');
   assert.equal(f.result.evidence!.userAccepted,undefined);
   assert.ok(f.result.evidence!.contextReport!.findings.some(finding => finding.code === 'CONFIRMATION_UNVERIFIABLE' && finding.origin === 'task'));
