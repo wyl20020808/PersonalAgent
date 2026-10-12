@@ -172,7 +172,7 @@ test('snapshot-free Run preserves native files and explicitly reports limited ve
   assert.equal(state.snapshotPolicy,'none');assert.equal(state.phase,'completed');
   assert.match(state.evidence!.verificationScope!,/未验证全量项目变更/);
   assert.doesNotMatch(state.evidence!.diff,/plan-note.txt|result.txt/);
-  assert.equal(state.evidence!.taskDiff,undefined);assert.match(state.beforeExecution,/^[a-f0-9]{64}$/);
+  assert.match(state.evidence!.taskDiff ?? '', /seed\.txt/);assert.match(state.beforeExecution,/^[a-f0-9]{64}$/);
   for(const name of ['plan-note.txt','result.txt'])assert.ok(fs.existsSync(path.join(state.workspace,name)));
   assert.equal(fs.existsSync(f.store.file('snapshot-objects')),false);
   assert.equal(fs.existsSync(f.store.file('task-0-baseline.json')),false);
