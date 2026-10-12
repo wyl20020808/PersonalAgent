@@ -210,6 +210,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         throw new FlowError('supervisor', 'OpenCode Execute process exit unconfirmed; manual recovery required');
       }
       finally {
+        record.flush();
         if(service?.diagnostics)store.audit('opencode-service-exit',{role:'execute',callId:observation.usage.callId,sessionId:sessionID,...service.diagnostics()});
         if (dispatched && !completed) { state.executionAttempt!.status = signal.aborted ? 'interrupted' : 'failed'; state.executorExitCode = -1; store.save(state); }
         observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');

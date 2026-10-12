@@ -1,6 +1,6 @@
 import type {ChatMessage,SessionMessage,DecisionAgent} from './types.js';
 import {localFilePath} from './fileReferences.js';
-import {partialDiscussionReply} from '../../dist/src/discussion-stream.js';
+import {partialPublicText} from '../../dist/src/discussion-stream.js';
 
 export function imageFilePath(value:string):string|undefined{
  const file=localFilePath(value);return file&&/\.(?:png|jpe?g|gif|webp)$/i.test(file)?file:undefined;
@@ -42,7 +42,7 @@ export function toolPresentation(data:Activity):ToolView|null {
   const raw:unknown=JSON.parse(data.text);if(!object(raw))return null;
   const receipt=object(raw.receipt)?raw.receipt:raw;
   if(data.source==='opencode-sdk'&&typeof raw.receipt==='string')return null;
-  if(!['opencode-sdk','claude-cli-stream-json','codex-sdk-runStreamed'].includes(data.source??''))return null;
+  if(!['opencode-sdk','claude-cli-stream-json','codex-sdk-runStreamed','codex-app-server'].includes(data.source??''))return null;
   const input=object(receipt.input)?receipt.input:object(receipt.arguments)?receipt.arguments:{};
   const path=input.filePath??input.file_path??input.path;
   const toolName=String(receipt.tool??receipt.name??data.title??'');
@@ -93,7 +93,7 @@ export function publicMessageText(message:ChatMessage):string {
    if(/^\s*\{\s*"role"\s*:\s*"execution"\s*,\s*"phase"\s*:\s*"execute"\s*,/.test(message.text))return message.status==='running'?'正在接收执行结果…':'执行记录不完整，无法整理正文。请展开原始记录查看。';
   }
   if(/^\s*\{/.test(message.text)){
-   for(const field of ['reply','summary','reason']){const text=partialDiscussionReply(message.text,field);if(text!==undefined)return text;}
+   const text=partialPublicText(message.text);if(text!==undefined)return text;
    try{JSON.parse(message.text);}catch{return '';}
   }
  }

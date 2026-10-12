@@ -96,7 +96,8 @@ export class CallObservation {
     if (existsSync(resolved)) { const stat = lstatSync(resolved); if (stat.isSymbolicLink() || stat.nlink > 1) return null; const real = path.relative(root, realpathSync(resolved)); if (real.startsWith('..') || path.isAbsolute(real)) return null; }
     return relative;
   }
-  private persist(): void { atomicJson(this.usageFile, JSON.parse(redact(JSON.stringify(this.usage)))); }
+  private persistedUsage='';
+  private persist(): void { const clean=redact(JSON.stringify(this.usage));if(clean===this.persistedUsage)return;atomicJson(this.usageFile,JSON.parse(clean));this.persistedUsage=clean; }
   observeOpencodePart(part: any): void {
     if (this.closed || this.usage.agent !== 'opencode' || part.type !== 'tool') return;
     if (part.tool === 'bash' && typeof part.state?.input?.command === 'string') this.record('shell-command', {toolCallId:part.callID,command:redactCommand(part.state.input.command),status:part.state.status,exitCode:Number.isInteger(part.state.metadata?.exit)?part.state.metadata.exit:null});
@@ -110,6 +111,7 @@ export class CallObservation {
   }
   observe(event: any): void {
     if (this.closed || !event || event.isReplay === true) return;
+    if(event.type==='stream_event'&&!['message_start','message_delta'].includes(event.event?.type))return;
     if (this.usage.agent === 'codex') {
       if (event.type === 'turn.completed') { this.finalUsage = tokens(event.usage, true); this.resultSeen = true; }
       const item = event.item;

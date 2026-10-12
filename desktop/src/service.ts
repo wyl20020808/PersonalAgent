@@ -392,7 +392,7 @@ export class DesktopService {
   const stamp=(file:string)=>{if(!fs.existsSync(file))return 'missing';const stat=fs.statSync(file,{bigint:true});return `${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;};
   const fingerprint=state.updatedAt+':'+stamp(store.file('state.json'))+':'+stamp(store.file('audit.jsonl'))+':'+stamp(path.join(this.data,'notes',id+'.json'));
   let cached=this.threadCache.get(key);
-  if(!cached||cached.fingerprint!==fingerprint){const events=this.chatEvents(store);cached={fingerprint,timing:runTiming(events),timingEnd:Date.parse(events.at(-1)?.time??state.updatedAt),messages:projectMessages(state,events,this.notes(id)),capabilities:{claudeStreaming:state.config.claudeStreaming!==false,codexPublicEvents:events.some(e=>e.event==='agent-activity'&&e.data.agent==='codex'),imagesToClaude:false}};this.threadCache.set(key,cached);if(this.threadCache.size>20)this.threadCache.delete(this.threadCache.keys().next().value!);}
+  if(!cached||cached.fingerprint!==fingerprint){const events=this.chatEvents(store);cached={fingerprint,timing:runTiming(events),timingEnd:Date.parse(events.at(-1)?.time??state.updatedAt),messages:projectMessages(state,events,this.notes(id)),capabilities:{claudeStreaming:true,codexPublicEvents:events.some(e=>e.event==='agent-activity'&&e.data.agent==='codex'),imagesToClaude:false}};this.threadCache.set(key,cached);if(this.threadCache.size>20)this.threadCache.delete(this.threadCache.keys().next().value!);}
   const timing=this.runActive(store)?cached.timing:{...timingTotals([cached.timing],cached.timingEnd),running:null,since:null};
   return {...messagePage(cached.messages,after),timing,lastActivity:cached.messages.at(-1)?.time??null,capabilities:cached.capabilities};
  }

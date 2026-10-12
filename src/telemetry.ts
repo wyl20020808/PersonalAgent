@@ -8,22 +8,37 @@ export function redact(text:string):string {
     .replace(/Bearer\s+[\w.\/-]+/gi,'Bearer [已隐藏凭据]');
 }
 export interface PublicActivity {key:string;kind:string;title:string;text:string;streamId?:string;source?:'codex-app-server'}
-export function activityRecorder(state:State,store:Store,agent:'claude'|'codex'|'opencode',scope:string,phase?:'plan'|'review'|'execute'){
+export function activityRecorder(state:State,store:Store,agent:'claude'|'codex'|'opencode',scope:string,phase?:'plan'|'review'|'execute',clock=Date.now){
+  const pending=new Map<string,PublicActivity>(),written=new Map<string,string>();let lastStream=-Infinity;
+  // Capture dispatch ownership before a deferred tail can outlive mutable Run state.
+  const taskId=state.tasks[state.taskIndex]?.id??null,loop=state.loops;
   const seen=new Set<string>();let count=0,limited=false;
   if(existsSync(store.file('audit.jsonl')))for(const line of readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').filter(Boolean)){
     const e=JSON.parse(line);if(e.event==='agent-activity'&&e.data.scope===scope){seen.add(e.data.key);if(!e.data.streamId)count++;}if(e.event==='agent-activity-limit'&&e.data.scope===scope)limited=true;
   }
-  return (event:PublicActivity)=>{
-    if(!event||!['key','kind','title','text'].every(k=>typeof (event as unknown as Record<string,unknown>)[k]==='string'))throw Error('Invalid public activity');
+  const write=(event:PublicActivity)=>{
     const key=createHash('sha256').update(event.key).digest('hex');if(seen.has(key))return;seen.add(key);
-    if(!event.streamId&&count>=120 && state.config.executionMode === 'proposal'){if(!limited){store.audit('agent-activity-limit',{scope,agent,runId:state.id,taskId:state.tasks[state.taskIndex]?.id??null,loop:state.loops,note:'活动展示已达上限；最终结构化结果仍按完整 Schema 校验'});limited=true;}count++;return;}
+    if(!event.streamId&&count>=120 && state.config.executionMode === 'proposal'){if(!limited){store.audit('agent-activity-limit',{scope,agent,runId:state.id,taskId,loop,note:'活动展示已达上限；最终结构化结果仍按完整 Schema 校验'});limited=true;}count++;return;}
     if(!event.streamId)count++;
     const text=redact(event.text);
     const fullTextFile=text.length>6000?`activity-${createHash('sha256').update(scope+key).digest('hex')}.txt`:undefined;
     if(fullTextFile)writeFileSync(store.file(fullTextFile),text,'utf8');
-    store.audit('agent-activity',{scope,agent,...(phase?{phase}:{}),runId:state.id,taskId:state.tasks[state.taskIndex]?.id??null,loop:state.loops,
+    store.audit('agent-activity',{scope,agent,...(phase?{phase}:{}),runId:state.id,taskId,loop,
       key,streamId:event.streamId,kind:event.kind.slice(0,80),title:redact(event.title).slice(0,160),text:text.slice(0,6000),truncated:!!fullTextFile,fullTextFile,fullTextHash:fullTextFile?createHash('sha256').update(text).digest('hex'):undefined,source:agent==='opencode'?'opencode-sdk':agent==='claude'?'claude-cli-stream-json':event.source==='codex-app-server'?event.source:'codex-sdk-runStreamed'});
   };
+  const flush=()=>{for(const [id,event] of pending){if(written.get(id)!==event.text){write(event);written.set(id,event.text);}}pending.clear();lastStream=clock();};
+  const record=(event:PublicActivity)=>{
+    if(!event||!['key','kind','title','text'].every(k=>typeof (event as unknown as Record<string,unknown>)[k]==='string'))throw Error('Invalid public activity');
+    if(event?.kind==='output'&&event.streamId&&typeof event.text==='string'){
+      pending.set(event.streamId,{...event});if(clock()-lastStream>=100)flush();
+    }else{if(pending.size)flush();write(event);}
+  };
+  return Object.assign(record,{flush});
+}
+
+/** A known nonterminal CLI configuration banner, never a terminal failure. */
+export function codexStartupNotice(text:string):boolean{
+  return /^Under-development features enabled: [\w., -]+\.\s+Under-development features are incomplete and may behave unpredictably\. To suppress this warning, set\s+`?suppress_unstable_features_warning = true`?\s+in\s+[^\r\n]+[\\/]\.codex[\\/]config\.toml\.\s*$/.test(text.trim());
 }
 
 // Only public text is retained. Thinking/signature blocks are deliberately excluded.
@@ -55,7 +70,7 @@ export function codexPublicEvent(value:any):PublicActivity|null {
   if(item.type==='image_view'&&item.id&&typeof item.path==='string')return {key:`${item.id}:${value.type}`,streamId:item.id,kind:'tool',title:'Codex 查看图片',text:JSON.stringify({tool:'view_image',input:{path:item.path},status:item.status??(value.type==='item.completed'?'completed':'in_progress')})};
   if(item.type==='mcp_tool_call'&&item.id)return {key:`${item.id}:${value.type}:${JSON.stringify(item.result??item.error)}`,streamId:item.id,kind:'tool',title:`Codex MCP · ${item.server}/${item.tool}`,text:JSON.stringify({tool:item.tool,status:item.status,arguments:item.arguments,result:item.result,error:item.error})};
   if(item.type==='web_search')return {key:`${item.id}:${value.type}`,kind:'tool',title:'Codex 网络搜索',text:item.query??''};
-  if(item.type==='error')return {key:`${item.id}:${value.type}`,kind:'error',title:'Codex 工具错误',text:item.message??''};
+  if(item.type==='error'){const text=item.message??'',notice=codexStartupNotice(text);return {key:`${item.id}:${value.type}`,kind:notice?'notice':'error',title:notice?'Codex 配置提示':'Codex 工具错误',text};}
   if(item.type==='todo_list')return {key:`${item.id}:${value.type}:${JSON.stringify(item.items)}`,kind:'todo',title:'Codex 步骤记录',text:(item.items??[]).map((i:any)=>`${i.completed?'✓':'○'} ${i.text}`).join('\n')};
   return null;
 }

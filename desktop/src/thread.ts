@@ -1,5 +1,5 @@
 import {activityStatus,toolPresentation} from './chatPresentation.js';
-import {redact} from '../../dist/src/telemetry.js';
+import {redact,codexStartupNotice} from '../../dist/src/telemetry.js';
 import type {State} from '../../src/store.js';
 import type {ChatMessage,Note} from './types.js';
 
@@ -10,6 +10,7 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
  const imageCalls=new Map<string,{input:unknown;title:string;paths:string[]}>();
  for(const [timelineIndex,e] of events.entries()){
    const d={...(e.data??{})};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
+   if(e.event==='agent-activity'&&d.agent==='codex'&&d.title==='Codex 工具错误'&&d.kind==='error'&&codexStartupNotice(d.text??'')){d.kind='notice';d.title='Codex 配置提示';}
    let imagePaths:string[]|undefined;
    if(e.event==='agent-activity'&&d.source==='claude-cli-stream-json')try{
     const receipt=JSON.parse(d.text),view=toolPresentation(d);
