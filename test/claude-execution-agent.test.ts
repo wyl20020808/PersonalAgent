@@ -62,6 +62,16 @@ test('Claude execution rejects Session alias, model mismatch, invalid phase, una
  const denied=structuredClone(state);delete denied.config.directAuthorization;f.store.save(denied);await assert.rejects(new ClaudeCodeExecutionAgent(denied.config).execute(denied,f.store,signal,prompt),/authorization/);f.store.save(state);
  const replay=structuredClone(state);replay.executionAttempt={loop:1,taskId:tasks[0]!.id,status:'running'};await assert.rejects(adapter.execute(replay,f.store,signal,prompt),/never replay/);
 });
+test('Claude automatic delegation authorizes a known ended failure only, preserving same-loop replay protection',async()=>{
+ const f=await fixture(),state=pending(f);state.loops=2;state.executionAttempt={loop:1,taskId:tasks[0]!.id,status:'failed'};f.store.save(state);
+ f.store.audit('claude-execute-dispatch',{loop:1,taskId:tasks[0]!.id});
+ let calls=0;
+ const adapter=new ClaudeCodeExecutionAgent(f.config,async(_exe,args,options)=>{calls++;const id=args[args.indexOf('--session-id')+1]!;options.onLine?.(JSON.stringify({type:'system',subtype:'init',session_id:id}));options.onLine?.(JSON.stringify({type:'result',session_id:id,structured_output:{mode:'native',summary:'Local fixture'}}));return {exitCode:0,stdout:'',stderr:''};});
+ f.store.audit('automatic-decision',{failureKind:'interrupted'});await assert.rejects(adapter.execute(state,f.store,new AbortController().signal,'{}'),/explicit human recovery/);assert.equal(calls,0);
+ f.store.audit('automatic-decision',{failureKind:'timeout'});await adapter.execute(state,f.store,new AbortController().signal,'{}');assert.equal(calls,1);
+ await assert.rejects(adapter.execute(state,f.store,new AbortController().signal,'{}'),/never replay/);assert.equal(calls,1);
+});
+
 test('Claude CLI invalid output and interrupted tools fail closed, preserve Session and block replay',async()=>{
  for(const kind of ['schema','tool','session'] as const){const f=await fixture(),state=pending(f),run:typeof runProcess=async(_exe,args,options)=>{const id=args[args.indexOf('--session-id')+1]!;options.onLine?.(JSON.stringify({type:'system',subtype:'init',session_id:kind==='session'?'wrong':id}));if(kind==='tool')options.onLine?.(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',id:'pending',name:'Bash',input:{command:'fixture'}}]}}));options.onLine?.(JSON.stringify({type:'result',session_id:id,structured_output:kind==='schema'?{bad:true}:{mode:'native',summary:'fixture'}}));return{exitCode:0,stdout:'',stderr:''};};const adapter=new ClaudeCodeExecutionAgent(f.config,run);await assert.rejects(adapter.execute(state,f.store,new AbortController().signal,JSON.stringify({action:'fixture'})),kind==='schema'?/Schema/:kind==='tool'?/terminal tool/:/ownership/);assert.equal(f.store.load().executionAttempt?.status,'failed');await assert.rejects(adapter.execute(f.store.load(),f.store,new AbortController().signal,'{}'),/never replay/);}
 });

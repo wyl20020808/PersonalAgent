@@ -19,6 +19,9 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    }catch{/* Unknown receipts retain their public raw event. */}
    let role:ChatMessage['role']='controller',title=e.event,text='',kind='system',details:ChatMessage['details']=undefined,status='recorded';
    if(e.event==='created'){role='user';title='项目目标';text=d.goal??state.goal;kind='goal';status='executed';}
+   else if(e.event==='automatic-decision'){title='全自动模式 · 决策者接管';text=d.decision;kind='decision';status='delegated';}
+   else if(e.event==='automatic-supervision-dispatch'){title='后台巡检 · 超时委托';text='用户等待超过十分钟，已请求当前决策者判断。第 '+d.attempts+' 次接管；接管不代表恢复或验收已通过。';kind='decision';status='delegated';}
+   else if(e.event==='automatic-supervision-error'){title='后台巡检失败';text=d.message;kind='error';status='failed';}
    else if(e.event==='human-decision'){role='user';title='Controller 已收到人工决策';text=d.decision+'\n\n收到决策不代表已开始执行；请查看后续派单或暂停事件。';kind='decision';status='recorded';}
    else if(e.event==='limits-updated'){title='授权预算已更新';text=`每任务返工上限：${d.maxReworks??'保持不变'}；已有消耗保留。${d.timeoutMs===undefined?'':d.timeoutMs===0?'运行时间：不限时。':`运行时间：${d.timeoutMs} 毫秒。`}`;kind='system';}
    else if(e.event==='plan'){role=state.discussion?'controller':decisionRole;title=state.discussion?'最终计划 · Controller 校验通过':'任务计划';text=d.humanDecision??`已返回 ${d.tasks?.length??0} 个任务，Controller 逐项调度；决策者验收通过后自动继续，重大决策再交用户。`;kind='plan';details={tasks:d.tasks};}

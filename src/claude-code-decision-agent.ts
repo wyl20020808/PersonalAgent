@@ -147,7 +147,7 @@ export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements
         const automatic=state.executionAttempt.loop===state.loops&&safeIndex>=0&&following.slice(safeIndex+1).some(e=>e.event==='transport-recovery-start'&&e.data.role==='execute'&&e.data.sessionId===state.executionSession?.sessionId);
         const guided=following.some(e=>e.event==='guidance-interrupted'&&e.data.loop===state.executionAttempt!.loop)&&following.some(e=>e.event==='guidance-applied');
         if(state.executionAttempt.loop===state.loops&&!automatic)throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
-        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided&&!automatic) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+        if (last < 0 || !following.some(e => e.event === 'human-decision' || e.event === 'automatic-decision' && ['transport','timeout','executor','supervisor'].includes(e.data?.failureKind))&&!guided&&!automatic) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
       } else if(state.executionAttempt.loop===state.loops){
         throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       }
