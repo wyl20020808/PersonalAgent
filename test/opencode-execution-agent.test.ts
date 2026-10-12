@@ -9,7 +9,7 @@ import {createOpencodeClient} from '@opencode-ai/sdk/v2';
 import { createRun } from '../src/controller.js';
 import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import {OpenCodeDecisionAgent, type OpenCodeLauncher} from '../src/opencode-decision-agent.js';
-import {OpenCodeExecutionAgent, assertExecutionState, executionPermissions, discoverOpencodeExecutionModels} from '../src/opencode-execution-agent.js';
+import {OpenCodeExecutionAgent, assertExecutionState, executionPermissions, discoverOpencodeExecutionModels, switchExecutionAgent} from '../src/opencode-execution-agent.js';
 import {RealAgents} from '../src/real-agents.js';
 import {MockAgents} from '../src/adapters.js';
 import {configSchema, validate, type Config, type DecisionChoice} from '../src/schema.js';
@@ -193,6 +193,22 @@ test('Controller explicit human recovery resumes interrupted execution without r
  const recovered=await drive(f.store,real(f,server),'已检查保留的修改；在已有执行 Session 中继续当前任务，先检查已有成功结果，避免重复执行。');
  assert.equal(recovered.phase,'completed',recovered.reason);assert.equal(recovered.executionSession?.sessionId,id);assert.equal(server.prompts,before+2); // Execute plus Review
  assert.equal(server.requests.filter(r=>r.route==='/session'&&r.body.title?.includes(':execution:')).length,1);
+});
+
+test('Claude quota interruption can switch to OpenCode only after explicit recovery, preserving existing writes',async()=>{
+ const f=await fixture({executionAgent:{backend:'claude-code',model:'haiku'}}),server=fake();
+ const state=pending(f);state.phase='paused';state.nextPhase='execute';state.executionAttempt={loop:state.loops,taskId:'core',status:'failed'};f.store.save(state);
+ fs.writeFileSync(path.join(f.source,'partial.txt'),'preserved Claude work\n');
+ f.store.audit('claude-execute-dispatch',{role:'execute',taskId:'core',loop:state.loops});
+ f.store.audit('execution-interrupted',{loop:state.loops});
+ const switched=switchExecutionAgent(f.store,choice),adapter=new OpenCodeExecutionAgent(switched.config,server.launcher);
+ const attempt=f.store.load();attempt.phase='executing';attempt.loops++;f.store.save(attempt);
+ await assert.rejects(()=>adapter.execute(attempt,f.store,new AbortController().signal,'{}'),/explicit human recovery/);
+ assert.equal(server.prompts,0);
+ f.store.audit('human-decision',{decision:'User inspected partial Claude results and authorizes OpenCode recovery',intent:'resume'});
+ await adapter.execute(attempt,f.store,new AbortController().signal,'{}');
+ assert.equal(attempt.executionSession?.backend,'opencode');assert.equal(attempt.executionAttempt?.status,'success');assert.equal(server.prompts,1);
+ assert.equal(fs.readFileSync(path.join(f.source,'partial.txt'),'utf8'),'preserved Claude work\n');assert.equal(attempt.id,state.id);
 });
 test('isolated workspace binding keeps source unchanged; missing authorization and live discussion reject',async()=>{
  const f=await fixture({projectMode:'isolated',directAuthorization:undefined}),server=fake(),done=await drive(f.store,real(f,server));assert.equal(done.phase,'completed');assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),'initial\n');assert.equal(fs.readFileSync(path.join(done.workspace,'core.js'),'utf8'),'fixed\n');assert.equal(done.executionSession?.workspace,fs.realpathSync(done.workspace));
