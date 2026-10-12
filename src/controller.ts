@@ -28,6 +28,8 @@ import {claimGuidance,claimPendingGuidance,processingGuidance,pendingGuidance,fi
 import {withGuidanceHandoff,GuidanceHandoff} from './guidance-handoff.js';
 import { acceptDecision, recordedPass, decisionAcceptanceDigest } from './decision-acceptance.js';
 
+// A task still returned after this many reworks is larger than one round; the decision maker restructures the rest.
+export const REWORK_REPLAN_AFTER = 3;
 export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
   if (options.purpose === 'context-onboarding') throw new Error('Project Context onboarding isolation is unavailable without a content baseline. Maintain documents in authorized direct development.');
@@ -238,7 +240,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         assertDiscussionPlan(state, plan);
         if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; checkpoint('paused', plan.humanDecision); continue; }
         if (!plan.tasks.length&&!state.guidancePending&&!state.automaticPlanning) throw new Error('Plan must include tasks or request human decision');
-        if (!state.guidancePending&&!state.automaticPlanning&&plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
+        if (!state.guidancePending&&!state.automaticPlanning&&!state.reworkReplan&&plan.tasks.length < (state.config.minTasks ?? 1)) throw new Error('Plan has fewer tasks than configured minTasks');
         if (new Set(plan.tasks.map(task => task.id)).size !== plan.tasks.length) throw new Error('Duplicate task IDs');
         const context = loadProjectContext(state.workspace, state.projectContextEnabled === true);
         if (context.enabled && state.purpose !== 'context-onboarding') {
@@ -249,14 +251,15 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           }
         }
         const guidance=state.guidancePending;
-        const completed=guidance||state.automaticPlanning?state.tasks.filter(task=>state.completedTaskIds?.includes(task.id)):[];
-        if((guidance||state.automaticPlanning)&&plan.tasks.some(task=>completed.some(previous=>previous.id===task.id)))throw new FlowError('validation','引导计划不能重复已验收任务 ID；需要修改既有成果时使用新任务 ID');
+        const completed=guidance||state.automaticPlanning||state.reworkReplan?state.tasks.filter(task=>state.completedTaskIds?.includes(task.id)):[];
+        if((guidance||state.automaticPlanning||state.reworkReplan)&&plan.tasks.some(task=>completed.some(previous=>previous.id===task.id)))throw new FlowError('validation','引导计划不能重复已验收任务 ID；需要修改既有成果时使用新任务 ID');
         state.tasks = orderTasks([...completed,...plan.tasks], state.config);
         state.taskIndex=completed.length;state.completedTaskIds=completed.map(task=>task.id);
         state.reworks=0;state.reviewRepairs=0;state.reworkPending=false;state.failure=null;
         const inputs=guidance?processingGuidance(store):[];
         if(guidance){state.guidanceHistory=[...(state.guidanceHistory??[]),...inputs];delete state.guidancePending;state.feedback='';}
         delete state.automaticPlanning;
+        if(state.reworkReplan){delete state.reworkReplan;state.feedback='';}
         if (state.discussion) state.discussion.closed = true;
         state.phase='execute';state.nextPhase='execute';store.save(state);
         for(const input of inputs){finishGuidance(store,input);store.audit('guidance-applied',{messageId:input.id,completedTaskIds:state.completedTaskIds,tasks:plan.tasks});}
@@ -370,6 +373,15 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
           state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason);
         } else {
           state.feedback = review.reason;
+          if (!reworkLimited() && state.reworks >= REWORK_REPLAN_AFTER) {
+            state.reworkReplan = { taskId: state.tasks[state.taskIndex]!.id, reworks: state.reworks };
+            state.completedTaskIds ??= state.tasks.some(task => task.dependsOn?.length) ? [] : state.tasks.slice(0, state.taskIndex).map(task => task.id);
+            state.nextPhase = 'planning'; state.reworkPending = false;
+            if (state.discussion) state.discussion.closed = true;
+            store.audit('rework-replan', { ...state.reworkReplan, loop: state.loops, reason: review.reason, note: '同一任务连续返工；保留已验收任务、工作区修改和 Session，由决策者重新划分剩余工作' });
+            checkpoint('planning', '同一任务连续返工，交决策者重新划分剩余工作');
+            continue;
+          }
           state.nextPhase = 'execute'; state.reworkPending = true;
           checkpoint(reworkLimited() ? 'paused' : 'execute', reworkLimited() ? 'Rework limit reached' : review.reason);
         }
