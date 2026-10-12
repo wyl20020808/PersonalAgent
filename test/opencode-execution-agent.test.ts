@@ -23,7 +23,7 @@ const choice:Extract<DecisionChoice,{backend:'opencode'}>={backend:'opencode',op
 const task={id:'core',instruction:'Update core.js',acceptance:['core.js is fixed']};
 const plan={humanDecision:null,tasks:[task]};
 const api={paths:{'/session':{post:{requestBody:{content:{'application/json':{schema:{properties:{permission:{type:'array'}}}}}}}},'/session/{sessionID}/message':{post:{requestBody:{content:{'application/json':{schema:{properties:{agent:{type:'string'},format:{properties:{type:{const:'json_schema'}}}}}}}}}},...Object.fromEntries(['/agent','/experimental/tool','/experimental/tool/ids','/global/event','/session/{sessionID}','/session/status','/session/{sessionID}/abort'].map(p=>[p,{}]))}};
-type Options={upstreamFailures?:number;failureMessage?:string;unknownTool?:boolean;imageSupport?:boolean;missingCreation?:boolean;badStatus?:boolean;badFinish?:string;hang?:boolean;badOwner?:boolean;badModel?:boolean;missingTools?:boolean;missingProtocol?:boolean;error?:boolean;textOnly?:boolean;unfinished?:boolean;wrongSession?:boolean;wrongPart?:boolean;failTest?:boolean;busy?:boolean;closeFailure?:boolean;streamFailure?:boolean;afterWrite?:(directory:string)=>void};
+type Options={modelTools?:boolean;upstreamFailures?:number;failureMessage?:string;unknownTool?:boolean;imageSupport?:boolean;missingCreation?:boolean;badStatus?:boolean;badFinish?:string;hang?:boolean;badOwner?:boolean;badModel?:boolean;missingTools?:boolean;missingProtocol?:boolean;error?:boolean;textOnly?:boolean;unfinished?:boolean;wrongSession?:boolean;wrongPart?:boolean;failTest?:boolean;busy?:boolean;closeFailure?:boolean;streamFailure?:boolean;afterWrite?:(directory:string)=>void};
 function fake(options:Options={}){
  const sessions=new Map<string,any>(),requests:any[]=[];let prompts=0,closes=0,aborts=0;
  const launcher:OpenCodeLauncher=async(_exe,directory,_signal,runtime)=>{
@@ -32,7 +32,7 @@ function fake(options:Options={}){
    let text='';for await(const chunk of req)text+=chunk;const body=text?JSON.parse(text):{};
    const url=new URL(req.url!,'http://127.0.0.1');requests.push({route:url.pathname,body,directory:url.searchParams.get('directory'),runtime});
    const send=(value:any)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
-   if(url.pathname==='/provider')return send({connected:['fixture'],all:[{id:'fixture',name:'LOCAL MOCK',models:{local:{id:'local',name:'LOCAL MOCK',variants:{high:{reasoningEffort:'high'},max:{reasoningEffort:'max'}},capabilities:{toolcall:true,...(options.imageSupport!==undefined?{input:{image:options.imageSupport}}:{})}}}}]});
+   if(url.pathname==='/provider')return send({connected:['fixture'],all:[{id:'fixture',name:'LOCAL MOCK',models:{local:{id:'local',name:'LOCAL MOCK',variants:{high:{reasoningEffort:'high'},max:{reasoningEffort:'max'}},capabilities:{toolcall:options.modelTools??true,...(options.imageSupport!==undefined?{input:{image:options.imageSupport}}:{})}}}}]});
    if(url.pathname==='/experimental/tool/ids')return send(options.missingCreation?['read','edit','bash']:options.missingTools?['read']:['read','edit','write','bash']);
    if(url.pathname==='/agent')return send([{name:'build',mode:'primary'}]);
    if(url.pathname==='/global/event'){res.writeHead(200,{'Content-Type':'text/event-stream'});res.write(': ready\n\n');streams.push(res);return;}
@@ -175,7 +175,7 @@ test('native Claude decision and mixed double decision switch to OpenCode execut
  }
 });
 test('discovery disables unsupported protocol/tools before prompt',async()=>{
- for(const options of [{missingCreation:true},{missingTools:true},{missingProtocol:true}]){const server=fake(options),f=await fixture();const discovery=await discoverOpencodeExecutionModels(undefined,f.source,server.launcher);assert.equal(discovery.available,false);const state=pending(f);await assert.rejects(()=>new OpenCodeExecutionAgent(f.config,server.launcher).execute(state,f.store,new AbortController().signal,'{}'));assert.equal(server.prompts,0);}
+ for(const options of [{modelTools:false},{missingCreation:true},{missingTools:true},{missingProtocol:true}]){const server=fake(options),f=await fixture();const discovery=await discoverOpencodeExecutionModels(undefined,f.source,server.launcher);assert.equal(discovery.available,false);const state=pending(f);await assert.rejects(()=>new OpenCodeExecutionAgent(f.config,server.launcher).execute(state,f.store,new AbortController().signal,'{}'));assert.equal(server.prompts,0);}
 });
 test('failed tools/response/ownership/nonterminal result never masquerade as completed execution',async()=>{
  for(const options of [{badStatus:true},{badFinish:'error'},{badFinish:'unknown'},{badFinish:'length'},{error:true},{textOnly:true},{unfinished:true},{wrongSession:true},{wrongPart:true},{badModel:true},{busy:true},{closeFailure:true}]){
