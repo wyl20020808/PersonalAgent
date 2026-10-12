@@ -14,6 +14,6 @@
 
 验证证据位于 `D:/PersonalAgent-data/project-parallel-dev-update-20261012/evidence/variant-wire-final.log`、`opencode-v1-discovery.json`、`variant-contract-tests.log`、`variant-sdk-tests.log`；本地夹具的独立 Run 为 `D:/PersonalAgent-worktrees/tasks/opencode-variants-20261012/.validation/p3c-native-f008e48a/runtime/runs/` 下的保存记录。
 
-额外回归：OpenCode adapter 合计 38 项，36 通过、2 失败。未修改 TEST 基线再次运行同两项，均复现：多决策者 Review 为 `OpenCode Session mode permissions mismatch`；历史 fixture 的 `userAccepted=true` 断言不符合现行决策者自动验收行为。本次没有修改这两个既有问题，也不把完整回归报告为通过。两个真实任务当前都为单决策者，不触发已观察的多决策者权限故障；正式整批 DEV 交付仍须处理其验收边界。
+额外回归初次发现两项 TEST 基线既有失败：测试 HTTP 服务未实现原生 Session PATCH permission 更新，因此多决策者 Review 被生产检查正确拒绝；历史 fixture 的 `userAccepted=true` 断言不符合现行决策者自动验收行为。仅修正测试服务的权限更新响应，并断言 decisionAccepted=true 且未伪造用户审批，没有弱化生产权限校验。最终 OpenCode adapter、配置与角色切换回归合计 42/42；Desktop 全回归 152/152；聊天文件与终端的隔离 headless fixture 通过。最终日志为 `variant-final-tests.log`、`variant-desktop-tests.log`。真实 Electron 可见界面与远端模型调用没有在本修复中冒充已通过。
 
 DEV 手动入口已存在：打开暂停会话，输入框上方的“决策者”或“执行者”按钮，选择 OpenCode、provider/model、推理强度后确认。手动和脚本使用同一后端校验；当前 DEV 的转换缺陷仍会阻止 medium，手动无法替代本修复。主窗口可继续正常使用，两个原 Run、历史 Session、任务进度保持暂停状态。
