@@ -14,7 +14,7 @@ export const agentRules = `围绕用户授权的项目目标工作，优先复�
 export function nativeThreadOptions(workspace: string): ThreadOptions {
   return { workingDirectory: workspace, skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' };
 }
-export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; model?: string; reasoningEffort?: ThreadOptions['modelReasoningEffort']; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
+export interface WorkerRequest { compactBeforeTurn?: boolean; compactAtTokens?: number | null; workspace: string; threadId: string | null; prompt: string; model?: string; reasoningEffort?: ThreadOptions['modelReasoningEffort']; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
 export async function runCodexTurn(codex: CodexTurnClient, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
   assertOperationPolicy({ kind: 'model' });
   const native = request.executionMode !== 'proposal';

@@ -36,7 +36,7 @@ export class CodexDecisionAgent implements DecisionAgent {
       const result = await this.run(request.nodeExecutable??process.execPath, [fileURLToPath(new URL('./codex-decision-worker.js', import.meta.url))], {
         cwd: store.dir, env: nativeAgentEnv(), signal, interaction: { kind: 'model' }, timeoutMs: request.timeoutMs, streamOutput: true,
         input: JSON.stringify({ ...scope, participantId: scope.participantId ?? undefined, discussionStage: scope.discussionStage ?? undefined,
-          threadId, readOnly: request.readOnly, attachments:runAttachments(state,store), model: state.decisionAgent.model, reasoningEffort: state.decisionAgent.reasoningEffort, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules + interactionAgentRules,
+          threadId, compactAtTokens: observation.context.snapshot.compactAtTokens, compactBeforeTurn: observation.context.shouldCompact, readOnly: request.readOnly, attachments:runAttachments(state,store), model: state.decisionAgent.model, reasoningEffort: state.decisionAgent.reasoningEffort, schema, prompt: JSON.stringify({ ...JSON.parse(prompt), rules: agentRules + interactionAgentRules,
             decisionPermissions: request.readOnly ? 'Current mode is read-only discussion: inspect and return the requested structured result without changing project files.' : 'Current mode is authorized development: choose native inspection, verification, direct repair or delegation as needed. Return the requested structured result; respect project scope, interaction policy and delivery authorization.' }) }),
         onLine(line) {
           if (!line.trim()) return;

@@ -20,7 +20,7 @@
 | A2 | 确认成立 | 普通数字 403 被误判 authentication，本地复现。[记录](../problems/2026-10-12-auth-status-number-misclassification.md) |
 | A3 | 可移植性问题成立 | Claude 路径绑定固定用户，当前机故障未证明。[记录](../problems/2026-10-12-claude-executable-hardcoded.md) |
 | A4 | 部分合理，不能原样修 | 零目标写入的短暂失败也清批准，可改进；部分写入失效合理，不能无条件保留 approval 或简单原子替换。[记录](../problems/2026-10-12-delivery-transient-error-invalidates-approval.md) |
-| A5 | 扫描增长成立，机制描述错误 | 概览全遍历 profile/Run，但 overview 不逐条 hash 审计；会话可复用 profile。卡顿未测量。[记录](../problems/2026-10-12-overview-history-scan.md) |
+| A5 | 扫描增长成立，范围需限定 | 概览全遍历 profile/Run；有契约确认目录时 publicRun 会间接全量校验审计，没有该目录时提前返回。会话可复用 profile。卡顿未测量。[记录](../problems/2026-10-12-overview-history-scan.md) |
 | A6 | 条件故障成立 | taskkill 失败未报告，runProcess 仍等 close；配置超时不保证结束。[记录](../problems/2026-10-12-process-termination-unbounded-wait.md) |
 | A7 | 路径问题成立，建议错误 | Native Node 固定路径；Electron process.execPath 不能直接替换当前启动方式。[记录](../problems/2026-10-12-node-executable-hardcoded.md) |
 | A8 | 旧 MAIN 瓶颈成立；TEST 追加已改 | 补充 [既有追加记录](../problems/2026-10-10-audit-append-full-read.md)。活动规模管理另列 [记录](../problems/2026-10-12-native-activity-history-retention.md)，不主张截断可信审计。 |
@@ -51,3 +51,7 @@
 ## 本轮登记结果
 
 新增 15 个独立问题文件，更新 3 个既有问题文件；本文件是核对索引，不作为额外问题工单。新问题均待处理，其中性能、可移植性、打包与保留策略明确保留待验证边界。登记本身不受这些问题阻碍。后续优先核查认证误分类、进程有界停止、旧 Git 超时与交付恢复 guard；结合实际使用路径确定修复次序，不按旧 MAIN 报告的优先级机械排序。
+
+## 第二份报告带来的核对修正
+
+第二份报告 F12 提醒检查 publicRun 的间接链路；本轮确认存在条件性的审计全量校验，已纠正 A5 表述并补入同一问题文件。首次核对的“不逐条 hash”无条件结论不准确。新的小样本验证不代表已测量大文件延迟；原其他验证事实与登记计数保持原批次含义。详见 [第二份报告核对](AUDIT_REPORT_SECOND_RECHECK_20261012.md)。

@@ -3,6 +3,10 @@ import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen,shell} fro
 import {restoreWindowBounds,ensureWindowOnDisplay,watchWindowDisplays} from './windowPlacement.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawn} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
+import {atomicJson} from '../../dist/src/store.js';
+import {readInteractionPolicy} from '../../dist/src/interaction-policy.js';
 import {fileURLToPath} from 'node:url';
 import {DesktopService,validateRequest,redact} from './service.js';
 import {HistoryReader,historyOperations} from './historyReader.js';
@@ -23,7 +27,16 @@ app.on('before-quit',()=>{void historyReader.close();});
 const threadWatchers=new Map<string,fs.FSWatcher>();
 const closeThreadWatchers=()=>{for(const watcher of threadWatchers.values())watcher.close();threadWatchers.clear();};
 if(locked)app.whenReady().then(async()=>{
- service=new DesktopService(root,data,'C:/Program Files/nodejs/node.exe');
+ service=new DesktopService(root,data,'C:/Program Files/nodejs/node.exe');service.startSupervision();
+ const ownerFile=path.join(data,'supervision-owner-'+randomUUID()+'.json');
+ const owner={pid:process.pid,quitRequested:false,time:new Date().toISOString()};atomicJson(ownerFile,owner);
+ app.on('will-quit',()=>{owner.quitRequested=true;atomicJson(ownerFile,owner);});
+ try{
+  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_OPTIONS;
+  const watchdog=spawn(service.node,[path.join(root,'dist/scripts/supervision-watchdog.js'),'--root',root,'--data',data,'--electron',process.execPath,'--owner',ownerFile],{cwd:root,env,detached:true,windowsHide:true,stdio:'ignore',shell:false});
+  watchdog.on('error',error=>fs.appendFileSync(path.join(data,'supervision-watchdog.jsonl'),JSON.stringify({time:new Date().toISOString(),event:'watchdog-start-error',reason:redact(String(error))})+'\n'));
+  watchdog.unref();
+ }catch(error){fs.appendFileSync(path.join(data,'supervision-watchdog.jsonl'),JSON.stringify({time:new Date().toISOString(),event:'watchdog-start-error',reason:redact(String(error))})+'\n');}
  {for(const file of ['cafe-validation/real.config.json','fish-validation/real.config.json']){const full=path.join(root,file);if(fs.existsSync(full)&&!service.registry().profiles.some(p=>p.file===full))try{service.register(full,true);}catch{}}}
  const renderer=path.join(root,'desktop/out/renderer');
  protocol.handle('personalagent',request=>{try{const url=new URL(request.url);if(url.host!=='app'||request.method!=='GET')return new Response('Forbidden',{status:403});const evidence=url.pathname.match(/^\/evidence\/([a-f0-9-]{36})\/([a-f0-9-]{36})\/([a-f0-9]{64})\.png$/);if(evidence)return new Response(new Uint8Array(service.image(evidence[1]!,evidence[2]!,evidence[3]!)),{headers:{'content-type':'image/png','x-content-type-options':'nosniff','cache-control':'no-store'}});const relative=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname).slice(1),file=path.resolve(renderer,relative);if(file!==renderer&&!file.startsWith(renderer+path.sep))return new Response('Forbidden',{status:403});const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml'};return new Response(new Uint8Array(fs.readFileSync(file)),{headers:{'content-type':mime[path.extname(file)]??'application/octet-stream','x-content-type-options':'nosniff'}});}catch{return new Response('Not found',{status:404});}});
@@ -32,7 +45,7 @@ if(locked)app.whenReady().then(async()=>{
  const windowFile=path.join(data,'window.json');let saved:unknown;
  if(fs.existsSync(windowFile))try{saved=JSON.parse(fs.readFileSync(windowFile,'utf8'));}catch{}
  const bounds=restoreWindowBounds(saved,screen.getAllDisplays().map(display=>display.workArea),screen.getPrimaryDisplay().workArea);
- window=new BrowserWindow({...bounds,minWidth:Math.min(1024,bounds.width),minHeight:Math.min(680,bounds.height),title,backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
+ window=new BrowserWindow({...bounds,show:!(process.env.PERSONALAGENT_SUPERVISION_RESTART==='1'&&readInteractionPolicy().mode==='work'),minWidth:Math.min(1024,bounds.width),minHeight:Math.min(680,bounds.height),title,backgroundColor:'#f6f8fb',autoHideMenuBar:true,webPreferences:{preload:path.join(root,'desktop/out/preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
  watchWindowDisplays(window,screen);
  window.webContents.on('did-start-navigation',(_event,_url,_inPlace,isMainFrame)=>{if(isMainFrame)closeThreadWatchers();});
  window.webContents.on('destroyed',closeThreadWatchers);

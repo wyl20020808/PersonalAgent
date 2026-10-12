@@ -49,7 +49,7 @@ function fake(options:{output?:unknown;textOnly?:boolean;tools?:boolean;hang?:bo
       const send=(value:any)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));};
       if(url.pathname==='/provider')return send({connected:['connected'],all:[{id:'disconnected',name:'Do not expose',models:{}},{id:'connected',name:'Dynamic',key:'sk-secretmock0000',models:{dynamic:{id:'dynamic-model',name:'Dynamic Model',capabilities:{toolcall:options.tools!==false},secret:'never-expose'}}}],default:{}});
       if(url.pathname==='/api/provider')return send({location:{directory},data:[{id:'connected',name:'Dynamic',activation:'enabled',headers:{authorization:'secret'}}]});
-      if(url.pathname==='/api/model')return send({location:{directory},data:[{id:'dynamic-model',providerID:'connected',name:'Dynamic Model',enabled:true,capabilities:{tools:true},request:{headers:{authorization:'secret'}}}]});
+      if(url.pathname==='/api/model')return send({location:{directory},data:[{id:'dynamic-model',providerID:'connected',name:'Dynamic Model',enabled:true,capabilities:{tools:true,input:["text","image"]},request:{headers:{authorization:'secret'}}}]});
       if(url.pathname==='/global/event'){
         res.writeHead(200,{'Content-Type':'text/event-stream'});res.write(': connected\n\n');streams.push(res);return;
       }
@@ -97,8 +97,17 @@ test('dynamic model discovery returns only safe whitelist; v2 incompatibility re
   for(const native of [false,true]){
     const server=fake({native});const result=await discoverOpencodeModels(undefined,root,server.launcher);
     assert.equal(result.providers[0]?.models[0]?.id,'dynamic-model');assert.equal(result.available,!native);assert.equal(server.closes,1);
+    assert.equal(result.providers[0]?.models[0]?.capabilities.images,native?true:'unknown');
     assert.ok(!JSON.stringify(result).includes('secret'));assert.ok(!JSON.stringify(result).includes('disconnected'));
   }
+});
+
+test('connected provider without tool-capable models remains visible but cannot claim availability',async()=>{
+  const server=fake({tools:false});const result=await discoverOpencodeModels(undefined,root,server.launcher);
+  assert.equal(result.available,false);assert.match(result.reason,/No OpenCode model supports/);
+  assert.equal(result.providers[0]?.models[0]?.capabilities.tools,false);
+  assert.equal(result.providers[0]?.models[0]?.capabilities.structuredOutput,false);
+  assert.equal(server.prompts,0);assert.equal(server.closes,1);
 });
 test('cancel calls session.abort, waits idle and releases owned server; timeout also terminates',async()=>{
   for(const timeout of [false,true]){

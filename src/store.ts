@@ -14,6 +14,7 @@ import {guidanceSchema,type Guidance} from './steering.js';
 export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify' | 'review' | 'paused' | 'stopped' | 'failed' | 'completed';
 export interface Evidence { acceptanceMode?: 'decision-user'; decisionReview?: Review; decisionAccepted?: boolean; userAccepted?: boolean; verificationScope?: string; contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
+  automaticPlanning?: { reason: string };
   guidancePending?: Guidance;
   guidanceHistory?: Guidance[];
   userAttachments?: AttachmentRef[];
@@ -46,6 +47,7 @@ const stateProperties = {
 };
 export const stateSchema = { type: 'object', properties: { ...stateProperties, deferredTaskIds: { type: 'array', uniqueItems: true, items: str }, snapshotPolicy: { const: 'none' }, purpose: { enum: ['context-onboarding','conversation-discussion'] }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
+  automaticPlanning: {type:'object',additionalProperties:false,required:['reason'],properties:{reason:str}},
   guidancePending: guidanceSchema,
   guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},
   userAttachments: {type:'array',maxItems:8,items:attachmentRefSchema},

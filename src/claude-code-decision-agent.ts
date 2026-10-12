@@ -12,6 +12,7 @@ import { recordClaudeCall } from './agent-usage.js';
 import { FlowError, classifyFailure } from './failure.js';
 import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { CallObservation } from './call-observation.js';
+import { contextLimits } from './model-context.js';
 import {runAttachments,claudeInput} from './multimodal.js';
 import {guidanceTool} from './guidance-handoff.js';
 
@@ -40,17 +41,15 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     const env = nativeAgentEnv();
     // Native compaction keeps the same Session and tool history. This changes only
     // the child invocation, never the user's CLI settings or stored transcripts.
-    if (!execution) {
-      const configuredWindow = Number(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
-      env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(Number.isFinite(configuredWindow) && configuredWindow >= 100000 ? Math.min(configuredWindow, 100000) : 100000);
-    }
+    const limits = contextLimits(state, store, execution ? 'execution' : 'decision');
+    if (limits.compactAt) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(limits.compactAt);
     const attachments=runAttachments(state,store);
     const input=attachments.length?claudeInput(prompt,attachments):prompt;
     // All new invocations stream, including Runs saved with the legacy false flag.
     // Keep that field/envelope readable without rewriting historical configuration.
     const streaming = true;
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules + (execution ? ' 当前角色为执行者：仅实施 Controller 已校验的当前任务，使用原生工具修改并验证；不得更改 Plan、角色配置或重放已完成任务。' : '')];
-    if (!execution) args.push('--autocompact', '100k');
+    args.push('--autocompact', limits.compactAt ? String(limits.compactAt) : 'auto');
     if (request.readOnly) args.push('--tools', 'Read,Glob,Grep', '--strict-mcp-config', '--mcp-config', JSON.stringify({mcpServers:{}}));
     // Invocation-local settings preserve the user's files and existing hooks.
     const hookScript = fileURLToPath(new URL('../scripts/codex-interaction-hook.js', import.meta.url));
@@ -154,7 +153,7 @@ export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements
         const automatic=state.executionAttempt.loop===state.loops&&safeIndex>=0&&following.slice(safeIndex+1).some(e=>e.event==='transport-recovery-start'&&e.data.role==='execute'&&e.data.sessionId===state.executionSession?.sessionId);
         const guided=following.some(e=>e.event==='guidance-interrupted'&&e.data.loop===state.executionAttempt!.loop)&&following.some(e=>e.event==='guidance-applied');
         if(state.executionAttempt.loop===state.loops&&!automatic)throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
-        if (last < 0 || !following.some(e => e.event === 'human-decision')&&!guided&&!automatic) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
+        if (last < 0 || !following.some(e => e.event === 'human-decision' || e.event === 'automatic-decision' && ['transport','timeout','executor','supervisor'].includes(e.data?.failureKind))&&!guided&&!automatic) throw new FlowError('interrupted', 'Unknown or failed Execute status requires explicit human recovery');
       } else if(state.executionAttempt.loop===state.loops){
         throw new FlowError('interrupted', 'Execute attempt already dispatched; require Controller recovery, never replay');
       }
