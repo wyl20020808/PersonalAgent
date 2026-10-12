@@ -1,6 +1,7 @@
 import { ownedCodexEvents } from './codex-stream.js';
 import { routineWriteGuidance } from './decision-guidance.js';
-import type { Codex, ThreadOptions } from '@openai/codex-sdk';
+import type { ThreadOptions } from '@openai/codex-sdk';
+import type {CodexTurnClient} from './codex-live.js';
 import {codexInput,type NativeAttachment} from './multimodal.js';
 import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { codexPublicEvent } from './telemetry.js';
@@ -14,7 +15,7 @@ export function nativeThreadOptions(workspace: string): ThreadOptions {
   return { workingDirectory: workspace, skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' };
 }
 export interface WorkerRequest { workspace: string; threadId: string | null; prompt: string; model?: string; reasoningEffort?: ThreadOptions['modelReasoningEffort']; attachments?:NativeAttachment[]; executionMode?: 'native' | 'proposal' }
-export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
+export async function runCodexTurn(codex: CodexTurnClient, request: WorkerRequest, emit: (event: object) => void): Promise<ExecutionResult> {
   assertOperationPolicy({ kind: 'model' });
   const native = request.executionMode !== 'proposal';
   const options = nativeThreadOptions(request.workspace);
@@ -28,7 +29,7 @@ export async function runCodexTurn(codex: Pick<Codex, 'startThread' | 'resumeThr
     if (event.type !== 'error') lastError = '';
     stop.signal.throwIfAborted();
     const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
-    const activity = codexPublicEvent(event); if (activity) emit({ type: 'activity', data: activity });
+    const activity = codexPublicEvent(event); if (activity) emit({ type: 'activity', data: {...activity,...((event as any).nativeSource?{source:(event as any).nativeSource}:{})} });
     if (event.type === 'thread.started') emit({ type: 'thread', id: event.thread_id });
     // Error events include CLI reconnect progress. Keep consuming until a terminal
     // turn or process failure; closing this iterator kills the CLI before retry.

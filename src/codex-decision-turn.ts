@@ -1,5 +1,6 @@
 import { ownedCodexEvents } from './codex-stream.js';
-import type { Codex, ThreadOptions } from '@openai/codex-sdk';
+import type { ThreadOptions } from '@openai/codex-sdk';
+import type {CodexTurnClient} from './codex-live.js';
 import {codexInput,type NativeAttachment} from './multimodal.js';
 import { codexObservation } from './call-observation.js';
 import { codexPublicEvent } from './telemetry.js';
@@ -42,7 +43,7 @@ export function restoreOptionalFields(schema: any, value: any): any {
   return result;
 }
 /** SDK calls run in an owned child; the parent process enforces timeout/tree cancellation. */
-export async function runCodexDecisionTurn(codex: Pick<Codex, 'startThread' | 'resumeThread'>, request: CodexDecisionTurn, emit: (event: object) => void, signal?: AbortSignal): Promise<unknown> {
+export async function runCodexDecisionTurn(codex: CodexTurnClient, request: CodexDecisionTurn, emit: (event: object) => void, signal?: AbortSignal): Promise<unknown> {
   const readOnly = request.readOnly || ['draft', 'discussion', 'synthesis'].includes(request.discussionStage ?? '');
   const options: ThreadOptions = { ...nativeThreadOptions(request.workspace),
     ...(readOnly ? { sandboxMode: 'read-only' as const, networkAccessEnabled: false, webSearchMode: 'disabled' as const } : {}),
@@ -58,7 +59,7 @@ export async function runCodexDecisionTurn(codex: Pick<Codex, 'startThread' | 'r
     } else if (!started) throw Error('Codex Decision event without owned Thread');
     if (completed) throw Error('Codex Decision event after completed turn');
     const observation = codexObservation(event); if (observation) emit({ type: 'observation', data: observation });
-    const activity = 'item' in event && event.item.type === 'reasoning' ? null : codexPublicEvent(event); if (activity) emit({ type: 'activity', data: event.type === 'turn.started' ? { ...activity, title: 'Codex 开始决策' } : event.type === 'turn.completed' ? { ...activity, text: '决策回合完成；结构化结果仍须 Controller 校验。' } : activity });
+    const activity = 'item' in event && event.item.type === 'reasoning' ? null : codexPublicEvent(event); if (activity) emit({ type: 'activity', data: {...activity,...((event as any).nativeSource?{source:(event as any).nativeSource}:{}),...(event.type==='turn.started'?{title:'Codex 开始决策'}:event.type==='turn.completed'?{text:'决策回合完成；结构化结果仍须 Controller 校验。'}:{})} });
     // Reconnecting is emitted as an error event, not a failed turn.
     if (event.type === 'error') lastError = event.message;
     if (event.type === 'turn.failed') throw Error(event.error.message);

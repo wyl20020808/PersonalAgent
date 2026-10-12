@@ -13,6 +13,17 @@ import {prepareContextConfirmation} from '../../dist/src/context-confirmation.js
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','s-'+randomUUID().slice(0,8));
 const service=new DesktopService(root,data,process.execPath);
 
+test('Controller runtime preflight exposes missing package before dispatch',async()=>{
+ const folder=path.join(data,'missing-runtime-'+randomUUID()),fakeRoot=path.join(folder,'app');
+ fs.mkdirSync(path.join(fakeRoot,'dist/src'),{recursive:true});
+ fs.writeFileSync(path.join(fakeRoot,'dist/src/cli.js'),"import 'personalagent-missing-runtime-dependency';");
+ const local=new DesktopService(fakeRoot,path.join(folder,'data'),process.execPath);
+ await assert.rejects(local.validateControllerRuntime(),error=>{
+  assert.match(String(error),/Controller 未启动/);assert.match(String(error),/ERR_MODULE_NOT_FOUND/);assert.match(String(error),/personalagent-missing-runtime-dependency/);return true;
+ });
+ assert.equal(local.children.size,0);
+});
+
 test('CLI Controller lock keeps clocks and pause controls live without owned child; stale phases do not',async()=>{
  const service=new DesktopService(root,path.join(data,'live-clock-service-'+randomUUID()),process.execPath);
  const folder=path.join(data,'live-clock-'+randomUUID()),source=path.join(folder,'source');fs.mkdirSync(source,{recursive:true});

@@ -28,7 +28,7 @@ export class CodexDecisionAgent implements DecisionAgent {
     const observation = new CallObservation(state, store, role, prompt, context, !!threadId, 'codex');
     const pendingTools=new Set<string>();
     const record = activityRecorder(state, store, 'codex', observation.usage.callId, role);
-    const discussionStream=new DiscussionStream(request.onPublicProgress);
+    const discussionStream=new DiscussionStream(request.onPublicProgress,100);
     store.audit('codex-decision-call-start', { ...scope, callId: observation.usage.callId, call: state.claudeCalls, threadId, configuredModel: state.decisionAgent.model ?? null });
     let output: unknown, seenResult = false, ownedThread: string | null = null, completed = false, turnCompleted = false;
     const images=observeCodexImages(request.workspace,()=>ownedThread,record);
@@ -51,7 +51,7 @@ export class CodexDecisionAgent implements DecisionAgent {
           } else {
             if (!ownedThread) throw new FlowError('safety', 'Codex Decision event without owned Thread');
             if (event.type === 'observation') { const data=event.data;if(data?.item&&['command_execution','file_change','mcp_tool_call'].includes(data.item.type)){if(data.type==='item.completed')pendingTools.delete(data.item.id);else pendingTools.add(data.item.id);}discussionStream.codex(event.data);codexGuidanceBoundary(event.data); if (event.data?.type === 'turn.completed') { if (turnCompleted) throw Error('Duplicate Codex Decision completed turn'); turnCompleted = true; } observation.observe(event.data); }
-            else if (event.type === 'activity') record(event.data);
+            else if (event.type === 'activity') {record(event.data);if(event.data?.kind==='output')discussionStream.text(event.data.streamId??'codex',event.data.text??'');}
             else if (event.type === 'result') { seenResult = true; output = event.data; }
             else throw Error('Unexpected Codex Decision worker protocol');
           }
@@ -68,6 +68,6 @@ export class CodexDecisionAgent implements DecisionAgent {
       if (error instanceof FlowError) throw error;
       const classified = classifyFailure(error, role);
       throw new FlowError(classified.kind === 'unknown' || classified.kind === 'validation' || classified.kind === 'executor' ? 'supervisor' : classified.kind, (error as Error).message);
-    } finally { images.finish();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
+    } finally { images.finish();discussionStream.flush();record.flush();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
 }

@@ -16,6 +16,36 @@ import {claimGuidance,guidanceStatus,pendingGuidance} from '../../dist/src/steer
 import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+
+test('completed chat discussion projection caches unchanged audits and refreshes real appended notices',async()=>{
+ const {service,project}=fixture();const chat=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
+ await service.sessions.send({operation:'sendSession',sessionId:chat.id,messageId:randomUUID(),text:'讨论下一阶段'});const saved=await settleDiscussion(service,chat.id);
+ let reads=0;const audit=service.audit.bind(service);service.audit=store=>{reads++;return audit(store);};service.sessions.detail(chat.id);service.sessions.detail(chat.id);assert.equal(reads,0);
+ const {Store}=await import('../../dist/src/store.js');const store=new Store(path.join(service.data,'conversation-discussions',chat.id),saved.discussionStateId!);
+ const banner='Under-development features enabled: respect_system_proxy. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in C:\\Users\\fixture\\.codex\\config.toml.';
+ store.audit('agent-activity',{agent:'codex',kind:'error',title:'Codex 工具错误',text:banner,source:'codex-sdk-runStreamed',scope:'call'});
+ const result=service.sessions.detail(chat.id);assert.equal(reads,1);assert.equal(result.discussionMessages.at(-1)?.kind,'notice');assert.notEqual(result.discussionMessages.at(-1)?.status,'fail');assert.ok(result.session.messages.at(-1)?.discussionReply);
+ store.audit('agent-activity',{agent:'codex',kind:'error',title:'Codex 工具错误',text:'Authentication failed',source:'codex-sdk-runStreamed',scope:'call'});
+ assert.equal(service.sessions.detail(chat.id).discussionMessages.at(-1)?.status,'fail');
+});
+test('continue reports runtime startup failure and retries the same paused Run',async()=>{
+ const {service,project}=fixture();let launches=0;service.launch=()=>{launches++;};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'local startup regression',directAcknowledged:true});
+ const ref=service.sessions.get(session.id).runs[0],store=service.store(ref.profileId,ref.id),state=store.load();
+ state.phase='paused';state.nextPhase='execute';state.codexThreadId='retained-thread';store.save(state);
+ const before=fs.readFileSync(store.file('state.json')),check=service.validateControllerRuntime.bind(service);
+ service.validateControllerRuntime=async()=>{throw Error('Controller 未启动：ERR_MODULE_NOT_FOUND ajv');};
+ const failedId=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:failedId,text:'继续'});
+ const failed=service.sessions.get(session.id).messages.find(message=>message.id===failedId)!;
+ assert.equal(failed.status,'failed');assert.match(failed.error!,/ERR_MODULE_NOT_FOUND ajv/);assert.equal(launches,1);
+ assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.equal(service.sessions.get(session.id).runs.length,1);
+ service.validateControllerRuntime=check;
+ const retryId=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:retryId,text:'继续'});
+ const resumed=service.sessions.get(session.id),retry=resumed.messages.find(message=>message.id===retryId)!;
+ assert.equal(retry.status,'executed');assert.equal(retry.runId,ref.id);assert.equal(resumed.runs.length,1);assert.equal(launches,2);
+ assert.equal(store.load().codexThreadId,'retained-thread');
+});
 const settleDiscussion=async(service:DesktopService,id:string)=>{for(let i=0;i<150;i++){if(!service.sessions.discussionJobs.has(id))return service.sessions.detail(id).session;await new Promise(resolve=>setTimeout(resolve,10));}throw Error('Discussion did not settle');};
 
 async function parallelFixture(){

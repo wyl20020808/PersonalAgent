@@ -1,5 +1,5 @@
 import {activityStatus,toolPresentation} from './chatPresentation.js';
-import {redact} from '../../dist/src/telemetry.js';
+import {redact,codexStartupNotice} from '../../dist/src/telemetry.js';
 import type {State} from '../../src/store.js';
 import type {ChatMessage,Note} from './types.js';
 
@@ -10,6 +10,7 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
  const imageCalls=new Map<string,{input:unknown;title:string;paths:string[]}>();
  for(const [timelineIndex,e] of events.entries()){
    const d={...(e.data??{})};if(Number.isInteger(d.taskIndex))taskIndex=d.taskIndex;if(Number.isInteger(d.loops))loop=d.loops;
+   if(e.event==='agent-activity'&&d.agent==='codex'&&d.title==='Codex 工具错误'&&d.kind==='error'&&codexStartupNotice(d.text??'')){d.kind='notice';d.title='Codex 配置提示';}
    let imagePaths:string[]|undefined;
    if(e.event==='agent-activity'&&d.source==='claude-cli-stream-json')try{
     const receipt=JSON.parse(d.text),view=toolPresentation(d);
@@ -61,7 +62,7 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    const previousStream=d.streamId?streams.get(d.scope+':'+d.streamId):legacyFileUpdate?result.length-1:undefined;
    if(d.streamId||previousStream!==undefined)details={...details,evidenceMessageId:'audit:'+e.hash};
    const visibleId=previousStream!==undefined?result[previousStream]!.id:'audit:'+e.hash;
-   result.push({...((owner&&role!=='controller')?{participantId:owner.participantId,participantName:(owner.participantAgent.backend==='codex'?'Codex':owner.participantAgent.backend==='opencode'?'OpenCode':'Claude Code')+' '+owner.participantId.toUpperCase(),participantRole:owner.primary?'主决策者':'决策者',decisionStage:d.discussionStage}:{}),...(executionEvent?{participantRole:'执行者',participantName:executionName,decisionStage:'execute'}:{}),id:visibleId,time:e.time,role,...(role===decisionRole&&!owner&&!executionEvent&&(['plan','review','planning-human-decision'].includes(e.event)||e.event==='agent-activity'&&(d.phase==='plan'||d.phase==='review'||d.agent!=='codex')||['agent-start','agent-finish'].includes(e.event)&&d.role!=='execute')?{participantRole:'决策者'}:{}),title:redact(String(title)),text:visibleText,kind,status,runId:state.id,taskId:d.discussionStage&&d.discussionStage!=='review'?null:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,scope:d.scope,timelineIndex,category:e.event==='agent-activity'?activityCategory(d):undefined,source:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
+   result.push({...((owner&&role!=='controller')?{participantId:owner.participantId,participantName:(owner.participantAgent.backend==='codex'?'Codex':owner.participantAgent.backend==='opencode'?'OpenCode':'Claude Code')+' '+owner.participantId.toUpperCase(),participantRole:owner.primary?'主决策者':'决策者',decisionStage:d.discussionStage}:{}),...(executionEvent?{participantRole:'执行者',participantName:executionName,decisionStage:'execute'}:{}),id:visibleId,time:e.time,role,...(role===decisionRole&&!owner&&!executionEvent&&(['plan','review','planning-human-decision'].includes(e.event)||e.event==='agent-activity'&&(d.phase==='plan'||d.phase==='review'||d.agent!=='codex')||['agent-start','agent-finish'].includes(e.event)&&d.role!=='execute')?{participantRole:'决策者'}:{}),title:redact(String(title)),text:visibleText,kind,status,runId:state.id,taskId:d.discussionStage&&d.discussionStage!=='review'?null:d.taskId??state.tasks[taskIndex]?.id??null,loop:d.loop??loop,scope:d.scope,timelineIndex,category:e.event==='agent-activity'?activityCategory(d):undefined,source:e.origin==='codex-native-log'?`codex-native-log:${e.hash}`:`audit.jsonl:${e.hash}`,details:details?JSON.parse(redact(JSON.stringify(details))):undefined});
    if(previousStream!==undefined){const latest=result.pop()!;latest.time=result[previousStream]!.time;result[previousStream]=latest;}else if(d.streamId)streams.set(d.scope+':'+d.streamId,result.length-1);
  }
  for(const note of notes)result.push({id:`note:${note.id}`,time:note.time,role:'user',title:'补充需求 · 已记录，尚未生效',text:note.text,kind:'note',status:'pending',runId:state.id,taskId:note.taskId,loop:note.loop,source:`desktop-note:${note.id}`});
@@ -78,8 +79,16 @@ function activityCategory(data:any):string {
 }
 export {groupMessages} from './threadGrouping.js';
 export function messagePage(messages:ChatMessage[],after?:string){
- const index=after?messages.findIndex(m=>m.id===after):-1;
+ const version=after?.match(/^(.*):v2:(-?\d+)$/),watermark=version?Number(version[2]):undefined;
+ const id=version&&Number.isSafeInteger(watermark)&&(watermark??-2)>=-1?version[1]:after;
+ const index=id?messages.findIndex(m=>m.id===id):-1;
  const reset=Boolean(after&&index<0),start=index<0?0:index+1;
- const page=messages.slice(start,start+150);
- return {messages:page,cursor:page.at(-1)?.id??after??null,hasMore:start+page.length<messages.length,reset,total:messages.length};
+ const latest=messages.reduce((value,m)=>Math.max(value,m.timelineIndex??-1),-1);
+ // The visible ID stays stable while a text/tool stream grows. Re-send changes
+ // before the chronological cursor as well as newly appended messages.
+ const changed=version&&!reset?messages.slice(0,start).filter(m=>m.timelineIndex!==undefined&&m.timelineIndex>watermark!).sort((a,b)=>a.timelineIndex!-b.timelineIndex!):[];
+ const updates=changed.slice(0,150),page=messages.slice(start,start+150-updates.length);
+ const nextId=page.at(-1)?.id??(index>=0?id:undefined);
+ const nextWatermark=changed.length>updates.length?updates.at(-1)!.timelineIndex!:latest;
+ return {messages:[...updates,...page],cursor:nextId?`${nextId}:v2:${nextWatermark}`:null,hasMore:changed.length>updates.length||start+page.length<messages.length,reset,total:messages.length};
 }

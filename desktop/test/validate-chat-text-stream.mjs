@@ -1,0 +1,27 @@
+import fs from 'node:fs';import path from 'node:path';import assert from 'node:assert/strict';
+import {fileURLToPath,pathToFileURL} from 'node:url';import {createServer} from 'vite';
+import {messagePage,projectMessages} from '../out/thread.js';
+const desktop=fileURLToPath(new URL('..',import.meta.url)),out=path.join(desktop,'.validation/chat-text-stream');fs.mkdirSync(out,{recursive:true});
+const run={id:'11111111-1111-4111-8111-111111111111',profileId:'22222222-2222-4222-8222-222222222222',goal:'公开文字实时刷新夹具',phase:'executing',active:true,source:'D:/fixture',workspace:'D:/fixture',branch:'fixture',tasks:[{id:'t1',instruction:'公开文字流',acceptance:['增量渲染']}],taskIndex:0,loops:1,reworks:0,claudeCalls:0,completedTaskIds:[],evidence:null,failure:null,updatedAt:new Date().toISOString(),mode:'real',decisionAgent:{backend:'codex',model:'gpt-6.1-sol',reasoningEffort:'medium'},executionAgent:{backend:'opencode',opencode:{providerID:'fixture',modelID:'fixture'}},budget:{},reason:''};
+const state={...run,config:{decisionAgent:run.decisionAgent,executionAgent:run.executionAgent}};
+const event=(id,data)=>({hash:id.repeat(64),time:'2026-10-12T10:00:00.'+String(id.charCodeAt(0)).padStart(3,'0')+'Z',event:'agent-activity',data:{runId:run.id,taskId:'t1',loop:1,...data}});
+const reply=(id,text)=>event(id,{agent:'codex',source:'codex-app-server',scope:'codex-call',streamId:'reply',phase:'plan',kind:'output',title:'Codex 公开输出',text});
+const command=event('b',{agent:'opencode',source:'opencode-sdk',scope:'opencode-execute:call',phase:'execute',kind:'tool',title:'OpenCode 工具 · bash',text:JSON.stringify({tool:'bash',status:'completed',input:{command:'fixture command'},output:'command receipt'})});
+let events=[];
+fs.writeFileSync(path.join(out,'index.html'),'<!doctype html><meta charset="UTF-8"><div id="root"></div><script type="module" src="./fixture.tsx"></script>');
+fs.writeFileSync(path.join(out,'fixture.tsx'),`import React from 'react';import{createRoot}from'react-dom/client';import'/src/style.css';import'/src/chat-messages.css';import'/src/codex.css';import GroupWorkspace from'/src/GroupWorkspace.tsx';const callbacks=new Set();window.notify=()=>callbacks.forEach(f=>f());window.personalAgent={subscribe:(_p,_r,f)=>{callbacks.add(f);return()=>callbacks.delete(f)},invoke:async r=>r.operation==='thread'?fetch('/fixture/thread?after='+encodeURIComponent(r.after??'')).then(r=>r.json()):r.operation==='pictures'?[]:r.operation==='listProjectFiles'?{path:'D:/fixture',files:[],directories:[]}:r.operation==='readProjectFile'?{path:'D:/fixture',content:''}:[]};createRoot(document.getElementById('root')).render(<GroupWorkspace run={${JSON.stringify(run)}} onDetails={()=>{}} onDelivery={()=>{}} onGoal={()=>{}}/>);`);
+const server=await createServer({root:desktop,cacheDir:path.join(out,'vite-cache'),configFile:false,server:{host:'127.0.0.1',port:0},plugins:[{name:'owned-thread-fixture',configureServer(s){s.middlewares.use('/fixture/thread',(request,response)=>{const after=new URL(request.url??'','http://local').searchParams.get('after')||undefined;response.setHeader('Content-Type','application/json');response.end(JSON.stringify({...messagePage(projectMessages(state,events,[]),after),capabilities:{claudeStreaming:true,codexPublicEvents:true,imagesToClaude:false}}));});}}]});
+const {chromium}=await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE??'D:/PersonalAgent/snake-validation/node_modules/playwright-core/index.mjs').href);
+const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'}),errors=[];
+try{await server.listen();const port=server.httpServer.address().port;
+ for(const width of [1280,480]){events=[reply('a','{"reply":"正在'),command];const page=await browser.newPage({viewport:{width,height:900}});page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:'+port+'/.validation/chat-text-stream/index.html');const bubble=page.locator('.group-message.kind-output');await bubble.filter({hasText:'正在'}).waitFor();
+  events.push(reply('c','{"reply":"正在核对道路'));await page.evaluate(()=>window.notify());await page.waitForFunction(()=>document.querySelector('.group-message.kind-output')?.textContent?.includes('正在核对道路'));
+  assert.equal(await bubble.count(),1);assert.ok(!await bubble.innerText().then(t=>t.includes('{"reply"')));
+  await page.screenshot({path:path.join(out,'growing-'+width+'.png')});
+  events.push(reply('d','{"reply":"正在核对道路与建筑。"}'));await page.evaluate(()=>window.notify());await page.waitForFunction(()=>document.querySelector('.group-message.kind-output')?.textContent?.includes('正在核对道路与建筑。'));
+  assert.equal(await bubble.count(),1);assert.equal(await page.locator('.group-message').filter({hasText:'命令'}).count()>0,true);
+  await page.reload();await page.waitForFunction(()=>document.querySelector('.group-message.kind-output')?.textContent?.includes('正在核对道路与建筑。'));assert.equal(await page.locator('.group-message.kind-output').count(),1);
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1));await page.close();
+ }
+ assert.deepEqual(errors,[]);fs.writeFileSync(path.join(out,'result.json'),JSON.stringify({passed:true,widths:[1280,480],oneStableBubble:true,updatesBeforeTurnCompletion:true,reloadRetainsLatest:true,realBackendProjection:true,errors},null,2));console.log('PASS: live public text through incremental thread pages at 1280/480 px');
+}finally{await browser.close();await server.close();}

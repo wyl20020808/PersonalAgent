@@ -109,6 +109,24 @@ test('native tool, file diff and independent checks retain actual agent/task/loo
  assert.equal(messages[2].role,'claude');assert.equal(messages[2].details?.diff,'seed.txt repaired');assert.match(messages[2].text,/120 ms/);assert.equal(messages[3].role,'controller');assert.equal(messages[3].status,'pending');assert.equal(messages[4].title,'原生开发结果');
 });
 test('cursor pagination reconnects without duplicates and invalid cursor resets',()=>{const events=Array.from({length:320},(_,n)=>event(String(n).padStart(4,'0'),'created',{}));const messages=projectMessages(state,events,[]),a=messagePage(messages),b=messagePage(messages,a.cursor!),c=messagePage(messages,b.cursor!);assert.equal(a.messages.length,150);assert.equal(c.messages.length,20);assert.equal(c.hasMore,false);assert.equal(new Set([...a.messages,...b.messages,...c.messages].map(m=>m.id)).size,320);assert.equal(messagePage(messages,c.cursor!).messages.length,0);assert.equal(messagePage(messages,'missing').reset,true);});
+
+test('stream text before the cursor updates its original bubble while new tool messages remain visible',()=>{
+ const stream=(hash:string,text:string)=>event(hash,'agent-activity',{agent:'opencode',source:'opencode-sdk',scope:'owned-call',streamId:'answer',kind:'output',title:'OpenCode 公开输出',text});
+ const first=[stream('a','正在'),event('b','agent-activity',{agent:'opencode',scope:'owned-call',kind:'tool',title:'工具',text:'command'})];
+ const page=messagePage(projectMessages(state,first,[]));
+ const growing=messagePage(projectMessages(state,[...first,stream('c','正在核对道路')],[]),page.cursor!);
+ assert.equal(growing.messages.length,1);assert.equal(growing.messages[0].id,page.messages[0].id);assert.equal(growing.messages[0].text,'正在核对道路');assert.equal(growing.messages[0].details?.evidenceMessageId,'audit:c');
+ assert.equal(messagePage(projectMessages(state,[...first,stream('c','正在核对道路')],[]),growing.cursor!).messages.length,0);
+ assert.equal(messagePage(projectMessages(state,first,[]),page.messages.at(-1)!.id).messages.length,0);
+});
+
+test('bounded update pages do not lose older streams when more than 150 bubbles change',()=>{
+ const original=Array.from({length:180},(_,n)=>({...projectMessages(state,[event(String(n),'created',{})],[])[0]!,id:'audit:'+n,timelineIndex:n}));
+ let cursor:string|null=null,more=true;
+ while(more){const page=messagePage(original,cursor??undefined);cursor=page.cursor;more=page.hasMore;}
+ const changed=original.map((m,n)=>({...m,text:'增量'+n,timelineIndex:180+n}));
+ const a=messagePage(changed,cursor!),b=messagePage(changed,a.cursor!);assert.equal(a.messages.length,150);assert.equal(b.messages.length,30);assert.equal(a.hasMore,true);assert.equal(b.hasMore,false);assert.equal(new Set([...a.messages,...b.messages].map(m=>m.id)).size,180);
+});
 test('notes are explicitly pending and never represented as executed decisions',()=>{const messages=projectMessages(state,[],[{id:randomUUID(),time:'2026-10-08T01:00:00Z',text:'approve delivery',taskId:null,loop:0}]);assert.equal(messages[0].status,'pending');assert.equal(messages[0].kind,'note');});
 test('new IPC operations reject unsafe paths, extra parameters and malformed visual proof',()=>{for(const value of [{operation:'thread',profileId:randomUUID(),runId:randomUUID(),after:'../../secret'},{operation:'pictures',profileId:randomUUID(),runId:randomUUID(),path:'D:/secret.png'},{operation:'note',profileId:randomUUID(),runId:randomUUID(),messageId:randomUUID(),text:'hi',execute:true},{operation:'resume',profileId:randomUUID(),runId:randomUUID(),decision:'visual',intent:'visual',pictureIds:['bad']}])assert.throws(()=>validateRequest(value));});
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','t-'+randomUUID().slice(0,8)),service=new DesktopService(root,data,process.execPath);let profileId='',runId='';

@@ -11,7 +11,7 @@ import { agentRules } from './native-agent.js';
 import { interactionAgentRules } from './interaction-policy.js';
 import { timeoutSignal } from './timeout.js';
 import { transportErrorDetails } from './opencode-transport.js';
-import { models, opencodePublicEvents, resolvedSchema, startOpencodeService, supportsStructuredOutput, type ModelDiscovery, type OpenCodeLauncher, type OpenCodeService } from './opencode-decision-agent.js';
+import { models, OpenCodePublicStream, resolvedSchema, startOpencodeService, supportsStructuredOutput, type ModelDiscovery, type OpenCodeLauncher, type OpenCodeService } from './opencode-decision-agent.js';
 
 // Native permissions are a collaboration boundary, not a Windows sandbox.
 // Shell remains able to access resources outside cwd. No unrestricted fallback.
@@ -134,9 +134,10 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       store.audit('opencode-execution-session', { ...state.executionSession, role: 'execution', phase: 'execute', resumed: observation.usage.resumed });
       let readyResolve!: () => void, readyReject!: (error: Error) => void;
       const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+      const publicStream=new OpenCodePublicStream(workspace,sessionID!);
       const consumePart = (part: any) => {
         if(part.type==='tool')tools.set(part.id,part);
-        for (const activity of opencodePublicEvents({ directory: workspace, payload: { properties: { part } } }, workspace, sessionID!)) {
+        for (const activity of publicStream.accept({ directory: workspace, payload: { properties: { part } } })) {
           record({ ...activity, text: JSON.stringify({ role: 'execution', phase: 'execute', sessionId: sessionID, runId: state.id, taskId: task.id, providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, receipt: activity.kind === 'tool' ? JSON.parse(activity.text) : activity.text }) });
         }
         if (part.sessionID === sessionID) {opencodeGuidanceBoundary(part);observation.observeOpencodePart(part);}
@@ -150,6 +151,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         if (e.directory !== workspace) continue;
         const part = e.payload?.properties?.part;
         if (part?.sessionID === sessionID) consumePart(part);
+        else for(const activity of publicStream.accept(e))record({...activity,text:JSON.stringify({role:'execution',phase:'execute',sessionId:sessionID,providerID:choice.opencode.providerID,modelID:choice.opencode.modelID,receipt:activity.text})});
         const info = e.payload?.properties?.info;
         if (info?.sessionID === sessionID) observation.observeOpencodeMessage(info);
       } })(); eventTask.catch(() => {});
@@ -208,6 +210,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
         throw new FlowError('supervisor', 'OpenCode Execute process exit unconfirmed; manual recovery required');
       }
       finally {
+        record.flush();
         if(service?.diagnostics)store.audit('opencode-service-exit',{role:'execute',callId:observation.usage.callId,sessionId:sessionID,...service.diagnostics()});
         if (dispatched && !completed) { state.executionAttempt!.status = signal.aborted ? 'interrupted' : 'failed'; state.executorExitCode = -1; store.save(state); }
         observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed');

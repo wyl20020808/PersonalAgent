@@ -102,7 +102,7 @@ export class RealAgents implements Agents {
     } catch(error){
       if(pendingTools.size&&['transport','timeout'].includes(classifyFailure(error,'execute').kind))throw new FlowError('interrupted','Codex tool results are unknown; manual recovery required');
       throw error;
-    } finally { images.finish();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
+    } finally { images.finish();record.flush();observation.finish(completed ? 'success' : signal.aborted ? 'interrupted' : 'failed'); }
   }
   async review(state: State, store: Store, signal: AbortSignal): Promise<Review> {
     assertOperationPolicy({ kind: 'model' });
