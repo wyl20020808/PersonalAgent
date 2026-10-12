@@ -220,7 +220,8 @@ test('installed Codex SDK serializes outputSchema/model/read-only/directory and 
   const f = await fixture(), adapter = new CodexDecisionAgent(f.config, installedSdkWorker(f));
   const first = await adapter.structured(request(f)), second = await adapter.structured(request(f, 'review'));
   assert.deepEqual(first.output, plan); assert.deepEqual(second.output, review); assert.equal(second.sessionId, first.sessionId);
-  assert.equal(second.usage.inputTokens, 8); assert.equal(second.usage.resumed, true);
+  // The fixture reports the same Thread total twice: the resumed call adds nothing.
+  assert.equal(first.usage.inputTokens, 8); assert.equal(second.usage.inputTokens, 0); assert.equal(second.usage.source, 'codex-sdk-0.161.0-turn.completed-thread-delta'); assert.equal(second.usage.resumed, true);
 });
 
 test('explicit read-only Decision request retains installed SDK sandbox restriction',async()=>{

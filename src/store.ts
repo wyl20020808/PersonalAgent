@@ -15,6 +15,7 @@ export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify'
 export interface Evidence { acceptanceMode?: 'decision-user'; decisionReview?: Review; decisionAccepted?: boolean; userAccepted?: boolean; verificationScope?: string; contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
 export interface State {
   automaticPlanning?: { reason: string };
+  reworkReplan?: { taskId: string; reworks: number };
   guidancePending?: Guidance;
   guidanceHistory?: Guidance[];
   userAttachments?: AttachmentRef[];
@@ -48,6 +49,7 @@ const stateProperties = {
 export const stateSchema = { type: 'object', properties: { ...stateProperties, deferredTaskIds: { type: 'array', uniqueItems: true, items: str }, snapshotPolicy: { const: 'none' }, purpose: { enum: ['context-onboarding','conversation-discussion'] }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
   automaticPlanning: {type:'object',additionalProperties:false,required:['reason'],properties:{reason:str}},
+  reworkReplan: {type:'object',additionalProperties:false,required:['taskId','reworks'],properties:{taskId:str,reworks:{type:'integer',minimum:0}}},
   guidancePending: guidanceSchema,
   guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},
   userAttachments: {type:'array',maxItems:8,items:attachmentRefSchema},
@@ -133,12 +135,14 @@ export class Store {
   }
   file(name: string) { return path.join(this.dir, name); }
   // Explicit user switches only apply to halted Runs; discussion identities remain immutable.
-  save(state: State, options: { executionSwitch?: boolean; decisionSwitch?: boolean } = {}) {
+  save(state: State, options: { executionSwitch?: boolean; decisionSwitch?: boolean; executionRotation?: boolean } = {}) {
     if (existsSync(this.file('state.json'))) {
       const old = JSON.parse(readFileSync(this.file('state.json'), 'utf8'));
       const switching = options.executionSwitch === true && ['paused', 'failed', 'stopped'].includes(old.phase) && old.phase === state.phase;
       if (!switching && JSON.stringify(old.config.executionAgent ?? {backend:'codex'}) !== JSON.stringify(state.config.executionAgent ?? {backend:'codex'})) throw new Error('Immutable Execution Agent identity changed');
-      if (!switching && old.executionSession && JSON.stringify(old.executionSession) !== JSON.stringify(state.executionSession)) throw new Error('Immutable Execution Session changed');
+      // Accepting a task may only clear the Session; the next Execute opens a fresh one for the same Agent.
+      const rotating = options.executionRotation === true && !state.executionSession;
+      if (!switching && !rotating && old.executionSession && JSON.stringify(old.executionSession) !== JSON.stringify(state.executionSession)) throw new Error('Immutable Execution Session changed');
       const decisionSwitch = options.decisionSwitch === true && ['paused','failed','stopped'].includes(old.phase) && old.phase === state.phase && !old.discussion && !old.config.decisionDiscussion && !state.discussion && !state.config.decisionDiscussion && !state.decisionSession && state.claudeSessionId === null;
       if (!decisionSwitch && JSON.stringify(old.decisionAgent ?? { backend: 'claude-code' }) !== JSON.stringify(state.decisionAgent ?? { backend: 'claude-code' })) throw new Error('Immutable Decision Agent identity changed');
       if (JSON.stringify(old.config.decisionDiscussion) !== JSON.stringify(state.config.decisionDiscussion) || JSON.stringify(old.discussion?.config) !== JSON.stringify(state.discussion?.config) || JSON.stringify(old.discussion?.participants.map((p: any) => ({id:p.id,agent:p.agent}))) !== JSON.stringify(state.discussion?.participants.map(p => ({id:p.id,agent:p.agent})))) throw new Error('Immutable discussion identity changed');

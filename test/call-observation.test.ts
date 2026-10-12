@@ -165,3 +165,14 @@ test('T3 main/dev Git versions and stale hashes use fresh workspace knowledge, n
   assert.notEqual(navigation!.callId, main.received[0]!.callId); assert.equal(navigation!.workspace, main.received[0]!.workspace);
   assert.equal(fs.readFileSync(main.store.file(`context/${main.received[0]!.callId}.manifest.json`), 'utf8'), before);
 });
+
+test('resumed Codex Thread totals are recorded as per-call deltas; a missing baseline stays partial', async () => {
+  const f = await regressionFixture(folder(), 'T1'), state = f.store.load(); state.codexThreadId = 'thread-usage';
+  const turn = (resumed: boolean, input: number, cached: number, output: number) => { const call = new CallObservation(state, f.store, 'execute', '{}', undefined, resumed); call.observe({ type: 'turn.completed', usage: { input_tokens: input, cached_input_tokens: cached, output_tokens: output } }); return call.finish('success'); };
+  const first = turn(false, 100, 40, 10), second = turn(true, 250, 150, 25);
+  assert.deepEqual([first.inputTokens, first.cacheReadTokens, first.outputTokens, first.completeness], [100, 40, 10, 'complete']);
+  assert.deepEqual([second.inputTokens, second.cacheReadTokens, second.outputTokens, second.completeness], [150, 110, 15, 'complete']);
+  state.codexThreadId = 'thread-without-baseline';
+  const unknown = turn(true, 900, 800, 30);
+  assert.deepEqual([unknown.inputTokens, unknown.completeness], [900, 'partial']); assert.match(unknown.notes.join(''), /累计/);
+});
