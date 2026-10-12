@@ -14,12 +14,13 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),da
 const service=new DesktopService(root,data,process.execPath);
 
 test('chat thread transports latest context per role separately from cumulative usage and messages',async()=>{
- const prepared=await service.prepareMock(),profile=prepared.profiles.at(-1)!,config=service.config(profile.id).config;
+ const local=new DesktopService(root,path.join(data,'context-only'),process.execPath);
+ const prepared=await local.prepareMock(),profile=prepared.profiles.at(-1)!,config=local.config(profile.id).config;
  const store=await createRun(config,config.allowedRepositories[0]!,'context meter fixture');
  store.audit('model-context',{role:'decision',usedTokens:100,windowTokens:1000});
  store.audit('model-context',{role:'execution',usedTokens:200,windowTokens:2000});
  store.audit('model-context',{role:'decision',usedTokens:40,windowTokens:1000});
- const page=service.thread(profile.id,store.id);
+ const page=local.thread(profile.id,store.id);
  assert.deepEqual(page.contexts.map(row=>[row.role,row.usedTokens]),[['decision',40],['execution',200]]);
  assert.equal(page.messages.some(message=>message.title==='model-context'),false);
 });

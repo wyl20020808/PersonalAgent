@@ -48,6 +48,10 @@ Claude/OpenCode 压缩的真实远端长会话、本次完整 Electron 实例试
 
 ## 基线失败与交付边界
 
-扩大 `call-observation.test.js` 有 4 项固定 Context 回归失败：旧断言期待逐任务暂停，现行决策者验收后自动完成。干净原 TEST 基线工作区独立构建并运行 T1，同样复现 `completed` 与 `paused` 不符；相关生产验收代码及固定回归脚本没有被本次修改。记录于 `problems/2026-10-12-fixed-context-regression-acceptance-assertions.md`。本次匹配改动的必要专项均通过；不宣称全库回归全绿，不据此交付 DEV 或发布 MAIN。
+扩大 `call-observation.test.js` 有 4 项固定 Context 回归失败：旧断言期待逐任务暂停，现行决策者验收后自动完成。干净原 TEST 基线工作区独立构建并运行 T1，同样复现 `completed` 与 `paused` 不符；相关生产验收代码及固定回归脚本没有被本次修改。记录于 `problems/2026-10-12-legacy-acceptance-regression-waits.md`。本次匹配改动的必要专项均通过；不宣称全库回归全绿，不据此交付 DEV 或发布 MAIN。
 
 本地 TEST 仅整合源码，运行构建、GUI 试用与正式交付边界分别保留。集成使用 Git common directory 的共享 `personalagent-test-integration.lock`，持锁重新核对目标提交、干净工作区与最终组合，记录实际提交并核查后只释放本任务锁。
+
+最新组合：依次正常合并 `test@6586625` 与 `test@7294770` 到任务分支。OpenCode 模型目录冲突逐字段保留双方的图片能力与窗口元数据；自动监督、Runtime 能力和夹具等待修正均保留。完成核心与桌面受影响组合复验后才推进 TEST。相同旧验收问题已与最新 TEST 的既有问题记录合并，删除本任务重复登记文件。
+
+最终组合验证：核心模型窗口、Codex 原生压缩、OpenCode 能力与自动监督 23/23；桌面 `supervision/thread/service/sessions` 串行组合 120/120；根构建、桌面类型检查与构建、headless 圆环检查通过。新增 IPC 测试使用独立 service 数据目录，避免污染已有 Mock profile 夹具。此结果绑定最终组合，不覆盖历史失败批次。
