@@ -125,7 +125,8 @@ export class DesktopService {
      const state=store.load();if(state.phase==='completed')continue;
      const result=(status:string,reason:string)=>this.supervisionResults.push({runId:state.id,status,reason});
      const last=session.messages.at(-1);
-     let lastUserAt=Math.max(enabledAt,Date.parse(session.createdAt),Date.parse(session.updatedAt),...session.messages.map(message=>Date.parse(message.time)));
+     // Only real user input identifies a new problem; the listed Session time also moves with every Run save.
+     let lastUserAt=Math.max(enabledAt,Date.parse(session.createdAt),...session.messages.map(message=>Date.parse(message.time)));
      const block=supervisionBlock(state,fs.existsSync(store.file(`native-result-${state.loops}.json`)));
      if(block||this.runActive(store)||fs.existsSync(store.file('stop.request'))||last?.action==='stop'||last?.action==='hold'||pendingContextConfirmations(store).length){result('skipped',block??'运行中、用户停止或待正式确认');continue;}
      // An absent Controller lock does not prove its native model/tools exited.
@@ -135,7 +136,7 @@ export class DesktopService {
      const receiptFile=store.file('automatic-supervision.json');
      const receipt:SupervisionReceipt|undefined=fs.existsSync(receiptFile)?JSON.parse(fs.readFileSync(receiptFile,'utf8')):undefined;
      if(receipt&&(typeof receipt.signature!=='string'||!Number.isSafeInteger(receipt.attempts)||receipt.attempts<1||!Number.isFinite(receipt.lastAttemptAt)))throw Error('自动接管记录损坏，需人工核查');
-     if(!supervisionDue(state,now,enabledAt,lastUserAt,receipt)){result('waiting','等待满十分钟或同一问题已接管三次');continue;}
+     if(!supervisionDue(state,now,enabledAt,lastUserAt,receipt)){result('waiting','等待满十分钟，或同一问题已接管三次、本轮接管已达上限');continue;}
      await this.validateControllerRuntime();
      const current=this.registry().automaticDevelopment;
      if(this.closing||current?.enabled!==true||current.enabledAt!==authorization.enabledAt)break;
@@ -148,7 +149,7 @@ export class DesktopService {
      const unlock=store.lock();
      try{
       if(store.load().updatedAt!==state.updatedAt){result('skipped','运行状态已变化');continue;}
-      atomicJson(receiptFile,{signature,attempts,lastAttemptAt:now});
+      atomicJson(receiptFile,{signature,attempts,lastAttemptAt:now,takeovers:receipt?.userAt===lastUserAt?(receipt.takeovers??receipt.attempts)+1:1,userAt:lastUserAt});
       store.audit('automatic-supervision-dispatch',{sessionId:session.id,reason:state.reason,attempts,expectedUpdatedAt:state.updatedAt});
      }finally{unlock();}
      this.launch(store,configFile,AUTOMATIC_DECISION,undefined,'resume',{expectedUpdatedAt:state.updatedAt});
