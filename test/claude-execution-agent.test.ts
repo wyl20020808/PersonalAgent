@@ -37,7 +37,7 @@ async function fixture(){
  const store=await createRun(config,source,'Local protocol fixture; no remote models');return{source,store,config};
 }
 function pending(f:Awaited<ReturnType<typeof fixture>>){const state=f.store.load();state.tasks=[tasks[0]!];state.phase='executing';state.loops=1;state.nativeExecution=true;f.store.save(state);return state;}
-test('Claude CLI executes two native tasks, resumes independent execution Session, retains decision model and usage',async()=>{
+test('Claude CLI executes two native tasks, opens a fresh execution Session per accepted task, retains decision model and usage',async()=>{
  const f=await fixture(),calls:{model:string;session:string;resume:boolean;execute:boolean}[]=[];
  const run:typeof runProcess=async(program,args,options)=>{
   assert.equal(program,f.config.claudeExecutable);assert.equal(options.cwd,f.source);assert.ok(args.includes('--settings'));
@@ -50,7 +50,7 @@ test('Claude CLI executes two native tasks, resumes independent execution Sessio
   return{exitCode:0,stdout:'',stderr:''};
  };
  const state=await drive(f.store,new RealAgents(f.config,run));assert.equal(state.phase,'completed');assertExecutionState(state);
- const executions=calls.filter(c=>c.execute),decisions=calls.filter(c=>!c.execute);assert.equal(executions.length,2);assert.equal(executions[0]!.session,executions[1]!.session);assert.equal(executions[1]!.resume,true);assert.notEqual(executions[0]!.session,decisions[0]!.session);assert.ok(decisions.slice(1).every(c=>c.resume&&c.session===decisions[0]!.session));
+ const executions=calls.filter(c=>c.execute),decisions=calls.filter(c=>!c.execute);assert.equal(executions.length,2);assert.notEqual(executions[0]!.session,executions[1]!.session);assert.equal(executions[1]!.resume,false);assert.equal(f.store.load().executionSession?.sessionId,executions[1]!.session);assert.notEqual(executions[0]!.session,decisions[0]!.session);assert.ok(decisions.slice(1).every(c=>c.resume&&c.session===decisions[0]!.session));
  assert.equal(state.codexThreadId,null);assert.equal(state.executionSession?.backend,'claude-code');assert.equal(runUsage(f.store).calls.filter(c=>c.phase==='execute'&&c.agent==='claude').length,2);
  const switched=structuredClone(state);switched.phase='paused';f.store.save(switched);switchExecutionAgent(f.store,{backend:'codex',model:'next-model'});const after=f.store.load();assert.equal(after.executionSession,undefined);assert.equal(after.claudeExecutionSessionId,undefined);assert.equal(after.claudeSessionId,state.claudeSessionId);
 });

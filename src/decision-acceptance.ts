@@ -37,10 +37,15 @@ export function acceptDecision(store: Store, state: State): State {
   state.evidence.decisionAccepted = true;
   store.audit('decision-acceptance', { taskId: state.tasks[state.taskIndex]!.id, taskIndex: state.taskIndex, loop: state.loops, digest: decisionAcceptanceDigest(state), evidence: state.evidence, testsExecuted: 0 });
   advanceReviewedTask(state);
+  // Rework and recovery continue one task's Session; an accepted task ends it so later tasks do not re-read its history.
+  // The last task keeps its Session for history and delivery records.
+  const previousSession = state.taskIndex < state.tasks.length ? state.executionSession?.sessionId ?? state.codexThreadId ?? null : null;
+  if (previousSession) { delete state.executionSession; delete state.claudeExecutionSessionId; state.codexThreadId = null; }
   state.nextPhase = 'execute';
   state.phase = state.taskIndex === state.tasks.length && !pendingGuidance(store).length && !processingGuidance(store).length ? 'completed' : 'execute';
   state.reason = state.phase === 'completed' ? '全部任务已由决策者验收；正式交付授权另行处理' : '决策者验收通过，自动继续下一任务';
-  store.save(state);
+  store.save(state, { executionRotation: !!previousSession });
+  if (previousSession) store.audit('execution-session-rotated', { previousSession, loop: state.loops, nextTaskId: state.tasks[state.taskIndex]?.id ?? null, note: '已验收任务的执行 Session 结束；后续任务使用新 Session，工作区成果保留' });
   store.audit('transition', { phase: state.phase, reason: state.reason, taskIndex: state.taskIndex, loops: state.loops, claudeCalls: state.claudeCalls ?? 0 });
   return state;
 }
