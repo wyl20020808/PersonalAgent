@@ -23,6 +23,8 @@
 - desktop service、sessions、unified：90/90 通过，包含真实 Node 缺失模块启动失败，以及失败后同 Run 再次继续。
 - `git diff --check`：通过。
 
+补充：整合 TEST `c8359dc` 后重新 build、desktop build/check 通过；transport-recovery、opencode-runtime-crash、opencode-execution-agent 最终组合 41/41 通过；两条新增启动失败/同 Run 恢复回归分别再次通过。该组合尚未交付 DEV。
+
 上述为本地回归与原 Run 恢复证据，不代表修复版本已经完成可见 GUI 验收，也不代表模型服务容量故障已被真实在线重试验证。
 
 ## 集成边界
