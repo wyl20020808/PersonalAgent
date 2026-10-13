@@ -304,8 +304,10 @@ test('decision backend: dynamic sanitized discovery, latest selection validation
  const restart=new DesktopService(root,data,process.execPath,discover);
  assert.deepEqual(restart.sessions.get(session.id).settings.decisionAgent,decisionAgent);
  discovery={available:false,reason:'fixture server unavailable password=private-test-credential',providers:[]};
- const unavailable=await service.dispatch({operation:'decisionModels',projectPath:project}) as DecisionModels;
+ assert.equal((await service.dispatch({operation:'decisionModels',projectPath:project}) as DecisionModels).providers[0].id,'fixture-provider','stored catalog served without rediscovery');
+ const unavailable=await service.dispatch({operation:'decisionModels',projectPath:project,refresh:true}) as DecisionModels;
  assert.equal(unavailable.available,false);assert.match(unavailable.reason,/fixture server unavailable/);assert.equal(unavailable.reason.includes('private-test-credential'),false);
+ assert.equal((await restart.dispatch({operation:'decisionModels'}) as DecisionModels).available,true,'failed refresh keeps stored catalog across restart and projects');
  await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Mock backend requirement',directAcknowledged:true}),/不可用/);
  assert.equal(service.overview().runs.length,0);
  discovery={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};
