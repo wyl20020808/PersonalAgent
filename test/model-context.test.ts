@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { ContextObservation, contextLimits, modelContexts } from '../src/model-context.js';
+import { ContextObservation, contextLimits, modelContexts ,compactLimit} from '../src/model-context.js';
 import { Store, type State } from '../src/store.js';
 import { CodexLiveProjection } from '../src/codex-live.js';
 import { codexObservation } from '../src/call-observation.js';
@@ -42,7 +42,10 @@ test('OpenCode counts last completed assistant with reasoning/cache, never parti
   c.opencode({...info,time:{completed:123}});assert.equal(c.snapshot.usedTokens,105);assert.equal(c.snapshot.measurement,'estimated');
 });
 test('unknown window stays unknown; explicit per-model settings and compact ratio validate independently',()=>{
-  const f=fixture();assert.deepEqual(contextLimits(f.state,f.store,'execution'),{window:null,compactAt:null});
+  const f=fixture();// An unknown window still gets the working budget; a known large window is bounded by it.
+  assert.deepEqual(contextLimits(f.state,f.store,'execution'),{window:null,compactAt:160000});assert.deepEqual(contextLimits(f.state,f.store,'decision'),{window:null,compactAt:120000});
+  assert.equal(compactLimit(1000000,f.state,'decision'),120000);assert.equal(compactLimit(475000,f.state,'execution'),160000);
+  assert.equal(compactLimit(1000000,{...f.state,config:{...f.state.config,contextManagement:{budgetTokens:{decision:300000}}}},'decision'),300000);
   f.state.config.contextManagement={compactRatio:.8,modelWindows:{fixture:32000}};
   assert.deepEqual(contextLimits(f.state,f.store,'execution'),{window:32000,compactAt:25600});
   assert.equal(modelContexts([{event:'model-context',data:{role:'execution',usedTokens:10}},{event:'model-context',data:{role:'execution',usedTokens:5}}])[0]!.usedTokens,5);

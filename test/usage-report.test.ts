@@ -27,7 +27,9 @@ test('usage report normalizes protocols, restores old Codex Thread totals and co
     call('codex', 'plan', null, true, [50, 40, null, 2], 'codex-sdk-0.161.0-turn.completed-thread-delta'),
     call('codex', 'review', 'a', true, [700, 600, null, 7]),
     call('claude', 'review', 'b', true, [5, 50, 0, 3])
-  ], [{ event: 'review', data: { verdict: 'rework' } }, { event: 'review', data: { verdict: 'pass' } }, { event: 'review', data: { verdict: 'pass' } }, { event: 'execution-session-rotated', data: {} }, { event: 'rework-replan', data: {} }]);
+  ], [{ event: 'review', data: { verdict: 'rework' } }, { event: 'review', data: { verdict: 'pass' } }, { event: 'review', data: { verdict: 'pass' } }, { event: 'execution-session-rotated', data: {} }, { event: 'rework-replan', data: {} },
+    { event: 'model-context', data: { role: 'decision', sessionId: 's1', usedTokens: 100, compactions: 0 } }, { event: 'model-context', data: { role: 'decision', sessionId: 's1', usedTokens: 300, compactions: 1 } },
+    { event: 'model-context', data: { role: 'decision', sessionId: 's1', usedTokens: null, compactions: 1 } }, { event: 'model-context', data: { role: 'execution', sessionId: 'e2', usedTokens: 80, compactions: 2 } }]);
   const report = usageReport(dir);
   // The second plan record comes from the window where differences were computed on single-request values.
   assert.deepEqual(report.tokens.byPhase.plan, { calls: 2, counted: 1, input: 130, cached: 100, output: 5 });
@@ -39,6 +41,7 @@ test('usage report normalizes protocols, restores old Codex Thread totals and co
   assert.deepEqual([report.tokens.total.input, report.cachedPercent, report.inputPerCompletedTask], [3085, 82.7, 1543]);
   assert.deepEqual(report.executionsPerTask, { tasks: 2, average: 2, max: 2 });
   assert.deepEqual([report.reviews, report.sessionRotations, report.reworkReplans], [{ rework: 1, pass: 2 }, 1, 1]);
+  assert.deepEqual(report.context, { decision: { average: 200, max: 300, compactions: 1 }, execution: { average: 80, max: 80, compactions: 2 } });
   const table = usageTable([report, report]).split('\n');
   assert.match(table[0]!, new RegExp(`^Run\\s+${id.slice(0, 8)}\\s+${id.slice(0, 8)}`));
   assert.ok(table.some(line => /^输入合计\s+3,085\s+3,085/.test(line)));
