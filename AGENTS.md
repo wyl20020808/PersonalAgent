@@ -8,6 +8,8 @@
 
 所有参与 PersonalAgent 开发、执行、规划和审查的 Agent，必须读取并遵守 [持续实战改进与问题反馈规则 V1.2](problems/README.md)。
 
+**收尾清理门禁（2026-10-13）：** 所有 Agent 在创建临时文件前以及每次任务或阶段结束时，必须读取并执行 [Agent 临时文件与工作区清理规则 V1](docs/AGENT_WORKSPACE_CLEANUP_RULES.md) 全文。任务结束（含部分完成、失败、受阻、中断）必须清掉本任务产生的无用临时文件、一次性脚本、过程日志和可再生缓存，回收已合并的本任务 Worktree，并在报告中写出“清理报告”；未清理或未报告不得报告完成、请求验收或合并到 `test`。无须用户提醒。只清理本任务自己的产物；历史遗留内容先列清单经用户确认。
+
 ## 项目分支与自我迭代治理规则
 
 所有参与 PersonalAgent 开发的 Agent，在执行分支操作、修改源码、创建 Worktree、集成或发布前，必须主动读取并遵循 [PersonalAgent 三分支开发治理规则 V2.1](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md) 全文；不能只读取本摘要或依赖 Markdown 超链接自动加载。首次参与任务时应先读取，续接任务时确认规则版本是否变化。文件路径沿用 V1，正文版本以 V2 为准。
