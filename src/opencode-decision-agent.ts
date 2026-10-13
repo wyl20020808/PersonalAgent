@@ -15,11 +15,11 @@ import { CallObservation } from './call-observation.js';
 import { activityRecorder, redact, type PublicActivity } from './telemetry.js';
 import { agentRules } from './native-agent.js';
 import { assertDecisionRequest, assertDecisionState, bindDecisionSession, type DecisionAgent, type DecisionRequest, type DecisionResult } from './decision-agent.js';
-import { opencodeEnvironment } from './opencode-runtime.js';
+import { opencodeEnvironment, opencodeNativeCapabilities } from './opencode-runtime.js';
 import { timeoutSignal } from './timeout.js';
 import { createOpencodeTransport, transportErrorDetails } from './opencode-transport.js';
 
-export interface OpenCodeService { client: OpencodeClient; openapi: any; fetch?: typeof globalThis.fetch; diagnostics?:()=>{pid?:number;closed:boolean;code:number|null;signal:string|null;requestedClose:boolean}; close(): Promise<void> }
+export interface OpenCodeService { client: OpencodeClient; openapi: any; nativeCapabilities?: ReturnType<typeof opencodeNativeCapabilities>; fetch?: typeof globalThis.fetch; diagnostics?:()=>{pid?:number;closed:boolean;code:number|null;signal:string|null;requestedClose:boolean}; close(): Promise<void> }
 export type OpenCodeLauncher = (executable: string | undefined, directory: string, signal: AbortSignal, runtimeDirectory?: string) => Promise<OpenCodeService>;
 export function resolveOpencodeExecutable(explicit?: string): string {
   const configured = explicit ?? process.env.PERSONAL_AGENT_OPENCODE_EXECUTABLE;
@@ -36,9 +36,10 @@ export async function startOpencodeService(executable: string | undefined, direc
   assertOperationPolicy({ kind: 'model' });
   signal.throwIfAborted();
   const password = randomUUID();
+  const env = { ...opencodeEnvironment(directory, runtimeDirectory), OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode' };
   const child = spawnChild(resolveOpencodeExecutable(executable), ['serve','--hostname','127.0.0.1','--port','0'], {
     cwd: directory, windowsHide: true, shell: false, detached: process.platform !== 'win32', stdio: ['ignore','pipe','pipe'],
-    env: { ...opencodeEnvironment(directory, runtimeDirectory), OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode' }
+    env
   });
   const transport = createOpencodeTransport();
   let closed = false;
@@ -71,7 +72,7 @@ export async function startOpencodeService(executable: string | undefined, direc
     else { const legacy = await fetch(`${url}/doc`, { signal, headers, redirect:'error' }); openapi = await legacy.json(); }
     if (!openapi?.paths) throw new FlowError('supervisor','OpenCode OpenAPI unavailable');
     const client = createOpencodeClient({ baseUrl: url, directory, throwOnError: true, headers, fetch: transport.fetch });
-    return { client, openapi, fetch: transport.fetch, diagnostics, close };
+    return { client, openapi, nativeCapabilities: opencodeNativeCapabilities(env), fetch: transport.fetch, diagnostics, close };
   } catch (error) { await close(); throw new FlowError('supervisor', redact((error as Error)?.message ?? 'OpenCode service startup failed')); }
 }
 
@@ -111,7 +112,7 @@ export async function models(service: OpenCodeService, directory: string, signal
   return { available, reason: !supportsStructuredOutput(service.openapi) ? 'OpenCode service lacks official JSON Schema structured output (format); prompt refused' : !providers.length ? 'No connected OpenCode providers/models' : available ? '' : 'No OpenCode model supports native tools and structured output', providers };
 }
 export async function discoverOpencodeModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startOpencodeService): Promise<ModelDiscovery> {
-  const signal = AbortSignal.timeout(20000); let service: OpenCodeService | undefined;
+  const signal = AbortSignal.timeout(150000); let service: OpenCodeService | undefined;
   try { service = await launcher(executable,realpathSync(directory),signal); return await models(service,realpathSync(directory),signal); }
   catch (error) { return { available:false,reason:redact((error as Error)?.message ?? 'OpenCode model discovery failed'),providers:[] }; }
   finally { await service?.close(); }

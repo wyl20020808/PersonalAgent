@@ -243,6 +243,17 @@ test('same execution Session resumes; wrong remote owner prevents fallback',asyn
  assert.equal(server.requests.filter(r=>r.route==='/session'&&r.body.title?.includes(':execution:')).length,1);
  options.badOwner=true;const third=f.store.load();third.loops++;f.store.save(third);await assert.rejects(()=>adapter.execute(third,f.store,new AbortController().signal,'{}'),/ownership/);assert.equal(server.prompts,2);
 });
+test('confirmed idle legacy Execution Session upgrades native permissions without replacing its identity',async()=>{
+ const f=await fixture(),server=fake(),adapter=new OpenCodeExecutionAgent(f.config,server.launcher),first=pending(f);
+ await adapter.execute(first,f.store,new AbortController().signal,'{}');const id=first.executionSession!.sessionId;
+ server.sessions.get(id).permission=executionPermissions.filter(rule=>rule.permission!=='skill');
+ const second=f.store.load();second.loops++;f.store.save(second);await adapter.execute(second,f.store,new AbortController().signal,'{}');
+ assert.equal(second.executionSession!.sessionId,id);assert.deepEqual(server.sessions.get(id).permission,executionPermissions);
+ assert.equal(server.requests.filter(request=>request.route==='/session'&&request.body.title?.includes(':execution:')).length,1);
+ assert.ok(records(f.store).some(record=>record.event==='opencode-execution-permissions-upgraded'));
+ server.sessions.get(id).permission=[{permission:'*',pattern:'*',action:'allow'}];
+ const third=f.store.load();third.loops++;f.store.save(third);await assert.rejects(()=>adapter.execute(third,f.store,new AbortController().signal,'{}'),/ownership\/permissions/);assert.equal(server.prompts,2);
+});
 test('Controller explicit human recovery resumes interrupted execution without replacing Session',async()=>{
  const options:Options={hang:true},f=await fixture(),abort=new AbortController();options.afterWrite=()=>abort.abort();const server=fake(options);
  const stopped=await drive(f.store,real(f,server),undefined,abort.signal);assert.equal(stopped.phase,'stopped');assert.equal(stopped.executionAttempt?.status,'interrupted');const id=stopped.executionSession!.sessionId;

@@ -2,6 +2,7 @@ import { ownedCodexEvents } from './codex-stream.js';
 import type { ThreadOptions } from '@openai/codex-sdk';
 import type {CodexTurnClient} from './codex-live.js';
 import {codexInput,type NativeAttachment} from './multimodal.js';
+import { withCodexSharedSkills } from './shared-skills.js';
 import { codexObservation } from './call-observation.js';
 import { codexPublicEvent } from './telemetry.js';
 import { validate } from './schema.js';
@@ -51,7 +52,7 @@ export async function runCodexDecisionTurn(codex: CodexTurnClient, request: Code
     ...(readOnly ? { sandboxMode: 'read-only' as const, networkAccessEnabled: false, webSearchMode: 'disabled' as const } : {}),
     ...(request.model ? { model: request.model } : {}), ...(request.reasoningEffort ? { modelReasoningEffort: request.reasoningEffort } : {}) };
   const thread = request.threadId ? codex.resumeThread(request.threadId, options) : codex.startThread(options);
-  const { events } = await thread.runStreamed(codexInput(request.prompt,request.attachments), { outputSchema: codexOutputSchema(request.schema), ...(signal ? { signal } : {}) });
+  const { events } = await thread.runStreamed(codexInput(withCodexSharedSkills(request.prompt),request.attachments), { outputSchema: codexOutputSchema(request.schema), ...(signal ? { signal } : {}) });
   let final = '', completed = false, started = false, lastError = '';
   try { for await (const event of ownedCodexEvents(events)) {
     if (event.type !== 'error') lastError = '';

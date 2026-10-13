@@ -18,7 +18,7 @@ test('V2 providers map to supported V1 packages without guessing model limits, v
  assert.deepEqual(result.provider.relay.models.model,{id:'wire-id',name:'Fixture',modalities:{input:['text'],output:['text']},options:{temperature:0},variants:{custom:{}}});
  const declared=v1ProviderConfig({providers:{relay:{package:'@opencode/ai/providers/openai-compatible',models:{text:{attachment:false},custom:{modalities:{input:['text'],output:['text']}}}}}}).provider.relay.models;
  assert.deepEqual(declared.text,{id:'text',name:undefined,attachment:false,modalities:{input:['text'],output:['text']}});assert.deepEqual(declared.custom,{id:'custom',name:undefined,modalities:{input:['text'],output:['text']}});
- assert.equal(result.provider.relay.options.apiKey,'local-fixture-secret');assert.deepEqual(result.plugin,[]);
+ assert.equal(result.provider.relay.options.apiKey,'local-fixture-secret');assert.deepEqual(result.plugin,['never-execute']);
  assert.throws(()=>v1ProviderConfig({providers:{unsupported:{package:'unknown',models:{}}}}),/cannot be mapped/);
 });
 
