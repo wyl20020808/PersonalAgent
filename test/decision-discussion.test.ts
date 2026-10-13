@@ -169,6 +169,8 @@ for (const rounds of ['auto', 3] as const) test(`discussion rounds ${rounds}: pr
  const review=p.prompts.find(row=>!row.prompt.decisionStage)!.prompt;
  assert.ok(review.planningObservation.evidenceReference);
  assert.ok(fs.existsSync(review.planningObservation.evidenceReference));
+ // Receipt-first review: the prompt says whether this is the last task and points at the executor's receipts.
+ assert.equal(typeof review.finalTask,'boolean');assert.match(review.action,/verification receipts in executorResult/);
 });
 test('auto discussion permits primary to choose no peer rounds',async()=>{
  const f=await fixture('auto'),p=protocol({chosenRounds:0}),state=await drive(f.store,new RealAgents(f.config,p.run));
