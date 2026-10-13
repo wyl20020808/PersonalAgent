@@ -23,17 +23,19 @@ test('usage report normalizes protocols, restores old Codex Thread totals and co
     call('codex', 'execute', 'a', false, [1000, 800, null, 50]),
     call('codex', 'execute', 'a', true, [2500, 2100, null, 80]),
     call('codex', 'execute', 'b', true, [null, null, null, null], undefined, 'failed'),
-    call('codex', 'execute', 'b', true, [400, 300, null, 9], 'codex-sdk-0.161.0-turn.completed-thread-delta'),
+    call('codex', 'execute', 'b', true, [400, 300, null, 9], 'codex-app-server-turn'),
+    call('codex', 'plan', null, true, [50, 40, null, 2], 'codex-sdk-0.161.0-turn.completed-thread-delta'),
     call('codex', 'review', 'a', true, [700, 600, null, 7]),
     call('claude', 'review', 'b', true, [5, 50, 0, 3])
   ], [{ event: 'review', data: { verdict: 'rework' } }, { event: 'review', data: { verdict: 'pass' } }, { event: 'review', data: { verdict: 'pass' } }, { event: 'execution-session-rotated', data: {} }, { event: 'rework-replan', data: {} }]);
   const report = usageReport(dir);
-  assert.deepEqual(report.tokens.byPhase.plan, { calls: 1, counted: 1, input: 130, cached: 100, output: 5 });
-  // 1000 fresh, then 2500 - 1000 from the running total, then a recorded delta of 400.
+  // The second plan record comes from the window where differences were computed on single-request values.
+  assert.deepEqual(report.tokens.byPhase.plan, { calls: 2, counted: 1, input: 130, cached: 100, output: 5 });
+  // 1000 fresh, then 2500 - 1000 from the running total, then a recorded turn total of 400.
   assert.deepEqual(report.tokens.byPhase.execute, { calls: 4, counted: 3, input: 2900, cached: 2400, output: 89 });
   // A resumed decision Thread without an earlier total cannot be restored and is left out.
   assert.deepEqual(report.tokens.byPhase.review, { calls: 2, counted: 1, input: 55, cached: 50, output: 3 });
-  assert.deepEqual(report.calls, { total: 7, failed: 1, interrupted: 0, withoutUsage: 1, unresolvedThreadTotals: 1 });
+  assert.deepEqual(report.calls, { total: 8, failed: 1, interrupted: 0, withoutUsage: 1, unresolvedThreadTotals: 2 });
   assert.deepEqual([report.tokens.total.input, report.cachedPercent, report.inputPerCompletedTask], [3085, 82.7, 1543]);
   assert.deepEqual(report.executionsPerTask, { tasks: 2, average: 2, max: 2 });
   assert.deepEqual([report.reviews, report.sessionRotations, report.reworkReplans], [{ rework: 1, pass: 2 }, 1, 1]);

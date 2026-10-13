@@ -41,8 +41,10 @@ export function usageReport(directory: string) {
     if (row.inputTokens === null || row.outputTokens === null) continue;
     let value = { input: row.inputTokens, cached: row.cacheReadTokens ?? 0, output: row.outputTokens };
     if (row.agent !== 'codex') value.input += (row.cacheReadTokens ?? 0) + (row.cacheCreationTokens ?? 0);
-    else if (!row.source.endsWith('thread-delta')) {
-      // Records written before per-call deltas hold the Thread's running total on resumed turns.
+    else if (row.source !== 'codex-app-server-turn') {
+      // Between the live channel's arrival and per-turn totals, Codex records held one request or a wrong difference.
+      if (row.source !== 'codex-sdk-0.161.0-turn.completed' || row.resumed && row.completeness === 'partial') { unresolved++; continue; }
+      // Older records hold the Thread's running total on resumed turns.
       const chain = `${row.phase === 'execute' ? 'execute' : 'decision'}:${row.participantId ?? ''}`, previous = threadTotals.get(chain);
       threadTotals.set(chain, { ...value });
       if (row.resumed) {
@@ -69,7 +71,7 @@ export function usageReport(directory: string) {
     inputPerCompletedTask: completed ? average(total.input, completed) : null,
     executionsPerTask: { tasks: perTask.length, average: perTask.length ? Math.round(perTask.reduce((a, b) => a + b, 0) / perTask.length * 10) / 10 : null, max: perTask.length ? Math.max(...perTask) : null },
     reviews: verdicts, sessionRotations: count('execution-session-rotated'), reworkReplans: count('rework-replan'), guidance: count('guidance-received'), humanDecisions: count('human-decision'),
-    note: 'input 为归一化后的全部输入（含缓存部分），cached 是其中的缓存读取；只统计有用量记录的调用，withoutUsage 和 unresolvedThreadTotals 未计入。旧 Codex 记录按同一 Thread 的相邻累计值相减还原，失败调用的消耗会并入下一次成功调用。Token 数不等于计费金额。'
+    note: 'input 为归一化后的全部输入（含缓存部分），cached 是其中的缓存读取；只统计有用量记录的调用，withoutUsage 和 unresolvedThreadTotals 未计入。旧 Codex 记录按同一 Thread 的相邻累计值相减还原，失败调用的消耗会并入下一次成功调用；2026-10-12 至 10-13 之间实时通道只记录了单次请求或错误差值的 Codex 记录不计入。Token 数不等于计费金额。'
   };
 }
 

@@ -17,7 +17,7 @@ test('official deltas preserve public text, tool receipts, usage and Thread/turn
  assert.equal(p.accept('item/completed',n({item:{id:'cmd',type:'commandExecution',command:'fixture',status:'completed',exitCode:0}}))[0].item.exit_code,0);
  assert.equal(p.accept('item/completed',n({item:{id:'file',type:'fileChange',status:'completed',changes:[{path:'a.ts',kind:{type:'update'}}]}}))[0].item.changes[0].kind,'update');
  assert.equal(p.accept('item/completed',n({item:{id:'image',type:'imageView',path:'D:/proof.png'}}))[0].item.type,'image_view');
- p.accept('thread/tokenUsage/updated',n({tokenUsage:{last:{inputTokens:12,cachedInputTokens:2,outputTokens:8}}}));assert.deepEqual(p.accept('turn/completed',n({turn:{id:'turn',status:'completed'}}))[0].usage,{input_tokens:12,cached_input_tokens:2,output_tokens:8});
+ p.accept('thread/tokenUsage/updated',n({tokenUsage:{last:{inputTokens:12,cachedInputTokens:2,outputTokens:8}}}));assert.deepEqual(p.accept('turn/completed',n({turn:{id:'turn',status:'completed'}}))[0].usage,{input_tokens:12,cached_input_tokens:2,output_tokens:8,scope:'last-request'});
  assert.equal(p.accept('turn/completed',n({turn:{id:'turn',status:'failed',error:{message:'upstream failed'}}}))[0].type,'turn.failed');
 });
 
@@ -59,4 +59,11 @@ test('preflight compaction waits for native completion on original Thread before
  assert.ok(requests.findIndex(r=>r.method==='thread/compact/start')<requests.findIndex(r=>r.method==='turn/start'));
  assert.equal(requests.find(r=>r.method==='thread/compact/start').params.threadId,'original-thread');
  assert.equal(requests.find(r=>r.method==='thread/resume').params.config.model_auto_compact_token_limit,850);
+});
+
+test('turn usage is the running total minus what preceded the first request of this turn',()=>{
+ const p=new CodexLiveProjection('thread','turn'),n=(tokenUsage:object)=>({threadId:'thread',turnId:'turn',tokenUsage});
+ p.accept('thread/tokenUsage/updated',n({last:{inputTokens:120,cachedInputTokens:100,outputTokens:5},total:{inputTokens:1120,cachedInputTokens:900,outputTokens:45}}));
+ p.accept('thread/tokenUsage/updated',n({last:{inputTokens:150,cachedInputTokens:120,outputTokens:7},total:{inputTokens:1270,cachedInputTokens:1020,outputTokens:52}}));
+ assert.deepEqual(p.accept('turn/completed',{threadId:'thread',turnId:'turn',turn:{id:'turn',status:'completed'}})[0].usage,{input_tokens:270,cached_input_tokens:220,output_tokens:12,scope:'turn'});
 });
