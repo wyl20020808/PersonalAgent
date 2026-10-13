@@ -30,6 +30,8 @@ OpenWorld Run `922a7176-8dea-4269-977a-ab785b4927d0` 在从 Shell 恢复时暂�
 4. `rtk proxy node scripts/validate-opencode-execution-local.mjs D:/PersonalAgent-data/opencode-compatibility-v1/toolchain/node_modules/opencode-windows-x64/bin/opencode.exe`：退出码 0。真实 CLI 与本地确定性模型完成 Plan、原生 read/write/bash、Execute、Review 和 Delivery Preview；8 次本地模型请求，远端付费请求 0。不是远端模型质量验收或正式交付。
 5. 无桌面启动环境的真实服务发现：默认解析到兼容 CLI，format=true，available=true，目标 `hgapi-openai/gpt-6.1-sol` 可用，6 个 provider，未提交 prompt。
 6. 显式指定桌面 V2 CLI 的真实服务回退：`recovery=json-schema-format`，最终 format=true、available=true，目标模型可用；未提交 prompt。探测与正式数据目录隔离。证据：`D:/PersonalAgent-data/opencode-format-recovery-20261013/probe-result.json`、`fallback-result.json`。
+7. 首次取得集成锁时发现 TEST 再次前进，未修改目标；先在任务 Worktree 正常合并新的自动监督修复，并重新构建及运行本次恢复、兼容转换和自动监督测试：23/23，通过，退出码 0，无源码冲突。
+8. 从 DEV `e91d9e4` 创建独立候选 `fix/opencode-format-dev-candidate-20261013`，仅 cherry-pick 本次四个文件，候选提交 `a229998`。候选构建及恢复/兼容测试 11/11 通过，退出码 0。DEV 本身已有其他脏文件，未清理、覆盖或纳入候选。
 
 前两次探测曾复用本任务测试目录，在 V2 初始化后 V1 报数据库无 session 表；因此补上探测隔离。该目录是本任务新建的诊断目录，未访问或修改原 Run 数据库；保留失败证据。
 
