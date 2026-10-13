@@ -1,5 +1,5 @@
 import {chatRoute} from './chatRouting.js';
-import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen,shell} from 'electron';
+import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen,shell,clipboard} from 'electron';
 import {restoreWindowBounds,ensureWindowOnDisplay,watchWindowDisplays} from './windowPlacement.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,6 +59,12 @@ if(locked)app.whenReady().then(async()=>{
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
   const r=validateRequest(raw);
   try{
+   if(r.operation==='openProjectFolder'||r.operation==='copyProjectPath'){
+    const projectPath=service.sidebarProjectPath(r.projectPath!);
+    if(r.operation==='copyProjectPath'){clipboard.writeText(projectPath);return {copied:true};}
+    if(!fs.statSync(projectPath).isDirectory())throw Error('项目目录不可用');
+    const error=await shell.openPath(projectPath);if(error)throw Error(error);return {opened:true};
+   }
    if(r.operation==='sendSession'||r.operation==='processSessionMessage'||r.operation==='steerSessionMessage'){
     const {session,runs}=service.sessions.detail(r.sessionId!),last=runs.at(-1);
     const projectActive=service.overview().runs.some(run=>run.source.toLowerCase()===session.projectPath.toLowerCase()&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)));

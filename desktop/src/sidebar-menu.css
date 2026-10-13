@@ -1,0 +1,13 @@
+.sidebar-menu-backdrop{position:fixed;inset:0;z-index:1000;background:transparent}
+.sidebar-context-menu{position:fixed;width:230px;max-height:calc(100vh - 16px);overflow:auto;box-sizing:border-box;padding:5px;border:1px solid #dddfe4;border-radius:9px;background:#fff;box-shadow:0 6px 24px #0002;color:#303746;font-size:13px}
+.sidebar-context-menu>button{display:block;width:100%;padding:8px 10px;border:0;border-radius:5px;background:transparent;color:inherit;text-align:left;font:inherit}
+.sidebar-context-menu>button:hover,.sidebar-context-menu>button:focus-visible{background:#eef0f3;outline:none}
+.sidebar-context-menu button:disabled{opacity:.45;cursor:default}
+.sidebar-context-menu>button:last-child,.sidebar-menu-actions .danger{color:#b42318}
+.sidebar-menu-divider{height:1px;background:#e8eaee;margin:4px}
+.sidebar-menu-dialog{left:50%;top:40%;transform:translate(-50%,-50%);width:min(360px,calc(100vw - 32px));padding:18px}
+.sidebar-menu-dialog p{font-size:12px;line-height:1.6;color:#687080;overflow-wrap:anywhere}
+.sidebar-menu-dialog input{display:block;width:100%;margin:12px 0;padding:8px;border:1px solid #cdd2da;border-radius:5px;box-sizing:border-box}
+.sidebar-menu-dialog strong{display:block;overflow-wrap:anywhere}
+.sidebar-menu-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.sidebar-menu-actions button{padding:6px 12px;background:#f5f6f8;border:1px solid #d9dde4;border-radius:5px}
