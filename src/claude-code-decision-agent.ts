@@ -14,6 +14,8 @@ import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { CallObservation } from './call-observation.js';
 import { contextLimits } from './model-context.js';
 import {runAttachments,claudeInput} from './multimodal.js';
+import path from 'node:path';
+import { claudeSharedSkillPlugin } from './shared-skills.js';
 import {guidanceTool} from './guidance-handoff.js';
 
 import { assertDecisionRequest, bindDecisionSession, type DecisionAgent, type DecisionRequest, type DecisionResult } from './decision-agent.js';
@@ -39,6 +41,8 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
       } else bindDecisionSession(state, store, id);
     };
     const env = nativeAgentEnv();
+    const shared = claudeSharedSkillPlugin(path.join(state.config.runtimeDir, 'claude', state.id), env);
+    store.audit('claude-native-capabilities', { sharedSkills: shared.names, skillErrors: shared.errors, readOnly: !!request.readOnly });
     // Native compaction keeps the same Session and tool history. This changes only
     // the child invocation, never the user's CLI settings or stored transcripts.
     const limits = contextLimits(state, store, execution ? 'execution' : 'decision');
@@ -49,7 +53,10 @@ export class ClaudeCodeDecisionAgent implements DecisionAgent {
     // Keep that field/envelope readable without rewriting historical configuration.
     const streaming = true;
     const args = ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--permission-mode', 'bypassPermissions', '--system-prompt-snapshot', 'off', '--append-system-prompt', agentRules + interactionAgentRules + (execution ? ' 当前角色为执行者：仅实施 Controller 已校验的当前任务，使用原生工具修改并验证；不得更改 Plan、角色配置或重放已完成任务。' : '')];
+    if (shared.path) args.push('--plugin-dir', shared.path);
     args.push('--autocompact', limits.compactAt ? String(limits.compactAt) : 'auto');
+    // Skills may contain command preprocessing or forked execution. Discussion
+    // can inspect their files with Read; it must not activate those side effects.
     if (request.readOnly) args.push('--tools', 'Read,Glob,Grep', '--strict-mcp-config', '--mcp-config', JSON.stringify({mcpServers:{}}));
     // Invocation-local settings preserve the user's files and existing hooks.
     const hookScript = fileURLToPath(new URL('../scripts/codex-interaction-hook.js', import.meta.url));

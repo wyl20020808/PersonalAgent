@@ -17,9 +17,16 @@ import { models, OpenCodePublicStream, resolvedSchema, startOpencodeService, sup
 // Shell remains able to access resources outside cwd. No unrestricted fallback.
 export const executionPermissions = [
   { permission: '*', pattern: '*', action: 'deny' as const },
-  ...['read','list','glob','grep','edit','write','bash','apply_patch','todowrite','todoread','StructuredOutput'].map(permission => ({ permission, pattern: '*', action: 'allow' as const })),
+  ...['read','list','glob','grep','edit','write','bash','apply_patch','todowrite','todoread','skill','StructuredOutput'].map(permission => ({ permission, pattern: '*', action: 'allow' as const })),
   { permission: 'external_directory', pattern: '*', action: 'deny' as const },
 ];
+
+export function nativeExecutionPermissions(capabilities?: OpenCodeService['nativeCapabilities']): typeof executionPermissions {
+  return [...executionPermissions,
+    ...(capabilities?.mcpNames ?? []).map(name => ({ permission: name.replace(/[^a-zA-Z0-9_]/g, '_') + '_*', pattern: '*', action: 'allow' as const })),
+    ...(capabilities?.skillDirectories ?? []).map(directory => ({ permission: 'external_directory', pattern: path.resolve(directory).replace(/\\/g, '/') + '/*', action: 'allow' as const })),
+  ];
+}
 
 export function supportsExecutionProtocol(api: any): boolean {
   const body = (route: string) => resolvedSchema(api, api.paths?.[route]?.post?.requestBody?.content?.['application/json']?.schema);
@@ -39,7 +46,9 @@ export async function executionModels(service: OpenCodeService, workspace: strin
 }
 export async function discoverOpencodeExecutionModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startOpencodeService): Promise<ModelDiscovery> {
   let service: OpenCodeService | undefined;
-  try { const workspace = realpathSync(directory), signal = AbortSignal.timeout(20000); service = await launcher(executable, workspace, signal); return await executionModels(service, workspace, signal); }
+  // Native MCP startup may take 120 seconds; cold isolated plugin loading must
+  // finish before discovery can evaluate provider capabilities.
+  try { const workspace = realpathSync(directory), signal = AbortSignal.timeout(150000); service = await launcher(executable, workspace, signal); return await executionModels(service, workspace, signal); }
   catch (error) { return { available: false, reason: redact((error as Error).message), providers: [] }; }
   finally { await service?.close(); }
 }
@@ -119,15 +128,23 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       const parts=opencodeParts(prompt,runAttachments(state,store),model.capabilities.images);
       const client = service.client, options = { signal, throwOnError: true as const };
       const owner = `PersonalAgent:${state.id}:execution:${workspace}`;
+      const permissions = nativeExecutionPermissions(service.nativeCapabilities);
       if (state.executionSession) {
         sessionID = state.executionSession.sessionId;
         const session = await client.session.get({ sessionID, directory: workspace }, options);
-        if (session.data?.directory !== workspace || session.data.title !== owner || JSON.stringify(session.data.permission) !== JSON.stringify(executionPermissions)) throw new FlowError('safety', 'OpenCode remote Execution Session ownership/permissions mismatch');
+        const legacyPermissions = executionPermissions.filter(rule => rule.permission !== 'skill');
+        const current = JSON.stringify(session.data?.permission), expected = JSON.stringify(permissions);
+        if (session.data?.directory !== workspace || session.data.title !== owner || current !== expected && current !== JSON.stringify(legacyPermissions)) throw new FlowError('safety', 'OpenCode remote Execution Session ownership/permissions mismatch');
         const status = await client.session.status({ directory: workspace }, options);
         if (!status.data || Array.isArray(status.data) || typeof status.data !== 'object' || status.data[sessionID] && status.data[sessionID]?.type !== 'idle') throw new FlowError('interrupted', 'OpenCode Execution Session not confirmed idle; manual recovery required');
+        if (current !== expected) {
+          const updated = await client.session.update({ sessionID, directory: workspace, permission: permissions }, options);
+          if (updated.data?.id !== sessionID || updated.data.directory !== workspace || updated.data.title !== owner || JSON.stringify(updated.data.permission) !== expected) throw new FlowError('safety', 'OpenCode Execution Session permission upgrade not confirmed');
+          store.audit('opencode-execution-permissions-upgraded', { sessionId: sessionID, mcpNames: service.nativeCapabilities?.mcpNames ?? [] });
+        }
       } else {
-        const session = await client.session.create({ directory: workspace, title: owner, permission: executionPermissions }, options);
-        if (!session.data?.id || session.data.directory !== workspace || session.data.title !== owner || JSON.stringify(session.data.permission) !== JSON.stringify(executionPermissions)) throw new FlowError('safety', 'OpenCode created Execution Session ownership/permissions mismatch');
+        const session = await client.session.create({ directory: workspace, title: owner, permission: permissions }, options);
+        if (!session.data?.id || session.data.directory !== workspace || session.data.title !== owner || JSON.stringify(session.data.permission) !== JSON.stringify(permissions)) throw new FlowError('safety', 'OpenCode created Execution Session ownership/permissions mismatch');
         sessionID = session.data.id;
         state.executionSession = { backend: 'opencode', ...{ providerID: choice.opencode.providerID, modelID: choice.opencode.modelID }, sessionId: sessionID, runId: state.id, workspace, directory: workspace };
         assertExecutionState(state); store.save(state);

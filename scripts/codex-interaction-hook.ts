@@ -40,7 +40,12 @@ export function hookDecision(input: any, policyFile?: string): { allowed: boolea
       })) return { allowed: true, reason: '' };
     }
   }
-  if (['Read','read','Glob','glob','Grep','grep','view_image','WebSearch','WebFetch','webfetch','websearch','todowrite','todoread','StructuredOutput','Task','Agent'].includes(name)) return { allowed: true, reason: '' };
+  if (['Read','read','Glob','glob','Grep','grep','Skill','skill','view_image','WebSearch','WebFetch','webfetch','websearch','todowrite','todoread','StructuredOutput','Task','Agent'].includes(name)) return { allowed: true, reason: '' };
+  const serena = typeof name === 'string' ? name.match(/^(?:mcp__serena__|serena_)(.+)$/)?.[1] : undefined;
+  if (serena && ['initial_instructions','get_current_config','get_symbols_overview','find_symbol','find_referencing_symbols','find_declaration','find_implementations','get_diagnostics_for_file','search_for_pattern','list_memories','read_memory'].includes(serena)) return { allowed: true, reason: '' };
+  if (serena === 'activate_project' && typeof tool.project === 'string' && path.isAbsolute(tool.project) && typeof input.cwd === 'string') {
+    try { if (fsPath(tool.project) === fsPath(input.cwd)) return { allowed: true, reason: '' }; } catch { /* Unconfirmed paths keep the native-tool restriction. */ }
+  }
   if (['Edit','Write','edit','write','multiedit'].includes(name)) {
     const target = tool.file_path ?? tool.filePath ?? tool.path;
     if (typeof target !== 'string' || typeof input.cwd !== 'string') return { allowed: false, reason: '文件操作缺少路径' };
@@ -49,6 +54,8 @@ export function hookDecision(input: any, policyFile?: string): { allowed: boolea
   if (policy.mode === 'idle') return { allowed: true, reason: '' };
   return { allowed: false, reason: `deferred_by_work_mode：${String(name ?? 'unknown')} 的桌面/原生能力未经确认；仅延后该工具，继续后台开发。` };
 }
+
+function fsPath(value: string): string { const resolved = realpathSync(value); return process.platform === 'win32' ? resolved.toLowerCase() : resolved; }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   let text = '';
