@@ -42,6 +42,7 @@ export function contextLimits(state: State, store: Store, role: ModelContext['ro
 export class ContextObservation {
   readonly snapshot: ModelContext;
   private compactItems = new Set<string>();
+  private measurements = new Map<string, number>();
   get shouldCompact(): boolean {
     return this.snapshot.usedTokens !== null && this.snapshot.compactAtTokens !== null && this.snapshot.usedTokens + this.snapshot.promptEstimate >= this.snapshot.compactAtTokens;
   }
@@ -50,11 +51,11 @@ export class ContextObservation {
     this.snapshot = { role, ...identity(state, role), ...(store.decisionParticipant ? { participantId: store.decisionParticipant.participantId } : {}), model: previous?.model ?? null, usedTokens: previous?.usedTokens ?? null, windowTokens: limits.window, compactAtTokens: limits.compactAt, measurement: previous?.measurement ?? 'unknown', source: previous?.source ?? 'native-not-reported', status: previous?.status ?? 'unknown', compactions: previous?.compactions ?? 0, promptEstimate: Math.ceil(Buffer.byteLength(prompt, 'utf8') / 3), updatedAt: new Date().toISOString() };
     this.persist();
   }
-  private persist() {
+  private persist(sampleId?: string) {
     this.snapshot.sessionId = identity(this.state, this.snapshot.role).sessionId;
     this.snapshot.updatedAt = new Date().toISOString();
     atomicJson(file(this.store, this.snapshot.role), this.snapshot);
-    this.store.audit('model-context', this.snapshot);
+    this.store.audit('model-context', { ...this.snapshot, sampleKind: sampleId ? 'measurement' : 'snapshot', ...(sampleId ? { sampleId } : {}) });
   }
   window(value: unknown, model?: string) {
     const n = positive(value); if (!n) return;
@@ -63,11 +64,13 @@ export class ContextObservation {
     if (model) this.snapshot.model = model;
     this.persist();
   }
-  private usage(used: unknown, source: string, measurement: ModelContext['measurement']) {
+  private usage(used: unknown, source: string, measurement: ModelContext['measurement'], sampleId?: string) {
     const n = tokenCount(used); if (n === null) return;
+    if (sampleId && this.measurements.get(sampleId) === n) return;
+    if (sampleId) this.measurements.set(sampleId, n);
     this.snapshot.usedTokens = n; this.snapshot.measurement = measurement; this.snapshot.source = source;
     if (this.snapshot.status !== 'compacting') this.snapshot.status = this.snapshot.windowTokens && n >= this.snapshot.windowTokens ? 'exceeded' : this.snapshot.compactAtTokens && n >= this.snapshot.compactAtTokens ? 'near-limit' : 'normal';
-    this.persist();
+    this.persist(sampleId ?? `${source}:${this.snapshot.updatedAt}:${this.measurements.size}`);
   }
   compact(status: 'compacting' | 'compacted', id: string) {
     if (status === 'compacted') {
@@ -80,9 +83,12 @@ export class ContextObservation {
   }
   observe(event: any) {
     if (!event || event.isReplay || event.parent_tool_use_id) return;
-    if (event.type === 'context.usage') {
+    if (event.type === 'context.compaction-failed') {
+      this.snapshot.status = 'unknown'; this.persist();
+      this.store.audit('context-compact-unconfirmed', { role: this.snapshot.role, sessionId: this.snapshot.sessionId, message: event.message, recovery: 'Inspect original Session; do not automatically repeat compaction.' });
+    } else if (event.type === 'context.usage') {
       this.window(event.windowTokens, event.model);
-      this.usage(event.usedTokens, 'codex.thread/tokenUsage/updated.last', 'native');
+      this.usage(event.usedTokens, 'codex.thread/tokenUsage/updated.last', 'native', event.measurementId);
     } else if (event.type === 'context.compaction') this.compact(event.status, event.id);
     else if (event.type === 'system' && event.subtype === 'compact_boundary') this.compact('compacted', event.uuid ?? event.session_id ?? this.snapshot.updatedAt);
     else if (event.type === 'system' && event.subtype === 'status' && event.status === 'compacting') this.compact('compacting', 'claude');
@@ -96,7 +102,7 @@ export class ContextObservation {
       if (message?.usage) {
         this.snapshot.model = message.model ?? this.snapshot.model;
         const u = message.usage, values = [u.input_tokens, u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0].map(tokenCount);
-        if (values.every(n => n !== null)) this.usage(values.reduce<number>((sum, n) => sum + n!, 0), 'claude.main-request.input+cache', 'estimated');
+        if (values.every(n => n !== null)) this.usage(values.reduce<number>((sum, n) => sum + n!, 0), 'claude.main-request.input+cache', 'estimated', message.id);
       }
     }
   }
@@ -104,7 +110,7 @@ export class ContextObservation {
     if (info?.role !== 'assistant' || !info.time?.completed) return;
     this.snapshot.model = info.providerID+'/'+info.modelID;
     const u = info.tokens, values = [u?.input, u?.output, u?.reasoning ?? 0, u?.cache?.read ?? 0, u?.cache?.write ?? 0].map(tokenCount);
-    if (values.every(n => n !== null)) this.usage(values.reduce<number>((sum,n) => sum+n!,0), 'opencode.last-assistant.tokens', 'estimated');
+    if (values.every(n => n !== null)) this.usage(values.reduce<number>((sum,n) => sum+n!,0), 'opencode.last-assistant.tokens', 'estimated', info.id);
   }
 }
 export function modelContexts(events: { event: string; data: any }[]): ModelContext[] {

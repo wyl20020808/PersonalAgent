@@ -65,3 +65,13 @@ Claude/OpenCode 压缩的真实远端长会话、本次完整 Electron 实例试
 修改：阈值改为“窗口比例”和“角色预算”取较小值，默认决策者 120000、执行者 160000 Token，可通过 `contextManagement.budgetTokens.decision/execution` 配置；窗口未知时直接使用预算。三个后端沿用原有的阈值传递方式（Claude `--autocompact`、Codex 自动压缩上限及回合前压缩、OpenCode 回合前 summarize）。`usage-report` 增加各角色上下文占用平均/最高和压缩次数。
 
 边界：预算数值是估计，没有实测依据；压缩次数会增加，每次压缩有一次调用成本并可能丢失细节。OpenCode 仅在回合之间压缩，单个长回合内部的占用仍由其原生策略决定。未用真实模型验证预算下的实际占用和返工率。
+
+## 2026-10-13 修订：任务台账、决策 Session 轮换和上下文使用规则
+
+分支 `feature/task-ledger-decision-rotation-20261013`，基线 `test@ce96b59`，方案第二、三批。
+
+- 任务台账：任务验收通过时，Controller 把任务说明、执行者结果摘要、验收结论和变更文件清单写入 Run 目录的 `task-ledger.json`。内容全部来自已有记录，不额外调用模型。新的执行或决策 Session 的提示词附带台账摘要（约 6 KB 以内，较早的任务先缩为一行）。
+- 决策 Session 轮换：任务验收通过、后面还有任务、且决策 Session 占用达到工作预算一半（默认 6 万）时，结束该 Session，下一次规划或验收使用新 Session，并附目标、计划和台账。最后一个任务不轮换；多决策讨论模式不轮换。审计记录 `decision-session-rotated`，`usage-report` 显示次数。
+- 规则：Agent 规则增加控制进入上下文内容的要求（输出只取片段，不整读大文件，大范围探索交给子代理）。这是提示词约束，没有程序强制；各后端的工具输出截断配置未核实、未修改。
+
+未用真实模型验证：台账是否足以让新 Session 接续工作、轮换后返工率是否变化，都需要真实 Run 的数据。

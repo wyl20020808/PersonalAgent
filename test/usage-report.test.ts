@@ -15,7 +15,7 @@ function run(id: string, parent: string, calls: object[], extra: { event: string
 }
 let sequence = 0;
 const call = (agent: string, phase: string, taskId: string | null, resumed: boolean, tokens: (number | null)[], source = agent === 'codex' ? 'codex-sdk-0.161.0-turn.completed' : 'claude-cli-stream-json', status = 'success') =>
-  ({ callId: randomUUID(), agent, phase, taskId, resumed, source, status, startedAt: new Date(Date.UTC(2026, 9, 12, 1, sequence++)).toISOString(), inputTokens: tokens[0], cacheReadTokens: tokens[1], cacheCreationTokens: tokens[2] ?? null, outputTokens: tokens[3] ?? 1 });
+  ({ callId: randomUUID(), agent, phase, taskId, resumed, source, status, startedAt: new Date(Date.UTC(2026, 9, 12, 1, sequence++)).toISOString(), inputTokens: tokens[0], cacheReadTokens: tokens[1], cacheCreationTokens: tokens[2] ?? null, outputTokens: tokens[3] === undefined ? 1 : tokens[3] });
 
 test('usage report normalizes protocols, restores old Codex Thread totals and counts flow events', () => {
   const id = randomUUID(), dir = run(id, 'instance', [

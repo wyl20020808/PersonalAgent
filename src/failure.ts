@@ -9,7 +9,7 @@ export function classifyFailure(error: unknown, stage: string): Failure {
   const message = error instanceof Error ? error.message : String(error);
   let kind: FailureKind = error instanceof FlowError ? error.kind : 'unknown';
   if (kind === 'unknown') {
-    if (/context[_ ](?:length[_ ]exceeded|window[_ ]exceeded)|maximum context length|prompt is too long|too many tokens|input.*exceeds.*context/i.test(message)) kind = 'context';
+    if (/context compaction outcome unknown or failed|context[_ ](?:length[_ ]exceeded|window[_ ]exceeded)|maximum context length|prompt is too long|too many tokens|input.*exceeds.*context/i.test(message)) kind = 'context';
     else if (/\b(?:401|403)\b|authentication|authenticate|ProviderAuthError|unauthorized|invalid.*api.?key|oauth|log.?in|credentials/i.test(message)) kind = 'authentication';
     else if (/quota|usage limit|session limit|hit your limit|rate.?limit|credit.*(?:exhaust|insufficient)|insufficient.*credit|out of credits|\b429\b/i.test(message)) kind = 'budget';
     else if (/Timeout|timed out/i.test(message)) kind = 'timeout';
