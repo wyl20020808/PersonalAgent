@@ -8,7 +8,7 @@ import {DesktopService,validateRequest} from './test-service.js';
 import {createRun,drive} from '../../dist/src/controller.js';
 import {MockAgents} from '../../dist/src/adapters.js';
 import {atomicJson} from '../../dist/src/store.js';
-import {SUPERVISION_INTERVAL_MS} from '../../dist/src/automatic-supervision.js';
+import {SUPERVISION_INTERVAL_MS,SUPERVISION_BACKLOG_MS} from '../../dist/src/automatic-supervision.js';
 import {projectMessages} from './thread.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),data=path.join(root,'.v3c3','as-'+randomUUID().slice(0,8));
@@ -34,7 +34,9 @@ test('ten minute scan delegates once, remains controller-owned, and retains a du
  const initial=Date.parse(local.registry().automaticDevelopment!.enabledAt);await local.supervise(initial+SUPERVISION_INTERVAL_MS-1);assert.equal(launches.length,0);
  await local.supervise(initial+SUPERVISION_INTERVAL_MS+100);assert.equal(launches.length,1);assert.equal(launches[0].id,store.id);assert.equal(launches[0].automatic.expectedUpdatedAt,store.load().updatedAt);
  await local.supervise(initial+SUPERVISION_INTERVAL_MS+100);assert.equal(launches.length,1);
- await local.supervise(initial+2*SUPERVISION_INTERVAL_MS+101);await local.supervise(initial+3*SUPERVISION_INTERVAL_MS+102);await local.supervise(initial+4*SUPERVISION_INTERVAL_MS+103);assert.equal(launches.length,3);
+ await local.supervise(initial+2*SUPERVISION_INTERVAL_MS+101);await local.supervise(initial+4*SUPERVISION_INTERVAL_MS+99);assert.equal(launches.length,1);
+ await local.supervise(initial+4*SUPERVISION_INTERVAL_MS+100);assert.equal(launches.length,2);await local.supervise(initial+13*SUPERVISION_INTERVAL_MS+99);assert.equal(launches.length,2);
+ await local.supervise(initial+13*SUPERVISION_INTERVAL_MS+100);await local.supervise(initial+100*SUPERVISION_INTERVAL_MS);assert.equal(launches.length,3);
  const events=local.audit(store),message=projectMessages(store.load(),events,[]).find(message=>message.title==='后台巡检 · 超时委托');assert.equal(message?.role,'controller');
  assert.equal(events.some(event=>event.event==='human-decision'),false);await local.stopOwned();
 });
@@ -61,8 +63,17 @@ test('a Run that pauses again keeps its problem identity: three takeovers, then 
  // Each takeover ends with the Run saved in the same paused node, as a real unresolved problem does.
  local.launch=(run)=>{launches.push({id:run.id});store.save(store.load());};
  let now=Date.parse(local.registry().automaticDevelopment!.enabledAt);
- for(let scan=0;scan<6;scan++){now=Math.max(now,Date.parse(store.load().updatedAt))+SUPERVISION_INTERVAL_MS+1000;await local.supervise(now);}
+ // Scans every ten minutes: the retries land 30 and 90 minutes after the previous takeover.
+ for(let scan=0;scan<20;scan++){now=Math.max(now,Date.parse(store.load().updatedAt))+SUPERVISION_INTERVAL_MS+1000;await local.supervise(now);}
  assert.equal(launches.length,3);
  const receipt=JSON.parse(fs.readFileSync(store.file('automatic-supervision.json'),'utf8'));assert.equal(receipt.attempts,3);assert.equal(receipt.takeovers,3);
  await local.stopOwned();
+});
+
+test('a Run idle for more than a day before the mode was enabled is left alone until the user writes again',async()=>{
+ const {local,store,session,launches}=await fixture();await local.dispatch({operation:'automaticDevelopment',automaticDevelopment:true});
+ const registry=local.registry(),enabledAt=Date.now()+SUPERVISION_BACKLOG_MS+60000;registry.automaticDevelopment={enabled:true,enabledAt:new Date(enabledAt).toISOString()};atomicJson(local.registryFile,registry);
+ await local.supervise(enabledAt+SUPERVISION_INTERVAL_MS+100);assert.equal(launches.length,0);assert.equal(fs.existsSync(store.file('automatic-supervision.json')),false);
+ const saved=local.sessions.get(session.id);saved.messages.push({id:randomUUID(),time:new Date(enabledAt+1000).toISOString(),text:'continue',status:'recorded'});local.sessions.update(saved);
+ await local.supervise(enabledAt+1000+SUPERVISION_INTERVAL_MS);assert.equal(launches.length,1);await local.stopOwned();
 });
