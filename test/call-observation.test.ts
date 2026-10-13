@@ -175,4 +175,8 @@ test('resumed Codex Thread totals are recorded as per-call deltas; a missing bas
   state.codexThreadId = 'thread-without-baseline';
   const unknown = turn(true, 900, 800, 30);
   assert.deepEqual([unknown.inputTokens, unknown.completeness], [900, 'partial']); assert.match(unknown.notes.join(''), /累计/);
+  const scoped = (scope: string) => { const call = new CallObservation(state, f.store, 'execute', '{}', undefined, true); call.observe({ type: 'turn.completed', usage: { input_tokens: 70, cached_input_tokens: 60, output_tokens: 3, scope } }); return call.finish('success'); };
+  const turnTotal = scoped('turn'), single = scoped('last-request');
+  assert.deepEqual([turnTotal.inputTokens, turnTotal.source, turnTotal.completeness], [70, 'codex-app-server-turn', 'complete']);
+  assert.deepEqual([single.inputTokens, single.source, single.completeness], [70, 'codex-app-server-last-request', 'partial']);
 });
