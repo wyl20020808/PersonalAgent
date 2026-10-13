@@ -49,6 +49,14 @@ test('abort interrupts an owned RPC turn and confirms child process exit',async(
  const pid=Number(fs.readFileSync(path.join(f.root,'server.pid'),'utf8'));assert.throws(()=>process.kill(pid,0));
 });
 
+test('read-only Godot discussion never starts an editor or adds write-capable LSP guidance',async()=>{
+ const f=fixture();fs.writeFileSync(path.join(f.root,'project.godot'),'config_version=5\n');fs.mkdirSync(path.join(f.root,'.serena'));
+ fs.writeFileSync(path.join(f.root,'.serena/project.yml'),'language_servers: [gdscript]\nls_specific_settings:\n  gdscript:\n    port: 0\n');
+ const {events}=await f.client.startThread({workingDirectory:f.root,sandboxMode:'read-only'}).runStreamed('reply');for await(const _e of events){}
+ const requests=fs.readFileSync(path.join(f.root,'requests.jsonl'),'utf8').trim().split('\n').map(s=>JSON.parse(s));
+ assert.deepEqual(requests.find(r=>r.method==='turn/start').params.input,[{type:'text',text:'reply'}]);
+});
+
 test('preflight compaction waits for native completion on original Thread before starting work',async()=>{
  const f=fixture(),client=streamingCodex({codexPathOverride:process.execPath,compactBeforeTurn:true,config:{model_auto_compact_token_limit:850}}),seen:any[]=[];
  const {events}=await client.resumeThread('original-thread',{workingDirectory:f.root}).runStreamed('reply',{signal:AbortSignal.timeout(10000)});

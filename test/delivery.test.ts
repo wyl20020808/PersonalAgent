@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
+import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { createHistoricalRun as createRun } from './helpers/historical-run.js';
 import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
@@ -14,6 +15,10 @@ import type { Config } from '../src/schema.js';
 import { runProcess } from '../src/process.js';
 
 const root = path.resolve('.validation', `v02c-${randomUUID()}`); mkdirSync(root, { recursive: true });
+function deliveryLockFile(target: string) {
+  const directory = process.platform === 'win32' ? 'D:/PersonalAgent-data/delivery-locks' : path.join(os.tmpdir(), 'personalagent-delivery-locks');
+  return path.join(directory, createHash('sha256').update(target.toLowerCase()).digest('hex') + '.json');
+}
 async function fixture(label: string) {
   const dir = path.join(root, label); mkdirSync(dir); const source = path.join(dir, 'source'); mkdirSync(source);
   await git(source, ['init']); writeFileSync(path.join(source, 'seed.txt'), 'old-long-content\n'); writeFileSync(path.join(source, '.gitignore'), 'ignored/\n');
@@ -104,11 +109,36 @@ test('process killed after first file write recovers durable intent, skips rewri
   const crashed = await runProcess(process.execPath, [worker], { cwd: f.dir, timeoutMs: 15000 }); assert.notEqual(crashed.exitCode, 0); assert.match(crashed.stdout, /FAULT_AFTER_WRITE/);
   writeFileSync(path.join(f.dir, 'process-fault.json'), JSON.stringify(crashed, null, 2));
   const state = JSON.parse(readFileSync(path.join(p.directory, 'state.json'), 'utf8')); assert.equal(state.phase, 'applying'); assert.ok(state.intent);
+  const externalLock = deliveryLockFile(f.target), legacyLock = path.resolve('.delivery-locks', path.basename(externalLock));
+  const owner = JSON.parse(readFileSync(externalLock, 'utf8'));
+  assert.equal(owner.target, f.target); assert.equal(owner.runId, f.store.id); assert.equal(owner.deliveryId, p.id); assert.ok(owner.token); assert.ok(owner.createdAt);
+  assert.equal(existsSync(legacyLock), false);
   const file = path.join(f.target, state.intent), mtime = statSync(file).mtimeMs;
   await assert.rejects(applyDelivery(new Store(f.config.runtimeDir, f.store.id), p.id), /explicit --resume/);
+  // Reproduce an old checkout-local lock using only this fixture's dead owner.
+  mkdirSync(path.dirname(legacyLock), { recursive: true }); renameSync(externalLock, legacyLock);
   assert.equal((await applyDelivery(new Store(f.config.runtimeDir, f.store.id), p.id, { resume: true })).phase, 'applied'); assert.equal(statSync(file).mtimeMs, mtime);
+  assert.equal(existsSync(externalLock), false); assert.equal(existsSync(legacyLock), false);
   assert.equal((await applyDelivery(f.store, p.id)).phase, 'applied'); assert.equal(statSync(file).mtimeMs, mtime);
   assert.equal((await runProcess(process.execPath, [f.rules], { cwd: f.target, timeoutMs: 5000 })).exitCode, 0);
+});
+
+test('delivery lock preserves live and invalid owners and never releases a replaced lease', async () => {
+  const f = await fixture('lock-ownership'), file = deliveryLockFile(f.target); let p = await approved(f);
+  mkdirSync(path.dirname(file), { recursive: true });
+  try {
+    writeFileSync(file, JSON.stringify({ pid: process.pid, token: 'live-owner' }));
+    await assert.rejects(applyDelivery(f.store, p.id, { resume: true }), /lock still active/);
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).token, 'live-owner');
+    assert.equal((await deliveryStatus(f.store, p.id)).approval, null);
+    p = await approved(f);
+    writeFileSync(file, JSON.stringify({ pid: 0 }));
+    await assert.rejects(applyDelivery(f.store, p.id, { resume: true }), /Invalid target delivery lock/);
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).pid, 0); unlinkSync(file);
+    p = await approved(f);
+    await applyDelivery(f.store, p.id, { afterWrite: async () => { writeFileSync(file, JSON.stringify({ pid: process.pid, token: 'replacement' })); } });
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).token, 'replacement');
+  } finally { if (existsSync(file)) unlinkSync(file); }
 });
 test('interruption with external edit cannot recover or overwrite that file', async () => {
   const f = await fixture('process-conflict'); const p = await approved(f), worker = path.join(f.dir, 'crash-worker.mjs');
