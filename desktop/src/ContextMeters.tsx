@@ -10,19 +10,17 @@ export function ContextMeters({ contexts, primaryId }: { contexts: ModelContext[
     const rows = contexts.filter(row => row.role === role), label = role === 'decision' ? '决策者' : '执行者';
     const row = rows.find(row => row.participantId === primaryId) ?? [...rows].sort((a,b)=>(a.updatedAt??'').localeCompare(b.updatedAt??'')).at(-1);
     const { percent, text } = contextLabel(row);
-    return <details key={role} className={`context-meter ${row?.status ?? 'unknown'}`}>
-      <summary title={`${label}上下文 ${text} · ${statusText[row?.status ?? 'unknown']}`} aria-label={`${label}上下文 ${text}`}>
-        <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" className="context-ring-track"/><circle cx="10" cy="10" r="7" className="context-ring-fill" strokeDasharray={`${Math.max(0,Math.min(100,percent ?? 0))*0.43982} 43.982`} transform="rotate(-90 10 10)"/></svg>
+    return <div key={role} className={`context-meter ${row?.status ?? 'unknown'}`}>
+      <button type="button" className="context-meter-trigger" aria-label={`${label}上下文 ${text}`} aria-describedby={`context-${role}-popup`}>
+        <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" className="context-ring-track"/><circle cx="10" cy="10" r="7" className="context-ring-fill" strokeDasharray={`${Math.max(0,Math.min(100,percent ?? 0))*0.43982} 43.982`} transform="rotate(-90 10 10)"/></svg>
         <span>{label === '决策者' ? '决策' : '执行'}</span>
-      </summary>
-      <div className="context-meter-popup">{(rows.length ? rows : [undefined]).map((item,index) => <div key={item?.participantId ?? index}>
-        <strong>{label}{item?.participantId ? ` ${item.participantId.toUpperCase()}` : ''}上下文 · {contextLabel(item).text}</strong>
-        <p>{item?.model ?? item?.configuredModel ?? '模型尚未报告'}</p>
-        <p>{item?.usedTokens?.toLocaleString() ?? '未知'} / {item?.windowTokens?.toLocaleString() ?? '未知'} tokens</p>
-        <p>压缩阈值：{item?.compactAtTokens?.toLocaleString() ?? '原生模型默认'} · 已压缩 {item?.compactions ?? 0} 次</p>
-        <p>{statusText[item?.status ?? 'unknown']} · {item?.measurement === 'native' ? '原生窗口统计' : item?.measurement === 'estimated' ? '最近请求估算，非实时精确值' : '占用尚未知'}</p>
-        <small>接近窗口时由原生会话压缩；保留 Session/Thread。累计消耗不等于窗口占用。</small>
+      </button>
+      <div id={`context-${role}-popup`} className="context-meter-popup" role="tooltip">{(rows.length ? rows : [undefined]).map((item,index) => <div className="context-meter-entry" key={item?.participantId ?? index}>
+        <div className="context-meter-heading"><strong>{label}{item?.participantId ? ` ${item.participantId.toUpperCase()}` : ''}上下文</strong><strong>{contextLabel(item).text}</strong></div>
+        <div className="context-meter-model">{item?.model ?? item?.configuredModel ?? '模型尚未报告'}</div>
+        <div className="context-meter-tokens">{item?.usedTokens?.toLocaleString() ?? '未知'} / {item?.windowTokens?.toLocaleString() ?? '未知'} tokens</div>
+        <div className="context-meter-note">{statusText[item?.status ?? 'unknown']} · 压缩 {item?.compactions ?? 0} 次{item?.measurement === 'estimated' ? ' · 估算' : ''}</div>
       </div>)}</div>
-    </details>;
+    </div>;
   })}</div>;
 }

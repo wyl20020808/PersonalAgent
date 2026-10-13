@@ -65,7 +65,11 @@ export function codexPublicEvent(value:any):PublicActivity|null {
     try{const parsed=JSON.parse(text);if(typeof parsed.summary==='string'){title='Codex 修改提案';text=parsed.summary+'\n'+(parsed.changes??[]).map((c:any)=>c.path).join('\n');}}catch{/* Partial public message, never interpreted as validated edits. */}
     return {key:`${item.id}:${value.type}:${text}`,streamId:item.id,kind:'output',title,text};
   }
-  if(item.type==='command_execution')return {key:`${item.id}:${value.type}:${item.aggregated_output}`,kind:'tool',title:'Codex 执行事件',text:`${item.command}\n${item.status} · exit_code=${item.exit_code??'pending'}\n${item.aggregated_output??''}`};
+  if(item.type==='command_execution'){
+    // Command output deltas are observations, not additional operations.
+    if(value.type==='item.updated')return null;
+    return {key:`${item.id}:${value.type}:${item.aggregated_output}`,streamId:item.id,kind:'tool',title:'Codex 执行事件',text:`${item.command}\n${item.status} · exit_code=${item.exit_code??'pending'}\n${item.aggregated_output??''}`};
+  }
   if(item.type==='file_change')return {key:`${item.id}:${value.type}:${JSON.stringify(item.changes)}`,streamId:item.id,kind:'tool',title:'Codex 文件操作',text:`${item.status}\n${JSON.stringify(item.changes??[])}`};
   if(item.type==='image_view'&&item.id&&typeof item.path==='string')return {key:`${item.id}:${value.type}`,streamId:item.id,kind:'tool',title:'Codex 查看图片',text:JSON.stringify({tool:'view_image',input:{path:item.path},status:item.status??(value.type==='item.completed'?'completed':'in_progress')})};
   if(item.type==='mcp_tool_call'&&item.id)return {key:`${item.id}:${value.type}:${JSON.stringify(item.result??item.error)}`,streamId:item.id,kind:'tool',title:`Codex MCP · ${item.server}/${item.tool}`,text:JSON.stringify({tool:item.tool,status:item.status,arguments:item.arguments,result:item.result,error:item.error})};

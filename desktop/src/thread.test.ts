@@ -8,6 +8,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {projectMessages,messagePage} from './thread.js';
 import {runTiming,timingTotals,durationLabel} from './runTiming.js';
+import {groupMessages} from './threadGrouping.js';
 import {DesktopService,validateRequest} from './test-service.js';
 import type {State} from '../../src/store.js';
 const state={id:randomUUID(),goal:'Goal',tasks:[{id:'first'},{id:'second'}]} as State;
@@ -29,6 +30,22 @@ test('file started/completed events replace one operation and retain the complet
  }
  assert.equal(projectMessages(state,[event('a','completed'),event('b','completed')],[]).length,2);
  assert.equal(projectMessages(state,[event('a','in_progress','codex:1'),event('b','completed','codex:2')],[]).length,2);
+});
+
+test('command lifecycle occupies one row, preserves final evidence and keeps repeated executions distinct',()=>{
+ const event=(hash:string,status:string,scope='codex:1',streamId?:string,command='node test.js')=>({hash,time:'2026-10-13T00:00:00.000Z',event:'agent-activity',data:{agent:'codex',phase:'execute',kind:'tool',title:'Codex 执行事件',scope,streamId,source:'codex-sdk-runStreamed',text:command+'\n'+status+' · exit_code='+(status==='in_progress'?'pending':status==='failed'?'1':'0')+'\n'+hash}});
+ for(const streamId of [undefined,'command-1'])for(const status of ['completed','failed']){
+  const events=[event('start','in_progress','codex:1',streamId),...Array.from({length:2195},(_,i)=>event('delta-'+i,'in_progress','codex:1',streamId)),event('final',status,'codex:1',streamId)];
+  const messages=projectMessages(state,events,[]);
+  assert.equal(messages.length,1);assert.equal(messages[0].id,'audit:start');assert.equal(messages[0].details?.evidenceMessageId,'audit:final');assert.equal(messages[0].status,status==='failed'?'fail':'success');assert.match(messages[0].text,/\nfinal$/);
+  assert.equal(groupMessages(messages,true)[0].messages.length,1);
+  assert.equal(events[0].data.streamId,streamId);
+ }
+ assert.equal(projectMessages(state,[event('a','completed'),event('b','completed')],[]).length,2);
+ assert.equal(projectMessages(state,[event('a','in_progress'),event('b','completed','codex:2')],[]).length,2);
+ assert.equal(projectMessages(state,[event('a','in_progress'),event('b','completed','codex:1',undefined,'node other.js')],[]).length,2);
+ const messages=projectMessages(state,[event('a','in_progress','codex:1','one'),event('b','completed','codex:1','two'),event('c','completed','codex:1','one'),event('d','completed','codex:2','one')],[]);
+ assert.equal(messages.length,3);assert.equal(messages[0].details?.evidenceMessageId,'audit:c');
 });
 
 test('held discussion queue has no running indicator and reply uses first public output time',()=>{
