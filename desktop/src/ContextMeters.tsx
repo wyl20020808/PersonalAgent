@@ -19,6 +19,8 @@ export function ContextMeters({ contexts, primaryId }: { contexts: ModelContext[
         <div className="context-meter-heading"><strong>{label}{item?.participantId ? ` ${item.participantId.toUpperCase()}` : ''}上下文</strong><strong>{contextLabel(item).text}</strong></div>
         <div className="context-meter-model">{item?.model ?? item?.configuredModel ?? '模型尚未报告'}</div>
         <div className="context-meter-tokens">{item?.usedTokens?.toLocaleString() ?? '未知'} / {item?.windowTokens?.toLocaleString() ?? '未知'} tokens</div>
+        {item?.windowSource === 'official-local-cache' && <div className="context-meter-note">窗口来自官网本地缓存（{item.windowCheckedAt}）；服务商实际限额待确认</div>}
+        {item?.windowSource === 'opencode-config' && <div className="context-meter-note">窗口来自 OpenCode 模型配置</div>}
         <div className="context-meter-note">{statusText[item?.status ?? 'unknown']} · 压缩 {item?.compactions ?? 0} 次{item?.measurement === 'estimated' ? ' · 估算' : ''}</div>
       </div>)}</div>
     </div>;

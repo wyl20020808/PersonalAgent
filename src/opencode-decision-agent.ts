@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { assertOperationPolicy, interactionAgentRules } from './interaction-policy.js';
 import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {DiscussionStream} from './discussion-stream.js';
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2';
@@ -19,11 +20,18 @@ import { opencodeEnvironment, opencodeNativeCapabilities } from './opencode-runt
 import { timeoutSignal } from './timeout.js';
 import { createOpencodeTransport, transportErrorDetails } from './opencode-transport.js';
 
-export interface OpenCodeService { client: OpencodeClient; openapi: any; nativeCapabilities?: ReturnType<typeof opencodeNativeCapabilities>; fetch?: typeof globalThis.fetch; diagnostics?:()=>{pid?:number;closed:boolean;code:number|null;signal:string|null;requestedClose:boolean}; close(): Promise<void> }
+export interface OpenCodeService { client: OpencodeClient; openapi: any; compatibilityRecovery?: 'json-schema-format'; nativeCapabilities?: ReturnType<typeof opencodeNativeCapabilities>; fetch?: typeof globalThis.fetch; diagnostics?:()=>{pid?:number;closed:boolean;code:number|null;signal:string|null;requestedClose:boolean}; close(): Promise<void> }
 export type OpenCodeLauncher = (executable: string | undefined, directory: string, signal: AbortSignal, runtimeDirectory?: string) => Promise<OpenCodeService>;
+export function compatibleOpencodeExecutable(): string | undefined {
+  const candidate = process.env.PERSONAL_AGENT_OPENCODE_COMPATIBLE_EXECUTABLE ?? (process.platform === 'win32' ? 'D:/PersonalAgent-data/opencode-compatibility-v1/toolchain/node_modules/opencode-windows-x64/bin/opencode.exe' : undefined);
+  return candidate && existsSync(candidate) ? realpathSync(candidate) : undefined;
+}
 export function resolveOpencodeExecutable(explicit?: string): string {
   const configured = explicit ?? process.env.PERSONAL_AGENT_OPENCODE_EXECUTABLE;
   if (configured) { if (!existsSync(configured)) throw new FlowError('supervisor', 'OpenCode executable not found'); return realpathSync(configured); }
+  // CLI/resume entry points need the same owned runtime as the desktop launcher.
+  const compatible = compatibleOpencodeExecutable();
+  if (compatible) return compatible;
   for (const directory of (process.env.PATH ?? '').split(path.delimiter)) for (const name of process.platform === 'win32' ? ['opencode.exe','opencode-cli.exe'] : ['opencode']) {
     const candidate = path.join(directory, name); if (existsSync(candidate)) return realpathSync(candidate);
   }
@@ -93,6 +101,29 @@ export function supportsStructuredOutput(api: any): boolean {
   const format = resolvedSchema(api, body?.properties?.format);
   return JSON.stringify(format ?? {}).includes('json_schema');
 }
+export async function startCompatibleOpencodeService(executable: string | undefined, directory: string, signal: AbortSignal, runtimeDirectory?: string, launcher: OpenCodeLauncher = startOpencodeService, fallback = compatibleOpencodeExecutable()): Promise<OpenCodeService> {
+  signal.throwIfAborted();
+  const selected = resolveOpencodeExecutable(executable);
+  const compatible = fallback ? realpathSync(fallback) : undefined;
+  if (!compatible || compatible === selected) return launcher(selected,directory,signal,runtimeDirectory);
+  // An incompatible CLI may initialize a different database schema even before
+  // a prompt. Probe away from the original Session persistence.
+  const probeRuntime = runtimeDirectory ? runtimeDirectory + '.format-probe' : path.join(os.tmpdir(),'personalagent-opencode-format',randomUUID());
+  const service = await launcher(selected,directory,signal,probeRuntime);
+  const supported = supportsStructuredOutput(service.openapi);
+  await service.close();
+  signal.throwIfAborted();
+  if (supported) return launcher(selected,directory,signal,runtimeDirectory);
+  // No Session or prompt has been dispatched. Retry only this missing protocol;
+  // adapters still verify ownership in the original private persistence.
+  const recovered = await launcher(compatible,directory,signal,runtimeDirectory);
+  if (!supportsStructuredOutput(recovered.openapi)) {
+    await recovered.close();
+    throw new FlowError('supervisor','OpenCode compatible runtime lacks official JSON Schema structured output (format); prompt refused');
+  }
+  recovered.compatibilityRecovery = 'json-schema-format';
+  return recovered;
+}
 export async function models(service: OpenCodeService, directory: string, signal: AbortSignal): Promise<ModelDiscovery> {
   const options = { signal, throwOnError: true as const };
   let providers: DiscoveredProvider[];
@@ -111,7 +142,7 @@ export async function models(service: OpenCodeService, directory: string, signal
   const available = providers.some(provider => provider.models.some(model => model.capabilities.tools === true && model.capabilities.structuredOutput === true));
   return { available, reason: !supportsStructuredOutput(service.openapi) ? 'OpenCode service lacks official JSON Schema structured output (format); prompt refused' : !providers.length ? 'No connected OpenCode providers/models' : available ? '' : 'No OpenCode model supports native tools and structured output', providers };
 }
-export async function discoverOpencodeModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startOpencodeService): Promise<ModelDiscovery> {
+export async function discoverOpencodeModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startCompatibleOpencodeService): Promise<ModelDiscovery> {
   const signal = AbortSignal.timeout(150000); let service: OpenCodeService | undefined;
   try { service = await launcher(executable,realpathSync(directory),signal); return await models(service,realpathSync(directory),signal); }
   catch (error) { return { available:false,reason:redact((error as Error)?.message ?? 'OpenCode model discovery failed'),providers:[] }; }
@@ -140,7 +171,7 @@ export class OpenCodePublicStream {
  }
 }
 export class OpenCodeDecisionAgent implements DecisionAgent {
-  constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startOpencodeService) {}
+  constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startCompatibleOpencodeService) {}
   async structured<T>(request: DecisionRequest): Promise<DecisionResult<T>> {
     assertOperationPolicy({ kind: 'model' });
     assertDecisionRequest(request); const identity = assertDecisionState(request.state,this.config);
@@ -157,6 +188,7 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
     try {
       const executable = this.config.decisionAgent?.backend === 'opencode' ? this.config.decisionAgent.opencode.executable : undefined;
       service = await this.launcher(executable,workspace,signal,path.join(state.config.runtimeDir,'opencode',state.id,...(store.decisionParticipant?[store.decisionParticipant.participantId]:[])));
+      if (service.compatibilityRecovery) store.audit('opencode-format-recovered',{role,reason:service.compatibilityRecovery,promptDispatched:false});
       const discovery = await models(service,workspace,signal);
       const model = discovery.providers.find(p => p.id === identity.providerID)?.models.find(m => m.id === identity.modelID);
       if (!discovery.available) throw new FlowError('supervisor',discovery.reason);

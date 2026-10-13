@@ -17,6 +17,59 @@ import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
+test('sidebar rename persists display name and deletion keeps data without resurrecting imported Runs',async()=>{
+ const {service,project}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'sidebar history fixture',directAcknowledged:true});
+ const ref=service.sessions.get(session.id).runs[0],store=service.store(ref.profileId,ref.id),state=store.load();state.phase='completed';store.save(state);
+ const before=fs.readFileSync(store.file('state.json'));
+ await service.dispatch({operation:'renameProject',projectPath:project,title:'新项目名称'});
+ assert.equal(service.sessions.get(session.id).projectName,'新项目名称');assert.equal(service.inspectProject(project).name,'新项目名称');
+ await service.dispatch({operation:'renameSession',sessionId:session.id,title:'新会话名称'});
+ assert.equal(service.sessions.get(session.id).title,'新会话名称');
+ await service.dispatch({operation:'deleteSession',sessionId:session.id});
+ assert.equal(service.sessions.list().some(s=>s.id===session.id||s.runs.some(r=>r.id===ref.id)),false);
+ assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.equal(fs.readFileSync(path.join(project,'user.txt'),'utf8'),'user data\n');
+ assert.ok(service.sessions.read().find(s=>s.id===session.id)?.deletedAt);
+ assert.throws(()=>service.sessions.get(session.id),/会话不存在/);
+ await service.dispatch({operation:'deleteProject',projectPath:project});
+ assert.equal(service.overview().recentProjects?.some(p=>p.path===project),false);
+ assert.ok(service.overview().runs.some(r=>r.id===ref.id));
+});
+
+test('project menu applies to parallel group and validates all sessions before deletion',async()=>{
+ const {service,project,task}=await parallelFixture();
+ const first=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ const second=service.sessions.create({operation:'createSession',projectPath:task,projectGroupPath:project,mode:'mock'});
+ await service.dispatch({operation:'renameProject',projectPath:project,title:'并行项目'});
+ assert.equal(service.sessions.get(second.id).projectGroupName,'并行项目');assert.equal(service.sessions.get(second.id).projectPath,task);
+ service.sessions.inFlight.add(second.id);
+ await assert.rejects(service.dispatch({operation:'deleteProject',projectPath:project}),/正在处理消息/);
+ assert.equal(service.sessions.list().length,2);assert.equal(service.sessions.read().some(s=>s.deletedAt),false);
+ service.sessions.inFlight.delete(second.id);
+ const release=service.sessions.acquire(service.sessions.get(second.id));
+ await assert.rejects(service.dispatch({operation:'deleteSession',sessionId:second.id}),/正在处理消息/);release();
+ const removed=await service.dispatch({operation:'deleteProject',projectPath:project}) as {removedSessionIds:string[]};
+ assert.deepEqual(new Set(removed.removedSessionIds),new Set([first.id,second.id]));assert.equal(service.sessions.list().length,0);
+ assert.ok(fs.existsSync(path.join(task,'user.txt')));
+});
+
+test('sidebar rejects unknown paths, invalid titles, active Runs and queued messages',async()=>{
+ const {service,project}=fixture();service.launch=()=>{};
+ const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ assert.throws(()=>validateRequest({operation:'deleteSession',sessionId:'bad'}));
+ assert.throws(()=>validateRequest({operation:'renameProject',projectPath:project,title:'x'.repeat(81)}));
+ assert.throws(()=>service.sidebarProjectPath('D:/unknown-sidebar-project'),/未在侧栏登记/);
+ await assert.rejects(service.dispatch({operation:'renameProject',projectPath:project,title:'  '}),/不能为空/);
+ await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'active fixture',directAcknowledged:true});
+ const ref=service.sessions.get(session.id).runs[0],store=service.store(ref.profileId,ref.id),state=store.load();state.phase='executing';store.save(state);
+ const unlock=store.lock();try{await assert.rejects(service.dispatch({operation:'deleteSession',sessionId:session.id}),/运行中的任务/);}finally{unlock();}
+ state.phase='completed';store.save(state);
+ const saved=service.sessions.get(session.id);saved.messages.push({id:randomUUID(),text:'queued',time:new Date().toISOString(),status:'pending'});service.sessions.update(saved);
+ await assert.rejects(service.dispatch({operation:'deleteSession',sessionId:session.id}),/待处理消息/);
+ assert.equal(service.sessions.list().length,1);
+});
+
 test('completed chat discussion projection caches unchanged audits and refreshes real appended notices',async()=>{
  const {service,project}=fixture();const chat=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',chatMode:'discuss'});
  await service.sessions.send({operation:'sendSession',sessionId:chat.id,messageId:randomUUID(),text:'讨论下一阶段'});const saved=await settleDiscussion(service,chat.id);
@@ -251,8 +304,10 @@ test('decision backend: dynamic sanitized discovery, latest selection validation
  const restart=new DesktopService(root,data,process.execPath,discover);
  assert.deepEqual(restart.sessions.get(session.id).settings.decisionAgent,decisionAgent);
  discovery={available:false,reason:'fixture server unavailable password=private-test-credential',providers:[]};
- const unavailable=await service.dispatch({operation:'decisionModels',projectPath:project}) as DecisionModels;
+ assert.equal((await service.dispatch({operation:'decisionModels',projectPath:project}) as DecisionModels).providers[0].id,'fixture-provider','stored catalog served without rediscovery');
+ const unavailable=await service.dispatch({operation:'decisionModels',projectPath:project,refresh:true}) as DecisionModels;
  assert.equal(unavailable.available,false);assert.match(unavailable.reason,/fixture server unavailable/);assert.equal(unavailable.reason.includes('private-test-credential'),false);
+ assert.equal((await restart.dispatch({operation:'decisionModels'}) as DecisionModels).available,true,'failed refresh keeps stored catalog across restart and projects');
  await assert.rejects(service.dispatch({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'Mock backend requirement',directAcknowledged:true}),/不可用/);
  assert.equal(service.overview().runs.length,0);
  discovery={available:true,reason:'',providers:[{id:'fixture-provider',name:'Fixture',models:[{id:'fixture-model',name:'Mock structured model',capabilities:{tools:true,structuredOutput:true}}]}]};

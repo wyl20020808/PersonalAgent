@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { atomicJson, type State, type Store } from './store.js';
+import { opencodeWindow, type WindowMetadata } from './opencode-context-limits.js';
 
 export interface ModelContext {
+  windowSource?: WindowMetadata['windowSource']; windowReference?: string; windowCheckedAt?: string;
   role: 'decision' | 'execution'; participantId?: string; backend: string;
   configuredModel: string | null; model: string | null; sessionId: string | null;
   usedTokens: number | null; windowTokens: number | null; compactAtTokens: number | null;
@@ -34,7 +36,7 @@ export function compactLimit(window: number | null, state: State, role: ModelCon
 }
 export function contextLimits(state: State, store: Store, role: ModelContext['role']) {
   const current = identity(state, role), previous = previousContext(state, store, role);
-  const window = previous?.windowTokens ?? positive(state.config.contextManagement?.modelWindows?.[current.configuredModel ?? '']) ?? null;
+  const window = previous?.windowTokens ?? positive(state.config.contextManagement?.modelWindows?.[current.configuredModel ?? '']) ?? (current.backend === 'opencode' ? opencodeWindow(current.configuredModel)?.windowTokens : undefined) ?? null;
   return { window, compactAt: compactLimit(window, state, role) };
 }
 
@@ -49,6 +51,15 @@ export class ContextObservation {
   constructor(private state: State, private store: Store, phase: string, prompt: string) {
     const role = phase === 'execute' ? 'execution' : 'decision', previous = previousContext(state, store, role), limits = contextLimits(state, store, role);
     this.snapshot = { role, ...identity(state, role), ...(store.decisionParticipant ? { participantId: store.decisionParticipant.participantId } : {}), model: previous?.model ?? null, usedTokens: previous?.usedTokens ?? null, windowTokens: limits.window, compactAtTokens: limits.compactAt, measurement: previous?.measurement ?? 'unknown', source: previous?.source ?? 'native-not-reported', status: previous?.status ?? 'unknown', compactions: previous?.compactions ?? 0, promptEstimate: Math.ceil(Buffer.byteLength(prompt, 'utf8') / 3), updatedAt: new Date().toISOString() };
+    if (previous?.windowTokens) {
+      this.snapshot.windowSource = previous.windowSource;
+      this.snapshot.windowReference = previous.windowReference;
+      this.snapshot.windowCheckedAt = previous.windowCheckedAt;
+    } else if (positive(state.config.contextManagement?.modelWindows?.[this.snapshot.configuredModel ?? ''])) {
+      this.snapshot.windowSource = 'controller-config';
+    } else if (this.snapshot.backend === 'opencode') {
+      Object.assign(this.snapshot, opencodeWindow(this.snapshot.configuredModel));
+    }
     this.persist();
   }
   private persist(sampleId?: string) {
@@ -59,8 +70,9 @@ export class ContextObservation {
   }
   window(value: unknown, model?: string) {
     const n = positive(value); if (!n) return;
-    if (n === this.snapshot.windowTokens && (!model || model === this.snapshot.model)) return;
+    if (n === this.snapshot.windowTokens && (!model || model === this.snapshot.model) && this.snapshot.windowSource === 'native') return;
     this.snapshot.windowTokens = n; this.snapshot.compactAtTokens = compactLimit(n, this.state, this.snapshot.role);
+    this.snapshot.windowSource = 'native'; delete this.snapshot.windowReference; delete this.snapshot.windowCheckedAt;
     if (model) this.snapshot.model = model;
     this.persist();
   }
@@ -116,5 +128,10 @@ export class ContextObservation {
 export function modelContexts(events: { event: string; data: any }[]): ModelContext[] {
   const rows = new Map<string, ModelContext>();
   for (const e of events) if (e.event === 'model-context') rows.set(`${e.data.role}:${e.data.participantId ?? ''}`, e.data);
-  return [...rows.values()];
+  return [...rows.values()].map(row => {
+    if (row.backend !== 'opencode' || positive(row.windowTokens)) return row;
+    const fallback = opencodeWindow(row.model ?? row.configuredModel);
+    // Read-time enrichment leaves historical audit records untouched.
+    return fallback ? { ...row, ...fallback } : row;
+  });
 }

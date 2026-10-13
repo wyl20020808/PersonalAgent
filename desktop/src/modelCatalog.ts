@@ -2,7 +2,7 @@ import {useEffect,useSyncExternalStore} from 'react';
 import type {Request} from './types.js';
 
 type Snapshot<T>={data?:T;loading:boolean;error?:string};
-export function createCatalogCache(invoke:(request:Request)=>Promise<unknown>){
+export function createCatalogCache(invoke:(request:Request,refresh:boolean)=>Promise<unknown>){
  const entries=new Map<string,{snapshot:Snapshot<any>;listeners:Set<()=>void>;pending?:Promise<void>}>();
  const entry=(request:Request)=>{const key=JSON.stringify(request);let item=entries.get(key);if(!item){item={snapshot:{loading:false},listeners:new Set()};entries.set(key,item);}return item;};
  return {
@@ -12,7 +12,7 @@ export function createCatalogCache(invoke:(request:Request)=>Promise<unknown>){
    const item=entry(request);if(item.pending)return item.pending;if(item.snapshot.data&&!refresh)return Promise.resolve();
    const update=(snapshot:Snapshot<unknown>)=>{item.snapshot=snapshot;for(const listener of item.listeners)listener();};
    update({...item.snapshot,loading:true,error:undefined});
-   item.pending=Promise.resolve().then(()=>invoke(request)).then(data=>{
+   item.pending=Promise.resolve().then(()=>invoke(request,refresh)).then(data=>{
     const failure=(data as {reason?:string})?.reason;
     if(failure&&item.snapshot.data)update({...item.snapshot,loading:false,error:failure});else update({data,loading:false,error:failure});
    }).catch(error=>update({...item.snapshot,loading:false,error:String(error.message??error)})).finally(()=>{item.pending=undefined;});
@@ -20,7 +20,7 @@ export function createCatalogCache(invoke:(request:Request)=>Promise<unknown>){
   }
  };
 }
-export const modelCatalogCache=createCatalogCache(request=>window.personalAgent.invoke(request));
+export const modelCatalogCache=createCatalogCache((request,refresh)=>window.personalAgent.invoke(refresh&&request.operation!=='nativeModels'?{...request,refresh:true}:request));
 export function useModelCatalog<T>(request:Request,enabled=true){
  const key=JSON.stringify(request);
  const snapshot=useSyncExternalStore(listener=>modelCatalogCache.subscribe(request,listener),()=>modelCatalogCache.snapshot<T>(request));

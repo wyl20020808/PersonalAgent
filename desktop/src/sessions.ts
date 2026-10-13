@@ -19,7 +19,7 @@ import {chatRoute} from './chatRouting.js';
 import {validateParallelProject} from './parallelProject.js';
 const conversationDiscussion=runtimeConversationDiscussion as typeof import('../../src/conversation-discussion.js').conversationDiscussion;
 
-type Saved=Omit<Conversation,'budget'|'status'|'lastMessage'>;
+type Saved=Omit<Conversation,'budget'|'status'|'lastMessage'>&{deletedAt?:string};
 const active=['planning','execute','executing','applying','verify','review'];
 export class SessionStore {
  readonly discussionCalls=new Map<string,{controller:AbortController;promise:Promise<ConversationReply>}>();
@@ -35,7 +35,7 @@ export class SessionStore {
  acquire(session:Saved){const file=this.lockPath(session);if(this.discussionJobs.has(session.id)&&fs.existsSync(file)){const owner=JSON.parse(fs.readFileSync(file,'utf8'));if(owner.pid===process.pid&&owner.sessionId===session.id)return ()=>{};}if(fs.existsSync(file)&&!this.lockAlive(file))fs.unlinkSync(file);let descriptor:number;try{descriptor=fs.openSync(file,'wx');}catch{throw Error('此项目正在处理消息，请稍后重试；未重复启动');}fs.writeFileSync(descriptor,JSON.stringify({pid:process.pid,sessionId:session.id}));fs.fsyncSync(descriptor);return ()=>{fs.closeSync(descriptor);fs.unlinkSync(file);};}
  read():Saved[]{const items:Saved[]=fs.existsSync(this.file)?JSON.parse(fs.readFileSync(this.file,'utf8')):[];return items.map(s=>({...s,settings:{...s.settings,decisionAgent:s.settings.decisionAgent??{backend:'claude-code'}}}));}
  save(items:Saved[]){atomicJson(this.file,items);}
- get(id:string){const session=this.read().find(s=>s.id===id);if(!session)throw Error('会话不存在');return session;}
+ get(id:string){const session=this.read().find(s=>s.id===id&&!s.deletedAt);if(!session)throw Error('会话不存在');return session;}
  /** Later Runs of the chat follow a model switched during recovery; a fresh profile is created for them. */
  switchExecution(runId:string,executionAgent:NonNullable<Saved['settings']['executionAgent']>){const session=this.read().find(s=>s.runs.some(run=>run.id===runId));if(!session||session.legacy)return;session.settings.executionAgent=structuredClone(executionAgent);delete session.profileId;this.update(session);}
  switchDecision(runId:string,decisionAgent:NonNullable<Saved['settings']['decisionAgent']>){const session=this.read().find(s=>s.runs.some(run=>run.id===runId));if(!session||session.legacy)return;session.settings.decisionAgent=structuredClone(decisionAgent);delete session.profileId;this.update(session);}
@@ -102,7 +102,15 @@ export class SessionStore {
    return {...m,discussionDraft:m.discussionDraft?redact(m.discussionDraft):undefined,discussionProgress:m.discussionProgress?redact(m.discussionProgress):undefined,discussionReply:m.discussionReply?redact(m.discussionReply):undefined,discussionPlan:m.discussionPlan?redact(m.discussionPlan):undefined,text:redact(m.text),error:m.error?redact(m.error):undefined,attachments:m.attachments?.map(a=>({...a,content:a.content?redact(a.content):undefined,dataUrl:undefined,path:undefined}))};
   }),budget:{claudeUsed,loopsUsed,claudeRemaining:Math.max(0,session.settings.maxClaudeCalls-claudeUsed),loopsRemaining:Math.max(0,(session.settings.maxLoops??0)-loopsUsed)},status:unavailableRuns.length?'unavailable':session.chatMode==='discuss'?'discuss':last?.phase??'idle',updatedAt:[session.updatedAt,...runs.map(r=>r.updatedAt)].sort().at(-1)!,lastMessage:redact(session.messages.at(-1)?.text??last?.goal??'选择项目后，在群聊发送开发要求')};
  }
- list(){this.importHistory();return this.read().map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
+ list(){this.importHistory();return this.read().filter(s=>!s.deletedAt).map(s=>this.public(s)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||a.id.localeCompare(b.id));}
+ assertRemovable(session:Saved){
+  if(this.inFlight.has(session.id)||this.draining.has(session.id)||this.discussionJobs.has(session.id)||this.lockAlive(this.lockPath(session)))throw Error('会话正在处理消息，无法删除');
+  if(session.messages.some(m=>['pending','starting','steering','adjusting'].includes(m.status)))throw Error('会话有待处理消息，请先取消或完成');
+  const {runs,unavailableRuns}=this.resolve(session);
+  if(unavailableRuns.length)throw Error('历史运行状态不可用，无法安全删除');
+  if(runs.some(run=>run.active||active.includes(run.phase)))throw Error('会话仍有运行中的任务，无法删除');
+ }
+ remove(id:string){const session=this.get(id);this.assertRemovable(session);session.deletedAt=new Date().toISOString();this.update(session);return {removedSessionIds:[id]};}
  detail(id:string){
   const session=this.public(this.get(id));let discussionMessages:import('./types.js').ChatMessage[]=[],discussionContexts:ReturnType<typeof modelContexts>=[],discussionError:string|undefined;
   if(session.discussionStateId)try{const store=new Store(path.join(this.service.data,'conversation-discussions',session.id),session.discussionStateId),state=store.load();

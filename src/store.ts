@@ -16,8 +16,12 @@ export interface Evidence { acceptanceMode?: 'decision-user'; decisionReview?: R
 export interface State {
   automaticPlanning?: { reason: string };
   userRequired?: boolean;
+  /** The executor ended its turn on a question; the user's reply goes straight back to that Session. */
+  executorQuestion?: { taskId: string; loop: number; reply?: string };
   reworkReplan?: { taskId: string; reworks: number };
   guidancePending?: Guidance;
+  /** Where the interrupted task continues when a guidance planUpdate leaves it untouched. */
+  guidanceResume?: { taskId: string; phase: 'execute' | 'verify'; feedback: string; reworkPending: boolean };
   guidanceHistory?: Guidance[];
   userAttachments?: AttachmentRef[];
   claudeExecutionSessionId?: string | null;
@@ -51,8 +55,10 @@ export const stateSchema = { type: 'object', properties: { ...stateProperties, d
 Object.assign(stateSchema.properties, {
   automaticPlanning: {type:'object',additionalProperties:false,required:['reason'],properties:{reason:str}},
   userRequired: {type:'boolean'},
+  executorQuestion: {type:'object',additionalProperties:false,required:['taskId','loop'],properties:{taskId:str,loop:{type:'integer',minimum:0},reply:str}},
   reworkReplan: {type:'object',additionalProperties:false,required:['taskId','reworks'],properties:{taskId:str,reworks:{type:'integer',minimum:0}}},
   guidancePending: guidanceSchema,
+  guidanceResume: {type:'object',additionalProperties:false,required:['taskId','phase','feedback','reworkPending'],properties:{taskId:str,phase:{enum:['execute','verify']},feedback:str,reworkPending:{type:'boolean'}}},
   guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},
   userAttachments: {type:'array',maxItems:8,items:attachmentRefSchema},
   claudeExecutionSessionId: nullable,

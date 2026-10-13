@@ -1226,6 +1226,26 @@
     "userRequired": {
       "type": "boolean"
     },
+    "executorQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "loop"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "loop": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reply": {
+          "type": "string"
+        }
+      }
+    },
     "reworkReplan": {
       "type": "object",
       "additionalProperties": false,
@@ -1322,6 +1342,33 @@
               }
             }
           }
+        }
+      }
+    },
+    "guidanceResume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "phase",
+        "feedback",
+        "reworkPending"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "execute",
+            "verify"
+          ]
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "reworkPending": {
+          "type": "boolean"
         }
       }
     },
@@ -2089,6 +2136,70 @@
                       "discussionRounds": {
                         "type": "integer",
                         "minimum": 0
+                      },
+                      "planUpdate": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "patches": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                                },
+                                "instruction": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 100000
+                                },
+                                "acceptance": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100000
+                                  },
+                                  "minItems": 1
+                                },
+                                "dependsOn": {
+                                  "type": "array",
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                                  }
+                                },
+                                "acceptanceStage": {
+                                  "type": "string",
+                                  "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                                },
+                                "moduleIds": {
+                                  "type": "array",
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                                  }
+                                }
+                              },
+                              "required": [
+                                "id"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "remove": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                            }
+                          }
+                        }
                       }
                     },
                     "required": [
