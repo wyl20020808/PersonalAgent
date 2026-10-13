@@ -43,9 +43,29 @@ test('chat routes from runtime state without treating quoted commands as control
  assert.equal(chatRoute('停止',{phase:'executing'}),'stop');
  assert.equal(chatRoute('保持暂停',{phase:'paused'}),'hold');
  assert.equal(chatRoute('继续',{phase:'paused',nextPhase:'verify'}),'resume');
+ assert.equal(chatRoute('恢复任务',{phase:'interrupted',nextPhase:'verify',active:false}),'resume');
+ assert.equal(chatRoute('恢复原任务，先核对已有成果',{phase:'interrupted',nextPhase:'verify',active:false}),'resume');
+ assert.equal(chatRoute('按原计划继续，先检查已有成果',{phase:'interrupted',nextPhase:'verify',active:false}),'rework');
+ assert.equal(chatRoute('恢复任务',{phase:'review',active:true}),'queue');
  assert.equal(chatRoute('把按钮改小',{phase:'paused',nextPhase:'verify'}),'rework');
  assert.equal(chatRoute('继续',{phase:'paused',nextPhase:'verify'},true),'rework');
  assert.equal(chatRoute('不需要改代码，只解释一下',{phase:'completed'}),'start');
+});
+test('interrupted review chat resumes the same Run with user requirements; live CLI owner blocks IPC',async()=>{
+ const local=new DesktopService(root,path.join(data,'interrupted-review'),process.execPath),project=path.join(data,'interrupted-review-project');fs.mkdirSync(project,{recursive:true});
+ const launches:{id:string;decision?:string;intent?:string}[]=[];local.launch=(store,_file,decision,_limit,intent)=>{launches.push({id:store.id,decision,intent});};
+ const session=local.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct'});
+ const initial=await local.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'原始需求',directAcknowledged:true});
+ const ref=initial.runs[0],store=local.store(ref.profileId,ref.id),state=store.load();state.phase='review';state.nextPhase='verify';state.tasks=[{id:'logistics',instruction:'核对院区结果',acceptance:['不重复导入']}];store.save(state);
+ assert.equal(local.publicRun(state,ref.profileId).phase,'interrupted');assert.equal(store.load().phase,'review');
+ const request={operation:'resume' as const,profileId:ref.profileId,runId:ref.id,decision:'恢复任务'};
+ const unlock=store.lock();try{assert.equal(local.publicRun(state,ref.profileId).phase,'review');await assert.rejects(local.dispatch(request),/Run still active/);}finally{unlock();}
+ const text='恢复原任务，先检查物流园已有结果，不重复导入';
+ const resumed=await local.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text});
+ assert.equal(resumed.runs.length,1);assert.equal(resumed.messages.at(-1)?.status,'executed');assert.equal(resumed.messages.at(-1)?.runId,ref.id);
+ assert.deepEqual(launches.at(-1),{id:ref.id,decision:text,intent:'resume'});
+ const plain=await local.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'恢复任务'});
+ assert.equal(plain.messages.at(-1)?.status,'executed');assert.equal(launches.at(-1)?.intent,'resume');assert.equal(store.load().phase,'review');
 });
 test('chat resume is idempotent, preserves Run and attaches new verified input; failures remain visible',async()=>{
  const service=new DesktopService(root,path.join(data,'chat-resume'),process.execPath),project=path.join(data,'chat-resume-project');fs.mkdirSync(project,{recursive:true});
@@ -62,12 +82,12 @@ test('chat resume is idempotent, preserves Run and attaches new verified input; 
  assert.equal(failed.messages.at(-1)?.status,'failed');assert.match(failed.messages.at(-1)?.error??'',/不可自动恢复/);assert.equal(calls.length,2);service.validateResume=original;
 });
 test('queued chat drains after completion, pauses do not replay, and stop holds queued work',async()=>{
- const service=new DesktopService(root,path.join(data,'chat-queue'),process.execPath),project=path.join(data,'chat-queue-project');fs.mkdirSync(project,{recursive:true});service.launch=()=>{};
+ const service=new DesktopService(root,path.join(data,'chat-queue'),process.execPath),project=path.join(data,'chat-queue-project');fs.mkdirSync(project,{recursive:true});service.launch=store=>{service.children.set(store.id,{} as any);};
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock',projectMode:'direct'});
  const send=(value:string)=>service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:value,directAcknowledged:true});
  const initial=await send('初始需求'),ref=initial.runs[0],store=service.store(ref.profileId,ref.id);
  await send('谢谢');await send('第二个需求');
- const paused=store.load();paused.phase='paused';store.save(paused);await service.sessions.drainCompleted(ref.id);assert.equal(service.sessions.get(session.id).runs.length,1);
+ const paused=store.load();paused.phase='paused';store.save(paused);service.children.delete(ref.id);await service.sessions.drainCompleted(ref.id);assert.equal(service.sessions.get(session.id).runs.length,1);
  const complete=store.load();complete.phase='completed';store.save(complete);await service.sessions.drainCompleted(ref.id);
  const fresh=service.sessions.get(session.id);assert.equal(fresh.runs.length,2);assert.equal(fresh.messages[1].status,'recorded');assert.equal(fresh.messages[2].status,'executed');
  await send('第三个需求');const stopped=await send('停止');assert.equal(stopped.messages.at(-2)?.autoQueued,false);assert.equal(stopped.messages.at(-1)?.action,'stop');
