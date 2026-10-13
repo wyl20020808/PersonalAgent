@@ -25,3 +25,23 @@
 ## 2026-10-13 原生能力任务的基线对照
 
 原生能力与 Skills 适配回归 104 项中，103 项通过；唯一失败为 `interaction-policy.test.ts` 的 `pending GUI cannot bypass human/fail Review or a failed safe acceptance check`，断言执行次数为 1，实际为 2。同一用例在未修改 TEST `92024f0` 的构建中单独运行，同样以 `2 !== 1` 失败。本任务没有修改该用例或 Controller 验收逻辑，不将其记为通过，也不据此宣称完整回归通过。与当前决策者自主验收职责的关系仍需独立维护任务核对。
+
+## 2026-10-13 用户提供审查的复核
+
+本轮在独立工作树固定 TEST `a2d3f95` 构建，执行：
+
+```powershell
+rtk proxy node --import ./scripts/regression-policy.mjs --test --test-concurrency=1 --test-name-pattern="pending GUI cannot bypass|Codex public events expose actual" dist/test/interaction-policy.test.js dist/test/v03c.test.js
+```
+
+两项均失败，进程退出码 1：interaction-policy 为 `2 !== 1`；v03c 为 `/尚不代表测试通过/` 不匹配当前公开文案。此次没有修改测试或生产代码。
+
+定性补充：
+
+- interaction-policy 对应 `test/interaction-policy.test.ts:116-122`，计划明确包含 first 与 independent 两个任务，夹具 review 在 safe-failure 子场景固定返回 pass。当前 Controller 遵循决策者 pass 自动推进，因此执行次数 2 不能证明同一任务重复执行；这是旧固定检查否决 pass 的断言与当前职责不符。应保留 human/fail 不推进的覆盖，并按当前契约重写 pass 场景，不能改生产逻辑恢复旧否决机制来迁就断言。
+- v03c 对应 `test/v03c.test.ts:16` 与 `src/telemetry.ts:58`。当前文案描述决策者验收后自动继续，测试仍严格匹配旧文案，陈旧断言确认。迁移时保留“执行回合结束不等于实际测试通过”的语义覆盖，不只删除断言。
+- 用户提供的“561 项、两轮 16/22 失败、A 族 14、B 族 3、C 族 4”是外部报告数据，本轮未取得其两份完整日志并重新核算，不作为本轮全量结果。A 族迁移方向合理，但每项需单独核对是不是显式人工确认场景；不能一律把 paused/userAccepted 改成 completed。
+- B 族延长超时仅在串行复测、耗时和失败类型证实夹具调度不足后再决定；不直接认定所有超时都是负载抖动。
+- #197、#334/#335 只有当次 TAP 序号与简短现象，缺稳定测试名、失败状态与原始日志，本轮不登记为额外已确认缺陷。后续用测试全名、Run failure.kind 和串行对照定性。
+
+本问题仍为待处理。可以确认专项回归失败，不能声称当前全量回归通过；本轮没有执行 DEV 交付，也不判定 TEST 不可试用。
