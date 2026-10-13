@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type {CodexOptions,Input,ThreadOptions,TurnOptions,ThreadEvent} from '@openai/codex-sdk';
 import {terminateTree} from './process.js';
+import {startGodotLanguageService} from './godot-language-service.js';
 
 export interface CodexTurnClient {
  startThread(options?:ThreadOptions):{runStreamed(input:Input,options?:TurnOptions):Promise<{events:AsyncGenerator<ThreadEvent>}>};
@@ -72,6 +73,7 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
   async function* events():AsyncGenerator<ThreadEvent>{
    turn.signal?.throwIfAborted();const binary=executable(options),env={...process.env,...options.env};
    const pathKey=Object.keys(env).find(k=>k.toLowerCase()==='path')??'PATH';env[pathKey]=[...binary.dirs,env[pathKey]??''].join(path.delimiter);
+   let languageService={guidance:'',close:async()=>{}};
    const child=spawn(binary.file,['app-server',...(options.configOverrides??[]).flatMap(c=>['-c',c])],{cwd:settings.workingDirectory,env,windowsHide:true,detached:process.platform!=='win32',stdio:['pipe','pipe','pipe']});
    let sequence=0,pending='',closed=false,failure:Error|undefined,wake:(()=>void)|undefined;
    const queue:any[]=[],requests=new Map<number,{resolve:(value:any)=>void;reject:(error:Error)=>void}>();
@@ -92,6 +94,8 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
    const abort=()=>fail(Error('Stopped'));turn.signal?.addEventListener('abort',abort,{once:true});
    try{
     await request('initialize',{clientInfo:{name:'personalagent',version:'0.1.0'},capabilities:{experimentalApi:true}});send({method:'initialized'});
+    // A Godot editor writes import caches; read-only discussion must not start it.
+    if(settings.sandboxMode!=='read-only')languageService=await startGodotLanguageService(settings.workingDirectory??process.cwd(),env,turn.signal);
     const config={...options.config,...(settings.webSearchMode?{web_search:settings.webSearchMode}:{})};
     const params={cwd:settings.workingDirectory,model:settings.model,approvalPolicy:settings.approvalPolicy??'never',sandbox:settings.sandboxMode??'danger-full-access',config,...(id?{threadId:id,excludeTurns:true}:{})};
     const opened=await request(id?'thread/resume':'thread/start',params),threadId=opened.thread?.id;
@@ -115,6 +119,7 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
      }
     }
     const parts=typeof input==='string'?[{type:'text',text:input}]:input.map(p=>p.type==='local_image'?{type:'localImage',path:p.path}:p);
+    if(languageService.guidance)parts.unshift({type:'text',text:languageService.guidance});
     const result=await request('turn/start',{threadId,input:parts,effort:settings.modelReasoningEffort,outputSchema:turn.outputSchema,
      ...(settings.sandboxMode==='read-only'?{sandboxPolicy:{type:'readOnly',networkAccess:settings.networkAccessEnabled??false}}:{})});
     if(!result.turn?.id)throw Error('Codex live turn identity missing');
@@ -126,7 +131,8 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
      }
     }
    }finally{
-    turn.signal?.removeEventListener('abort',abort);if(!closed&&child.pid)await terminateTree(child.pid);await ended;
+    try{turn.signal?.removeEventListener('abort',abort);if(!closed&&child.pid)await terminateTree(child.pid);await ended;}
+    finally{await languageService.close();}
    }
   }
   return {events:events()};

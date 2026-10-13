@@ -18,6 +18,8 @@ export interface State {
   userRequired?: boolean;
   reworkReplan?: { taskId: string; reworks: number };
   guidancePending?: Guidance;
+  /** Where the interrupted task continues when a guidance planUpdate leaves it untouched. */
+  guidanceResume?: { taskId: string; phase: 'execute' | 'verify'; feedback: string; reworkPending: boolean };
   guidanceHistory?: Guidance[];
   userAttachments?: AttachmentRef[];
   claudeExecutionSessionId?: string | null;
@@ -53,6 +55,7 @@ Object.assign(stateSchema.properties, {
   userRequired: {type:'boolean'},
   reworkReplan: {type:'object',additionalProperties:false,required:['taskId','reworks'],properties:{taskId:str,reworks:{type:'integer',minimum:0}}},
   guidancePending: guidanceSchema,
+  guidanceResume: {type:'object',additionalProperties:false,required:['taskId','phase','feedback','reworkPending'],properties:{taskId:str,phase:{enum:['execute','verify']},feedback:str,reworkPending:{type:'boolean'}}},
   guidanceHistory: {type:'array',maxItems:1000,items:guidanceSchema},
   userAttachments: {type:'array',maxItems:8,items:attachmentRefSchema},
   claudeExecutionSessionId: nullable,
