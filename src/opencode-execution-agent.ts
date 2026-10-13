@@ -161,7 +161,13 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
       if (observation.context.shouldCompact && observation.usage.resumed) {
         observation.context.compact('compacting', observation.usage.callId);
         store.audit('context-compact-dispatch', { backend: 'opencode', sessionId: sessionID, callId: observation.usage.callId });
-        await client.session.summarize({sessionID:sessionID!,directory:workspace,providerID:choice.opencode.providerID,modelID:choice.opencode.modelID,auto:true},{signal,throwOnError:true});
+        try {
+          const compacted = await client.session.summarize({sessionID:sessionID!,directory:workspace,providerID:choice.opencode.providerID,modelID:choice.opencode.modelID,auto:true},{signal,throwOnError:true});
+          if (compacted.data !== true) throw Error('Missing successful summarize receipt');
+        } catch(error) {
+          observation.context.observe({type:'context.compaction-failed',message:String(error)});
+          throw new FlowError('context','Context compaction outcome unknown or failed; inspect original Session before retry: '+String(error));
+        }
       }
       state.executionAttempt = { loop: state.loops, taskId: task.id, status: 'running' }; store.save(state); dispatched = true;
       store.audit('opencode-execute-dispatch', { callId: observation.usage.callId, runId: state.id, taskId: task.id, loop: state.loops, workspace, sessionId: sessionID, providerID: choice.opencode.providerID, modelID: choice.opencode.modelID, role: 'execution', mode: state.config.mode });

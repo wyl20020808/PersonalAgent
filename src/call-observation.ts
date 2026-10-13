@@ -35,8 +35,8 @@ export interface CallUsage extends Tokens {
 // The installed SDK 0.161.0 exposes commands and turn usage, but no Read item or model identifier.
 // Send only the fields needed for observation across the worker boundary, never tool output/content.
 export function codexObservation(event: any): object | null {
-  if (['context.usage', 'context.compaction'].includes(event.type)) return event;
-  if (event.type === 'turn.completed') return { type: event.type, usage: event.usage };
+  if (['context.usage', 'context.compaction', 'context.compaction-failed'].includes(event.type)) return event;
+  if (['turn.completed', 'turn.failed'].includes(event.type)) return { type: event.type, usage: event.usage };
   if (['item.started', 'item.updated', 'item.completed'].includes(event.type) && event.item?.type === 'command_execution') {
     const { id, type, command, status, exit_code } = event.item;
     return { type: event.type, item: { id, type, command: redactCommand(command), status, exit_code } };
@@ -80,9 +80,9 @@ export class CallObservation {
     const assembly = JSON.parse(prompt);
     const selectionReasons = navigation ? JSON.parse(readFileSync(manifestPath, 'utf8')).selectionReasons ?? [] : [];
     const supplied = (contentKind: string, value: unknown, file: string, pointer: string) => this.record('supplied', { contentKind, path: file, jsonPointer: pointer, sha256: contextHash(typeof value === 'string' ? value : JSON.stringify(value)), bytes: Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value)), selectionReasons, version: navigation?.version ?? null, omitted: navigation?.omitted ?? [] });
-    if (navigation?.overview) supplied('overview-excerpt', navigation.overview.content, navigation.overview.path, '/assembled/context/overview/content');
-    if (navigation?.moduleCatalog) supplied('module-catalog', navigation.moduleCatalog, manifestPath, '/assembled/context/moduleCatalog');
-    if (navigation?.fileTree?.length) supplied('file-tree', navigation.fileTree, manifestPath, '/assembled/context/fileTree');
+    if (assembly.context?.overview) supplied('overview-excerpt', assembly.context.overview.content, assembly.context.overview.path, '/assembled/context/overview/content');
+    if (assembly.context?.moduleCatalog) supplied('module-catalog', assembly.context.moduleCatalog, manifestPath, '/assembled/context/moduleCatalog');
+    if (assembly.context?.fileTree?.length) supplied('file-tree', assembly.context.fileTree, manifestPath, '/assembled/context/fileTree');
     // Paths alone are navigation, not supplied file contents. Review evidence carries full contracts.
     for (const kind of ['contracts', 'decisions']) for (const [index, doc] of (assembly.evidence?.contextReport?.[kind] ?? []).entries()) if (typeof doc.content === 'string') supplied(kind, doc.content, doc.path, `/assembled/evidence/contextReport/${kind}/${index}/content`);
     this.persist();
@@ -121,7 +121,10 @@ export class CallObservation {
     this.context.observe(event);
     if(event.type==='stream_event'&&!['message_start','message_delta'].includes(event.event?.type))return;
     if (this.usage.agent === 'codex') {
-      if (event.type === 'turn.completed') { this.finalUsage = this.codexTurn(tokens(event.usage, true), event.usage?.scope); this.resultSeen = true; }
+      if (['turn.completed', 'turn.failed', 'context.usage'].includes(event.type) && event.usage) {
+        this.finalUsage = this.codexTurn(tokens(event.usage, true), event.usage.scope);
+        if (event.type === 'turn.completed') this.resultSeen = true;
+      }
       const item = event.item;
       if (item?.type === 'command_execution' && typeof item.id === 'string' && typeof item.command === 'string') this.record('shell-command', { toolCallId: item.id, command: redactCommand(item.command), status: item.status, exitCode: count(item.exit_code) ?? (Number.isInteger(item.exit_code) ? item.exit_code : null) });
       else if (item?.type === 'mcp_tool_call') this.record('unobservable', { toolCallId: item.id, reason: 'MCP 工具没有注册可核验的文件读取协议' });

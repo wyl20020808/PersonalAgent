@@ -24,17 +24,20 @@ function executable(options:CodexOptions){
 /** Project official App Server notifications onto the existing owned turn contract. */
 export class CodexLiveProjection {
  private items=new Map<string,any>();
- private usage:{input_tokens:number;cached_input_tokens:number;output_tokens:number;scope?:'turn'|'last-request'}={input_tokens:0,cached_input_tokens:0,output_tokens:0};
- private before?:{input:number;cached:number;output:number};
+ private usage:{input_tokens:number|null;cached_input_tokens:number|null;output_tokens:number|null;scope?:'turn'|'last-request'}|null=null;
+ private before?:{input:number;cached:number|null;output:number};
  constructor(private threadId:string,private turnId:string){}
  accept(method:string,p:any):any[]{
   if(p?.threadId!==this.threadId||(p.turnId??p.turn?.id)!==this.turnId||p.turn?.id!==undefined&&p.turn.id!==this.turnId)return [];
   if(method==='thread/tokenUsage/updated'){const u=p.tokenUsage?.last,t=p.tokenUsage?.total;
+   const count=(n:any):number|null=>Number.isSafeInteger(n)&&n>=0?n:null;
    // `last` is one model request. The turn's consumption is the running total minus what it was before this turn's first request.
-   if(u&&Number.isFinite(t?.inputTokens)&&Number.isFinite(t?.outputTokens)){this.before??={input:t.inputTokens-(u.inputTokens??0),cached:(t.cachedInputTokens??0)-(u.cachedInputTokens??0),output:t.outputTokens-(u.outputTokens??0)};this.usage={input_tokens:Math.max(0,t.inputTokens-this.before.input),cached_input_tokens:Math.max(0,(t.cachedInputTokens??0)-this.before.cached),output_tokens:Math.max(0,t.outputTokens-this.before.output),scope:'turn'};}
-   else if(u)this.usage={input_tokens:u.inputTokens??0,cached_input_tokens:u.cachedInputTokens??0,output_tokens:u.outputTokens??0,scope:'last-request'};
-   return [{type:'context.usage',usedTokens:u?.totalTokens,windowTokens:p.tokenUsage?.modelContextWindow}];}
-  if(method==='turn/completed')return p.turn?.status==='completed'?[{type:'turn.completed',usage:this.usage}]:[{type:'turn.failed',error:{message:p.turn?.error?.message??'Codex turn '+(p.turn?.status??'failed')}}];
+   if(u&&[t?.inputTokens,t?.outputTokens,u.inputTokens,u.outputTokens].every(n=>count(n)!==null)){
+    this.before??={input:t.inputTokens-u.inputTokens,cached:count(t.cachedInputTokens)!==null&&count(u.cachedInputTokens)!==null?t.cachedInputTokens-u.cachedInputTokens:null,output:t.outputTokens-u.outputTokens};
+    this.usage={input_tokens:Math.max(0,t.inputTokens-this.before.input),cached_input_tokens:count(t.cachedInputTokens)!==null&&this.before.cached!==null?Math.max(0,t.cachedInputTokens-this.before.cached):null,output_tokens:Math.max(0,t.outputTokens-this.before.output),scope:'turn'};
+   } else if(u)this.usage={input_tokens:count(u.inputTokens),cached_input_tokens:count(u.cachedInputTokens),output_tokens:count(u.outputTokens),scope:'last-request'};
+   return [{type:'context.usage',usedTokens:u?.totalTokens,windowTokens:p.tokenUsage?.modelContextWindow,usage:this.usage,measurementId:JSON.stringify(t??u)}];}
+  if(method==='turn/completed')return p.turn?.status==='completed'?[{type:'turn.completed',usage:this.usage}]:[{type:'turn.failed',usage:this.usage,error:{message:p.turn?.error?.message??'Codex turn '+(p.turn?.status??'failed')}}];
   if(method==='error')return [{type:'error',message:(p.willRetry?'Reconnecting... ':'')+(p.error?.message??'Codex service error')}];
   const status=(value:string)=>value==='inProgress'?'in_progress':value;
   let item:any;
@@ -96,6 +99,7 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
     if(opened.thread.cwd&&path.resolve(opened.thread.cwd)!==path.resolve(settings.workingDirectory??process.cwd()))throw Error('Codex live workspace mismatch');
     yield {type:'thread.started',thread_id:threadId};
     if(id && options.compactBeforeTurn){
+     try {
      await request('thread/compact/start',{threadId});
      let compactTurn:string|undefined;
      for(;;){if(failure)throw failure;const next=queue.shift();if(!next){await new Promise<void>(resolve=>{wake=resolve;});wake=undefined;continue;}
@@ -104,6 +108,10 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
       if(!compactTurn||(p.turnId??p.turn?.id)!==compactTurn)continue;
       if(['item/started','item/completed'].includes(next.method)&&p.item?.type==='contextCompaction')yield {type:'context.compaction',id:p.item.id,status:next.method==='item/started'?'compacting':'compacted'} as any;
       if(next.method==='turn/completed'){if(p.turn.status!=='completed')throw Error('Codex context compaction failed: '+(p.turn.error?.message??p.turn.status));break;}
+     }
+     } catch(error) {
+      yield {type:'context.compaction-failed',message:String(error)} as any;
+      throw Error('Context compaction outcome unknown or failed; inspect original Session before retry: '+String(error));
      }
     }
     const parts=typeof input==='string'?[{type:'text',text:input}]:input.map(p=>p.type==='local_image'?{type:'localImage',path:p.path}:p);
