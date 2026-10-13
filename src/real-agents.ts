@@ -9,6 +9,7 @@ import { OpenCodeDecisionAgent } from './opencode-decision-agent.js';
 import { OpenCodeExecutionAgent, type ExecutionAgent } from './opencode-execution-agent.js';
 import { nativeAgentEnv, repositoryContext } from './workspace.js';
 import { agentRules } from './native-agent.js';
+import { userQuestionRule } from './user-question.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runProcess } from './process.js';
@@ -82,7 +83,9 @@ export class RealAgents implements Agents {
     const action = this.executionMode === 'native'
       ? 'Use native tools to explore the repository, directly implement the task, run tests and debug failures until resolved. Report actual changes and verification in Chinese. Do not return full file contents for Controller to apply.'
       : 'Compatibility proposal mode: inspect with native tools, but return full UTF-8 file contents in changes for Controller to apply. Do not directly edit the workspace in this mode. Return the requested JSON schema.';
-    const prompt = assemblePrompt(state, store, "execute", { action: action + (retry ? ' 前次调用因连接失败已结束；续接同一 Thread。先检查已有修改和工具结果，不重复已完成操作；只完成剩余工作并验证。' : '') + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。模块组织与核对对象自行选择。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], ...(accepted.length ? { acceptedTasks: accepted, sessionNote: '这是新的执行 Session。acceptedTasks 已在此前的 Session 完成并通过验收，成果在工作区；按需查看，不重做。' } : {}), feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
+    // A reply to the executor's own question needs no restated task: its Session already holds the context.
+    const reply = (this.config.executionAgent?.backend === 'codex' || !this.config.executionAgent ? state.codexThreadId : state.executionSession?.sessionId) ? state.executorQuestion?.reply : undefined;
+    const prompt = reply !== undefined ? JSON.stringify({ action: '用户已答复你上一条提问。按答复继续当前任务的剩余工作，不重复已完成操作，完成后照常报告实际改动和验证结果。' + (retry ? ' 前次调用因连接失败已结束；先检查已有修改和工具结果。' : '') + userQuestionRule, taskId: state.tasks[state.taskIndex]?.id, userReply: reply }) : assemblePrompt(state, store, "execute", { action: action + (this.executionMode === 'native' ? userQuestionRule : '') + (retry ? ' 前次调用因连接失败已结束；续接同一 Thread。先检查已有修改和工具结果，不重复已完成操作；只完成剩余工作并验证。' : '') + (state.purpose === 'context-onboarding' ? ' 本轮只建档，仅写 docs/project-context/ 的约定文档，按实际代码核查，不改业务源码及配置。模块组织与核对对象自行选择。契约/决策只生成有真实依据的 proposed，不伪造用户确认；运行给定 context-stamp 命令盖章。' : ''), rules: agentRules, goal: state.goal, repository, context, task: state.tasks[state.taskIndex], ...(accepted.length ? { acceptedTasks: accepted, sessionNote: '这是新的执行 Session。acceptedTasks 已在此前的 Session 完成并通过验收，成果在工作区；按需查看，不重做。' } : {}), feedback: state.feedback, evidence: context ? reviewEvidence(state.evidence) : state.evidence });
     recordContextPrompt(store, context, prompt);
     if (this.config.executionAgent?.backend === 'opencode') return this.execution.execute(state, store, signal, prompt, context);
     if (this.config.executionAgent?.backend === 'claude-code') return new ClaudeCodeExecutionAgent(this.config, this.run).execute(state, store, signal, prompt, context);
