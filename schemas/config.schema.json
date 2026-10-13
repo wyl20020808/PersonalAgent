@@ -570,6 +570,22 @@
             "minimum": 1024,
             "maximum": 10000000
           }
+        },
+        "budgetTokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "decision": {
+              "type": "integer",
+              "minimum": 20000,
+              "maximum": 10000000
+            },
+            "execution": {
+              "type": "integer",
+              "minimum": 20000,
+              "maximum": 10000000
+            }
+          }
         }
       }
     },
