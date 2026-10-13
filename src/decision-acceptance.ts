@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { State, Store } from './store.js';
 import { pendingGuidance, processingGuidance } from './steering.js';
+import { recordAcceptedTask } from './task-ledger.js';
+import { contextLimits, previousContext } from './model-context.js';
 
 // A decision receipt is distinct from user approval and from executed tests.
 export function decisionAcceptanceDigest(state: State): string {
@@ -36,16 +38,24 @@ export function acceptDecision(store: Store, state: State): State {
   if (state.evidence?.decisionReview?.verdict !== 'pass' || state.executorExitCode !== 0 || !recordedPass(store, state)) throw Error('Decision acceptance requires recorded pass for current evidence');
   state.evidence.decisionAccepted = true;
   store.audit('decision-acceptance', { taskId: state.tasks[state.taskIndex]!.id, taskIndex: state.taskIndex, loop: state.loops, digest: decisionAcceptanceDigest(state), evidence: state.evidence, testsExecuted: 0 });
+  recordAcceptedTask(store, state);
+  // Read the decision Session's occupancy while it is still bound.
+  const occupancy = state.discussion ? null : previousContext(state, store, 'decision')?.usedTokens ?? null, halfBudget = contextLimits(state, store, 'decision').compactAt / 2;
   advanceReviewedTask(state);
   // Rework and recovery continue one task's Session; an accepted task ends it so later tasks do not re-read its history.
   // The last task keeps its Session for history and delivery records.
   const previousSession = state.taskIndex < state.tasks.length ? state.executionSession?.sessionId ?? state.codexThreadId ?? null : null;
   if (previousSession) { delete state.executionSession; delete state.claudeExecutionSessionId; state.codexThreadId = null; }
+  // The decision maker starts a fresh Session at a task boundary once the current one holds half its working budget;
+  // the task ledger carries what was accepted. Rotation costs no call, compaction does.
+  const decisionSession = state.taskIndex < state.tasks.length && occupancy !== null && occupancy >= halfBudget ? state.decisionSession?.sessionId ?? state.claudeSessionId ?? null : null;
+  if (decisionSession) { delete state.decisionSession; state.claudeSessionId = null; }
   state.nextPhase = 'execute';
   state.phase = state.taskIndex === state.tasks.length && !pendingGuidance(store).length && !processingGuidance(store).length ? 'completed' : 'execute';
   state.reason = state.phase === 'completed' ? '全部任务已由决策者验收；正式交付授权另行处理' : '决策者验收通过，自动继续下一任务';
   store.save(state, { executionRotation: !!previousSession });
   if (previousSession) store.audit('execution-session-rotated', { previousSession, loop: state.loops, nextTaskId: state.tasks[state.taskIndex]?.id ?? null, note: '已验收任务的执行 Session 结束；后续任务使用新 Session，工作区成果保留' });
+  if (decisionSession) store.audit('decision-session-rotated', { previousSession: decisionSession, occupancy, loop: state.loops, nextTaskId: state.tasks[state.taskIndex]?.id ?? null, note: '决策 Session 占用达到工作预算的一半；后续使用新 Session，任务台账提供已验收成果' });
   store.audit('transition', { phase: state.phase, reason: state.reason, taskIndex: state.taskIndex, loops: state.loops, claudeCalls: state.claudeCalls ?? 0 });
   return state;
 }

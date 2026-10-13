@@ -78,7 +78,7 @@ export function usageReport(directory: string) {
     inputPerCompletedTask: completed ? average(total.input, completed) : null,
     executionsPerTask: { tasks: perTask.length, average: perTask.length ? Math.round(perTask.reduce((a, b) => a + b, 0) / perTask.length * 10) / 10 : null, max: perTask.length ? Math.max(...perTask) : null },
     context: Object.fromEntries((['decision', 'execution'] as const).map(role => [role, { average: average(context[role].used, context[role].samples), max: context[role].samples ? context[role].max : null, compactions: context[role].compactions }])) as Record<'decision' | 'execution', { average: number | null; max: number | null; compactions: number }>,
-    reviews: verdicts, sessionRotations: count('execution-session-rotated'), reworkReplans: count('rework-replan'), guidance: count('guidance-received'), humanDecisions: count('human-decision'),
+    reviews: verdicts, sessionRotations: count('execution-session-rotated'), decisionRotations: count('decision-session-rotated'), reworkReplans: count('rework-replan'), guidance: count('guidance-received'), humanDecisions: count('human-decision'),
     note: 'input 为归一化后的全部输入（含缓存部分），cached 是其中的缓存读取；只统计有用量记录的调用，withoutUsage 和 unresolvedThreadTotals 未计入。旧 Codex 记录按同一 Thread 的相邻累计值相减还原，失败调用的消耗会并入下一次成功调用；2026-10-12 至 10-13 之间实时通道只记录了单次请求或错误差值的 Codex 记录不计入。Token 数不等于计费金额。'
   };
 }
@@ -91,7 +91,7 @@ export function usageTable(reports: Report[]): string {
     ['调用 总/失败/中断', r => `${r.calls.total}/${r.calls.failed}/${r.calls.interrupted}`], ['未计入的调用', r => String(r.calls.withoutUsage + r.calls.unresolvedThreadTotals)],
     ['每任务执行次数 平均/最大', r => `${r.executionsPerTask.average ?? '-'}/${r.executionsPerTask.max ?? '-'}`],
     ['验收 pass/rework/human/fail', r => ['pass', 'rework', 'human', 'fail'].map(verdict => r.reviews[verdict] ?? 0).join('/')],
-    ['Session 轮换 / 重新规划', r => `${r.sessionRotations}/${r.reworkReplans}`],
+    ['Session 轮换 执行/决策 · 重新规划', r => `${r.sessionRotations}/${r.decisionRotations} · ${r.reworkReplans}`],
     ['输入合计', r => number(r.tokens.total.input)], ['其中缓存读取 %', r => r.cachedPercent === null ? '-' : r.cachedPercent + '%'], ['输出合计', r => number(r.tokens.total.output)],
     ...phases.map(phase => [`平均输入/次 ${phase}`, (r: Report) => number(r.averageInputPerCall[phase])] as [string, (report: Report) => string]),
     ['输入/已完成任务', r => number(r.inputPerCompletedTask)],
