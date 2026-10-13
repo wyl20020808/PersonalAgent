@@ -26,7 +26,7 @@ for(const decision of ['claude-code','codex','opencode'] as const)for(const exec
  let exited=false,publishedAt=0,receivedAt=0;
  const agents:Agents={executionMode:'native',
   async plan(state){
-   if(state.guidancePending){receivedAt=Date.now();order.push('decision-guidance');assert.equal(exited,true);assert.deepEqual(state.completedTaskIds,[]);assert.equal(state.evidence,null);assert.equal(fs.readFileSync(path.join(repo,'partial.txt'),'utf8'),'preserved');assert.equal(processingGuidance(store)[0]?.id,message.id);return{tasks:[task('adjusted')],humanDecision:null};}
+   if(state.guidancePending){receivedAt=Date.now();order.push('decision-guidance');assert.equal(exited,true);assert.deepEqual(state.completedTaskIds,[]);assert.equal(state.evidence,null);assert.equal(fs.readFileSync(path.join(repo,'partial.txt'),'utf8'),'preserved');assert.equal(processingGuidance(store)[0]?.id,message.id);return{tasks:[task('adjusted')],humanDecision:null,planUpdate:{remove:state.tasks.filter(task=>!state.completedTaskIds?.includes(task.id)).map(task=>task.id)}};}
    order.push('initial-plan');return{tasks:[task('original')],humanDecision:null};
   },async execute(state,_store,signal){
    if(state.tasks[state.taskIndex]!.id==='original'){
@@ -73,7 +73,7 @@ test('a second guidance during decision interrupts the old adjustment; both inpu
   if(!state.guidancePending)return{tasks:[task('original')],humanDecision:null};
   adjustments++;
   if(adjustments===1){publishGuidance(store,second);await delay(2000,undefined,{signal});throw Error('obsolete plan must not apply');}
-  assert.deepEqual(processingGuidance(store).map(input=>input.id),[message.id,second.id]);assert.match(state.goal,/second direction wins/);return{tasks:[task('adjusted')],humanDecision:null};
+  assert.deepEqual(processingGuidance(store).map(input=>input.id),[message.id,second.id]);assert.match(state.goal,/second direction wins/);return{tasks:[task('adjusted')],humanDecision:null,planUpdate:{remove:state.tasks.filter(task=>!state.completedTaskIds?.includes(task.id)).map(task=>task.id)}};
  },async execute(state){fs.writeFileSync(path.join(repo,'partial.txt'),'preserved');if(state.tasks[state.taskIndex]!.id==='original')publishGuidance(store,message);else fs.writeFileSync(path.join(repo,'result.txt'),'adjusted');return{mode:'native',summary:'local fixture'};},async review(){return{verdict:'pass',reason:'verified'};}};
  const state=await drive(store,agents);assert.equal(state.phase,'completed',state.reason);assert.equal(adjustments,2);assert.deepEqual(state.guidanceHistory?.map(input=>input.id),[message.id,second.id]);assert.equal(guidanceStatus(store,second.id),'applied');
 });
@@ -83,7 +83,7 @@ test('guidance during independent verification hands off at command exit before 
  fs.writeFileSync(verifier,"const fs=require('fs');if(fs.readFileSync('result.txt','utf8')==='original'){fs.writeFileSync('verifying.txt','started');setTimeout(()=>process.exit(1),1000);}else{if(fs.readFileSync('result.txt','utf8')!=='adjusted')process.exit(1);}");
  const order:string[]=[];let published=false;
  const poll=setInterval(()=>{if(!published&&fs.existsSync(path.join(repo,'verifying.txt'))){published=true;publishGuidance(store,message);}},25);
- const agents:Agents={executionMode:'native',async plan(state){if(state.guidancePending){assert.deepEqual(state.completedTaskIds,[]);assert.equal(state.evidence,null);order.push('decision');return{tasks:[task('adjusted')],humanDecision:null};}return{tasks:[task('original')],humanDecision:null};},async execute(state){const id=state.tasks[state.taskIndex]!.id;order.push('execute-'+id);fs.writeFileSync(path.join(repo,'partial.txt'),'preserved');fs.writeFileSync(path.join(repo,'result.txt'),id);return{mode:'native',summary:id};},async review(){order.push('review');return{verdict:'pass',reason:'adjusted verification passed'};}};
+ const agents:Agents={executionMode:'native',async plan(state){if(state.guidancePending){assert.deepEqual(state.completedTaskIds,[]);assert.equal(state.evidence,null);order.push('decision');return{tasks:[task('adjusted')],humanDecision:null,planUpdate:{remove:state.tasks.filter(task=>!state.completedTaskIds?.includes(task.id)).map(task=>task.id)}};}return{tasks:[task('original')],humanDecision:null};},async execute(state){const id=state.tasks[state.taskIndex]!.id;order.push('execute-'+id);fs.writeFileSync(path.join(repo,'partial.txt'),'preserved');fs.writeFileSync(path.join(repo,'result.txt'),id);return{mode:'native',summary:id};},async review(){order.push('review');return{verdict:'pass',reason:'adjusted verification passed'};}};
  let done;try{done=await drive(store,agents);}finally{clearInterval(poll);}
  assert.equal(done.phase,'completed',done.reason);assert.equal(published,true);assert.deepEqual(order,['execute-original','review','decision','execute-adjusted','review']);assert.deepEqual(done.completedTaskIds,['adjusted']);
 });

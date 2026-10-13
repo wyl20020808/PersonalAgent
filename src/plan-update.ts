@@ -5,12 +5,18 @@ import { FlowError } from './failure.js';
 export function applyPlanUpdate(remaining: Task[], plan: Plan, completedIds: string[]): { tasks: Task[]; changed: Set<string> } {
   const patches = plan.planUpdate?.patches ?? [], remove = plan.planUpdate?.remove ?? [];
   const known = new Set(remaining.map(task => task.id)), changed = new Set([...patches.map(patch => patch.id), ...remove]);
+  const listed = changed.size;
   const reject = (message: string): never => { throw new FlowError('supervisor', `planUpdate 无效：${message}。只列出需要调整的未验收任务；需要整体重排时省略 planUpdate 并返回完整剩余任务。`); };
   const unknown = [...changed].filter(id => !known.has(id));
   if (unknown.length) reject(`${unknown.join(', ')} 不是未验收任务；已验收成果的后续修改使用新任务 ID`);
-  if (changed.size !== patches.length + remove.length) reject('同一任务只能出现在一个 patch 或 remove 中');
+  if (listed !== patches.length + remove.length) reject('同一任务只能出现在一个 patch 或 remove 中');
   const reused = plan.tasks.filter(task => known.has(task.id)).map(task => task.id);
   if (reused.length) reject(`tasks 只放新增任务，${reused.join(', ')} 已在计划中；修改既有任务使用 patches`);
+  // A patch that restates a task without altering it is not a change; that task keeps its resume point.
+  for (const patch of patches) {
+    const task = remaining.find(task => task.id === patch.id) as Record<string, unknown> | undefined;
+    if (task && Object.entries(patch).every(([key, value]) => JSON.stringify(task[key]) === JSON.stringify(value))) changed.delete(patch.id);
+  }
   const tasks = [...remaining.filter(task => !remove.includes(task.id)).map(task => ({ ...task, ...patches.find(patch => patch.id === task.id) })), ...plan.tasks];
   const ids = new Set([...completedIds, ...tasks.map(task => task.id)]);
   const missing = tasks.flatMap(task => (task.dependsOn ?? []).filter(id => !ids.has(id)).map(id => `${task.id}→${id}`));
