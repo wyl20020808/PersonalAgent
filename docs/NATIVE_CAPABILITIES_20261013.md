@@ -44,3 +44,7 @@ node scripts/validate-shared-skills-real.mjs D:/PersonalAgent-data/native-capabi
 ```
 
 跨端共享的是用户技能的指令和支持资源；某个技能若依赖 Codex/Claude 专属工具、连接器、账户或桌面会话，仍需要对应客户端能力。能力错误应原样报告，不伪装为可用。
+
+## 最新组合
+
+实现提交 `805896e`；持有 Git common directory 中本任务独占创建的 `personalagent-test-integration.lock`，整合最新 TEST `85c17366fd3f0ff8e6d3b471e0f35890d40f6917`，组合提交 `78eb66e`，无冲突。组合构建通过，适配与权限专项 16/16、最新 Context Integrity 专项 4/4 通过。最终组合的真实无模型发现再次确认 Claude/OpenCode 各 61 个技能、OpenCode Serena connected；证据位于 `D:/PersonalAgent-data/native-capabilities-20261013/final-combination/native-capabilities.json`。实际本地 TEST 交付提交以 Git 历史为准。
