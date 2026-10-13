@@ -42,7 +42,9 @@ app.whenReady().then(async()=>{
  await win.webContents.executeJavaScript(\`(async()=>{
   const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),assert=(value,message)=>{if(!value)throw Error(message);};
   const button=()=>document.querySelector('[aria-label="恢复任务"]');
-  assert(button()&&!button().disabled,'interrupted recovery entry missing');button().click();await wait(250);
+  assert(button()&&!button().disabled,'interrupted recovery entry missing');
+  assert([...document.querySelectorAll('button')].filter(item=>item.textContent==='切换执行者'||item.getAttribute('aria-label')==='切换执行者').every(item=>item.disabled),'unresolved interrupted checkpoint allows model switch');
+  button().click();await wait(250);
   assert(window.__calls.length===1&&window.__calls[0].text==='恢复任务','default recovery not sent');
   const input=document.querySelector('#group-input');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'先核对已有院区，继续剩余任务');input.dispatchEvent(new Event('input',{bubbles:true}));await wait(50);button().click();await wait(250);
   assert(window.__calls.length===2&&window.__calls[1].text==='先核对已有院区，继续剩余任务','user recovery requirements lost');

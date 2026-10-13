@@ -36,4 +36,12 @@ IPC 拒绝仍有活跃 Controller（包括本实例未启动的 CLI Controller�
 
 ## TEST 集成
 
-待最终测试及共享集成锁核对后记录。
+- 任务提交：`74864fd`。
+- 持有共享 Git common directory 的 `personalagent-test-integration.lock`，持锁时 TEST 为 `1b417e3e3476c6fbccb8c8127f9a6a561068895b`，目标工作区干净。
+- 将最新 TEST 正常合并到任务分支，组合提交 `f0e13da109ca910ef17f2764c96a3b13804ce453`，无冲突；保留上下文悬浮与命令事件去重两项并发成果。
+- 最新组合重新执行 Controller build、desktop check/build：成功。
+- 最新组合 Controller 中断执行与四阶段显式指令回归：2/2 成功（`.v3c3/controller-combination.log`）。
+- 最新组合 workbench 与 thread 回归：46/46 成功（`.v3c3/desktop-combination.log`）。
+- 最新组合 all-ai-streaming 回归：5/5 成功（`.v3c3/streaming-combination.log`）。
+- 最新组合隐藏 Electron 验证成功；检查截图后补齐右侧切换执行者按钮的禁用状态，与输入框附近按钮一致。中断的原始检查点尚未归并为可切换节点时，仅允许恢复原任务，避免切换接口拒绝后产生误导。
+- 本地 TEST 合并结果将在持锁核对后追加。
