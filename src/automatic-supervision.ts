@@ -4,6 +4,7 @@ import type { State } from './store.js';
 export const SUPERVISION_INTERVAL_MS = 10 * 60 * 1000;
 // Different problems each get three attempts; this bounds one Run between two real user inputs.
 export const SUPERVISION_MAX_TAKEOVERS = 10;
+export const SUPERVISION_BACKLOG_MS = 24 * 60 * 60 * 1000;
 export const AUTOMATIC_DECISION = '全自动开发模式：用户等待超过十分钟，现将当前问题交回配置的决策者自主判断。先核查暂停原因、已有成果和原 Session，再决定如何继续原目标。可以自行处理目标内的实施取舍与可恢复异常；不得重复已完成操作、虚报验收、伪造用户批准、扩大目标或绕过工作模式、写入锁、权限、明确调用限制、正式交付及对外发布审批。无法安全解决时说明具体阻碍并保留现场。';
 
 export type AutomaticResume = { expectedUpdatedAt: string };
@@ -35,5 +36,12 @@ export function supervisionDue(state: State, now: number, enabledAt: number, las
   const same = receipt?.signature === signature;
   if (same && receipt.attempts >= 3) return false;
   if (receipt?.userAt === lastUserAt && (receipt.takeovers ?? 0) >= SUPERVISION_MAX_TAKEOVERS) return false;
-  return now - Math.max(updatedAt, enabledAt, lastUserAt, same ? receipt!.lastAttemptAt : 0) >= SUPERVISION_INTERVAL_MS;
+  // The same problem is retried after 30 and then 90 minutes, so a longer outage does not use up all three attempts at once.
+  if (same && now - receipt.lastAttemptAt < SUPERVISION_INTERVAL_MS * 3 ** receipt.attempts) return false;
+  return now - Math.max(updatedAt, enabledAt, lastUserAt) >= SUPERVISION_INTERVAL_MS;
+}
+
+// Enabling the mode does not revive work left idle long before it: only real user input brings such a Run back.
+export function supervisionBacklog(state: State, enabledAt: number, userAt: number): boolean {
+  return Math.max(Date.parse(state.updatedAt), userAt) < enabledAt - SUPERVISION_BACKLOG_MS;
 }
