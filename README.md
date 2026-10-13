@@ -8,6 +8,8 @@ MAIN 暂时保留稳定版本；DEV 执行真实项目任务，任务期间固�
 
 完整约定见 [三分支治理规则 V2.1](docs/PERSONALAGENT_DEVELOPMENT_GOVERNANCE_V1.md)，现有启动接口见 [MAIN/DEV 运行说明与 TEST 建设边界](docs/DUAL_INSTANCE_RUNTIME_V1.md)。TEST 分支及 Worktree 已从 DEV 提交 `05f13a829bb76adf50e17455b7e8b785b1b277c6` 创建；启动入口和运行隔离仍需实际实现和验收；本次规则修订不代表已完成三实例支持。历史版本说明和验收报告仅说明对应版本事实，不作为新任务的开发分支规则。
 
+任务收尾必须按 [Agent 临时文件与工作区清理规则 V1](docs/AGENT_WORKSPACE_CLEANUP_RULES.md) 清理临时产物并写出清理报告；Controller 会把该规则要点注入每次 Agent 调用。
+
 ## 当前开发流程：不再强制 Project Snapshot（2026-10-10）
 
 选择项目目录并确认 Direct 写入授权后，CC Plan、Codex Execute、CC Review 使用原生工具按需读取、开发和测试。新 Run 不做全项目内容备份、全量哈希、轮次快照或每轮 Git fsck；项目容量和文件数量不再触发 Snapshot 启动限制。Git 与非 Git 均支持 Direct。Project Context 模块、契约、checked_files、Session/Run、工具调用审计和人工确认保留。

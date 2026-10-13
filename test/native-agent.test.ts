@@ -8,7 +8,8 @@ import { createHistoricalRun as createRun } from './helpers/historical-run.js';
 import { createRun as createProductionRun } from '../src/controller.js';
 import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { git, snapshot, nativeAgentEnv } from '../src/workspace.js';
-import { nativeThreadOptions, runCodexTurn } from '../src/native-agent.js';
+import { agentRules, nativeThreadOptions, runCodexTurn } from '../src/native-agent.js';
+import { reviewAction, workspaceCleanupGuidance } from '../src/decision-guidance.js';
 import { runProcess } from '../src/process.js';
 import { activityRecorder, claudePublicEvents, codexPublicEvent } from '../src/telemetry.js';
 
@@ -230,4 +231,9 @@ test('native SDK resume uses original thread and allows tools in proposal compat
     })() }; } };
   } } as unknown as Pick<Codex, 'startThread' | 'resumeThread'>;
   assert.deepEqual(await runCodexTurn(sdk, { workspace: 'D:/fixture', threadId: 'existing', prompt: 'test', executionMode: 'proposal' }, e => emitted.push(e)), { summary: '提案', changes: [] });
+});
+test('every dispatched agent receives the mandatory workspace cleanup rules', () => {
+  assert.ok(agentRules.endsWith(workspaceCleanupGuidance));
+  for (const required of ['收尾清理是任务完成的必要条件', '清理报告', '只删除本任务自己创建的内容', '决策者验收时核对清理报告']) assert.ok(workspaceCleanupGuidance.includes(required), required);
+  assert.match(reviewAction, /cleanup report/);
 });
