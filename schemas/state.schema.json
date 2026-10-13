@@ -1226,6 +1226,26 @@
     "userRequired": {
       "type": "boolean"
     },
+    "executorQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskId",
+        "loop"
+      ],
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "loop": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reply": {
+          "type": "string"
+        }
+      }
+    },
     "reworkReplan": {
       "type": "object",
       "additionalProperties": false,

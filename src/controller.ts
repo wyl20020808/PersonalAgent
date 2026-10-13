@@ -26,6 +26,7 @@ import { timeoutSignal } from './timeout.js';
 import { assertDeliveryAcceptanceRules } from './rules.js';
 import {claimGuidance,claimPendingGuidance,processingGuidance,pendingGuidance,finishGuidance} from './steering.js';
 import {withGuidanceHandoff,GuidanceHandoff} from './guidance-handoff.js';
+import {asksUser,AWAITING_REPLY} from './user-question.js';
 import {applyPlanUpdate} from './plan-update.js';
 import { acceptDecision, recordedPass, decisionAcceptanceDigest } from './decision-acceptance.js';
 
@@ -109,6 +110,13 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     if (task && state.phase !== 'planning') state.guidanceResume ??= { taskId: task.id, phase: ['verify', 'review'].includes(state.phase) ? 'verify' : 'execute', feedback: state.feedback, reworkPending: state.reworkPending === true };
   };
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
+  // The question waits for the user; acceptance and the decision maker are not involved.
+  const awaitReply = (summary: string) => {
+    if (!asksUser(summary)) return false;
+    state.executorQuestion = { taskId: state.tasks[state.taskIndex]!.id, loop: state.loops }; state.userRequired = true; state.nextPhase = 'execute';
+    store.audit('executor-question', state.executorQuestion); checkpoint('paused', AWAITING_REPLY);
+    return true;
+  };
   const reworkLimited = () => state.config.maxReworks !== undefined && state.reworks >= state.config.maxReworks;
   async function agentOperation<T>(agent: 'claude' | 'codex' | 'opencode', role: string, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
     assertOperationPolicy({ kind: 'model' });
@@ -171,7 +179,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       const saved = JSON.parse(readFileSync(store.file(`native-result-${state.loops}.json`), 'utf8'));
       validate(nativeResultSchema, saved.result);
       if (state.snapshotPolicy !== 'none' && (saved.snapshot !== await observeWorkspace(state, stop.signal) || saved.head !== await workspaceHead(state,stop.signal))) throw new FlowError('safety', 'Native result workspace changed during recovery');
-      state.executorExitCode = 0; state.nextPhase = 'verify'; checkpoint('verify');
+      state.executorExitCode = 0;
+      if (!awaitReply(saved.result.summary)) { state.nextPhase = 'verify'; checkpoint('verify'); }
       store.audit('native-result-recovered', { loop: state.loops, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, note: '重新运行当前配置测试和审查；未恢复或覆盖项目文件' });
     }
     if (state.phase === 'executing' && !state.nativeExecution && existsSync(journalFile(store, state))) checkpoint('applying');
@@ -200,6 +209,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       }
       state.feedback = [state.feedback, `${automatic ? 'Automatic delegation to decision maker' : 'User decision'}: ${decision}`, automatic ? `暂停原因：${state.reason}` : ''].filter(Boolean).join('\n');
       if (!automatic) delete state.userRequired;
+      const answering = !automatic && state.executorQuestion;
+      if (answering) { answering.reply = [answering.reply, decision].filter(Boolean).join('\n'); state.nextPhase = 'execute'; }
       // An ended connection or timeout failure resumes where it stopped; other nodes go back to the decision maker.
       if (automatic && state.nextPhase !== 'verify' && state.nextPhase !== 'review' && !['transport', 'timeout'].includes(automaticFailure?.kind ?? '')) {
         state.automaticPlanning = { reason: state.reason || state.failure?.message || '后台发现未完成的调度节点' };
@@ -207,7 +218,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.nextPhase = 'planning';
         if (state.discussion) state.discussion.closed = true;
       }
-      if (intent === 'rework') { state.nextPhase = 'execute'; state.reworkPending = true; }
+      if (intent === 'rework' && !answering) { state.nextPhase = 'execute'; state.reworkPending = true; }
       if (existsSync(store.file('stop.request'))) unlinkSync(store.file('stop.request'));
       if (state.phase === 'executing') { state.nextPhase = 'execute'; state.reworkPending = true; }
       // Legacy paused runs also retain the reason needed to enforce old limits.
@@ -313,14 +324,18 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         state.loops++; state.nextPhase = 'execute'; state.evidence = null; state.executorExitCode = -1; checkpoint('executing');
         assertExecutionState(state);
         delegated = false;
-        const result = await agentOperation(state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend === 'opencode' ? 'opencode' : 'codex', 'execute', signal => agents.execute(state, store, signal));
+        const result = await agentOperation(state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend === 'opencode' ? 'opencode' : 'codex', 'execute', signal => agents.execute(state, store, signal))
+          // One call consumes the reply; a failed call resumes with the full prompt, whose feedback still carries it.
+          .finally(() => { delete state.executorQuestion; });
         if (stop.signal.aborted) throw new Error('Stopped');
         if ('mode' in result && result.mode === 'native') {
           validate(nativeResultSchema, result);
           if (!state.nativeExecution) throw new FlowError('safety', 'Unexpected native result in proposal mode');
           atomicJson(store.file(`native-result-${state.loops}.json`), { result, snapshot: await observeWorkspace(state, stop.signal), head: await workspaceHead(state,stop.signal) });
           state.executorExitCode = 0; state.nextPhase = 'verify';
-          store.audit('native-result', { ...result, agent: state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend ?? 'codex', sessionId: state.executionSession?.sessionId ?? state.codexThreadId, loop: state.loops }); checkpoint('verify'); continue;
+          store.audit('native-result', { ...result, agent: state.config.executionAgent?.backend === 'claude-code' ? 'claude' : state.config.executionAgent?.backend ?? 'codex', sessionId: state.executionSession?.sessionId ?? state.codexThreadId, loop: state.loops });
+          if (!awaitReply(result.summary)) checkpoint('verify');
+          continue;
         }
         if (state.nativeExecution) throw new FlowError('safety', 'Native execution returned a file proposal; refusing duplicate application');
         const edits = validate<Edits>(editSchema, result);
