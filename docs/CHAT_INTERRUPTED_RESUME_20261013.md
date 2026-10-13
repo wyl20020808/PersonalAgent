@@ -44,4 +44,6 @@ IPC 拒绝仍有活跃 Controller（包括本实例未启动的 CLI Controller�
 - 最新组合 workbench 与 thread 回归：46/46 成功（`.v3c3/desktop-combination.log`）。
 - 最新组合 all-ai-streaming 回归：5/5 成功（`.v3c3/streaming-combination.log`）。
 - 最新组合隐藏 Electron 验证成功；检查截图后补齐右侧切换执行者按钮的禁用状态，与输入框附近按钮一致。中断的原始检查点尚未归并为可切换节点时，仅允许恢复原任务，避免切换接口拒绝后产生误导。
-- 本地 TEST 合并结果将在持锁核对后追加。
+- UI 控件补充后的最终 desktop check/build 与隐藏 Electron 回归均成功，最终实现提交 `2da4cfa19b0fd7c537b56435caad1565058a8e73`。
+- 持锁再次核对 TEST 仍为 `1b417e3` 且工作区干净；以 fast-forward 合入 `2da4cfa`。合并后工作区干净、`git diff --check` 成功，TEST 与已验证任务候选的文件树完全一致。
+- 本记录追加为文档提交后同步 TEST，保留正常历史。仅释放本任务拥有的集成锁；DEV/MAIN、实际运行实例及真实 Run 数据均未更新。
