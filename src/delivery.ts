@@ -4,6 +4,7 @@ import { observationScope } from './project-observation.js';
 import { closeSync, existsSync, fsyncSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Store, assertD, atomicJson, type State } from './store.js';
 import { git, safeTarget, snapshot, observeWorkspace, collectEvidence, workspaceHead, workspaceBaseHead } from './workspace.js';
@@ -278,20 +279,27 @@ async function previewProjectDelivery(store: Store,run: State,target: string,pro
   save(store,state);load(store,delivery.id);await validateCurrent(store,delivery,state);
   return {id:delivery.id,digest,directory:dir};
 }
-function targetLock(target: string, resume: boolean): () => void {
-  const root = assertD(fileURLToPath(new URL('../../.delivery-locks/', import.meta.url))); mkdirSync(root, { recursive: true });
+function targetLock(target: string, resume: boolean, runId: string, deliveryId: string): () => void {
+  // Runtime locks must not dirty the source checkout; share across worktrees.
+  const root = process.platform === 'win32' ? assertD('D:/PersonalAgent-data/delivery-locks') : path.join(os.tmpdir(), 'personalagent-delivery-locks'); mkdirSync(root, { recursive: true });
   const file = path.join(root, `${hash(target.toLowerCase())}.json`);
-  if (existsSync(file) && resume) {
-    const guard = openSync(`${file}.recovery`, 'wx');
+  const legacy = assertD(fileURLToPath(new URL('../../.delivery-locks/', import.meta.url)));
+  // lockProject serializes this target before this compatibility lock is taken.
+  for (const candidate of [path.join(legacy, path.basename(file)), file]) if (existsSync(candidate)) {
+    if (!resume) throw new Error('Existing target delivery lock requires explicit --resume');
+    const guard = openSync(`${candidate}.recovery`, 'wx');
     try {
-      const owner = JSON.parse(readFileSync(file, 'utf8')) as { pid: number };
+      const owner = JSON.parse(readFileSync(candidate, 'utf8')) as { pid: number };
+      if (!Number.isSafeInteger(owner.pid) || owner.pid < 1) throw new Error('Invalid target delivery lock; manual inspection required');
       let dead = false; try { process.kill(owner.pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') dead = true; }
       if (!dead) throw new Error('Target delivery lock still active; human intervention required');
-      unlinkSync(file);
-    } finally { closeSync(guard); unlinkSync(`${file}.recovery`); }
+      unlinkSync(candidate);
+    } finally { closeSync(guard); unlinkSync(`${candidate}.recovery`); }
   }
-  const fd = openSync(file, 'wx'); writeFileSync(fd, JSON.stringify({ pid: process.pid })); fsyncSync(fd); closeSync(fd);
-  return () => unlinkSync(file);
+  const token = randomUUID(), fd = openSync(file, 'wx');
+  try { writeFileSync(fd, JSON.stringify({ pid: process.pid, token, target, runId, deliveryId, createdAt: new Date().toISOString() })); fsyncSync(fd); }
+  finally { closeSync(fd); }
+  return () => { if (existsSync(file) && JSON.parse(readFileSync(file, 'utf8')).token === token) unlinkSync(file); };
 }
 export interface ApplyOptions { resume?: boolean; afterWrite?: (path: string, count: number) => Promise<void> }
 export async function applyDelivery(store: Store, id: string, options: ApplyOptions = {}): Promise<DeliveryState> {
@@ -313,7 +321,7 @@ export async function applyDelivery(store: Store, id: string, options: ApplyOpti
       journal.phase = 'applied'; journal.reason = run.evidence?.acceptanceMode === 'decision-user' ? '决策者验收已完成，具体交付已获批准；Controller 未执行验收测试，未重复写入项目文件。' : run.snapshotPolicy === 'none' ? `配置测试已通过，现有成果已确认；${observationScope}` : '已有成果已独立验收并确认；未重复写入项目文件'; save(store, journal); return journal;
     }
     const projectRelease=lockProject({...store.load(),source:delivery.target,config:{...store.load().config,projectMode:'direct'}});
-    try {const legacyRelease=delivery.branch==='project-files'?()=>{}:targetLock(delivery.target,options.resume??false);release=()=>{try{legacyRelease();}finally{projectRelease();}};}catch(error){projectRelease();throw error;}
+    try {const legacyRelease=delivery.branch==='project-files'?()=>{}:targetLock(delivery.target,options.resume??false,store.id,id);release=()=>{try{legacyRelease();}finally{projectRelease();}};}catch(error){projectRelease();throw error;}
     await validateCurrent(store, delivery, journal);
     if (journal.phase === 'applied') {
       if (delivery.branch!=='project-files' && await fullDiff(delivery.target, delivery.head) !== delivery.diff) throw new Error('Applied target diff changed');
