@@ -45,6 +45,8 @@ Object.assign(configSchema.properties, { contextManagement: { type: 'object', ad
 Object.assign(configSchema.properties, { transportRetryDelaysMs: { type: 'array', maxItems: 5, items: { type: 'integer', minimum: 0, maximum: 60000 }, description: 'Additional retries after provider recovery, default [5000,15000,30000,45000,60000]; [] disables them.' } });
 export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string; moduleIds?: string[] }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
+/** Guidance replies must be a plan update; a restated plan is not accepted. */
+export const guidancePlanSchema = { ...planSchema, required: [...planSchema.required, 'planUpdate'] };
 export interface Plan { tasks: Task[]; humanDecision: string | null; discussionRounds?: number; planUpdate?: { patches?: (Partial<Task> & { id: string })[]; remove?: string[] } }
 export interface Review { verdict: 'pass' | 'rework' | 'human' | 'fail'; reason: string; contextReview?: { confirmationNotes?: { path: string; reason: string }[]; expansionReason: string; unmappedReason: string; checkedContracts: string[]; modules: { moduleId: string; documentUpdated: boolean; noUpdateReason: string; checkedFiles: string[]; constraintsChanged: boolean; disposition: string }[] }; contextConfirmations?: { relative: string; action: 'accepted' | 'rejected' | 'superseded' }[] }
 export interface Edits { summary: string; changes: { path: string; content: string }[] }

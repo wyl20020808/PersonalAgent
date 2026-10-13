@@ -11,7 +11,7 @@ import { agentRules } from './native-agent.js';
 import { interactionAgentRules } from './interaction-policy.js';
 import { timeoutSignal } from './timeout.js';
 import { transportErrorDetails } from './opencode-transport.js';
-import { models, OpenCodePublicStream, resolvedSchema, startOpencodeService, supportsStructuredOutput, type ModelDiscovery, type OpenCodeLauncher, type OpenCodeService } from './opencode-decision-agent.js';
+import { models, OpenCodePublicStream, resolvedSchema, startCompatibleOpencodeService, supportsStructuredOutput, type ModelDiscovery, type OpenCodeLauncher, type OpenCodeService } from './opencode-decision-agent.js';
 
 // Native permissions are a collaboration boundary, not a Windows sandbox.
 // Shell remains able to access resources outside cwd. No unrestricted fallback.
@@ -44,7 +44,7 @@ export async function executionModels(service: OpenCodeService, workspace: strin
     !agents.data?.some(agent => agent.name === 'build' && agent.mode !== 'subagent')) return { ...discovery, available: false, reason: 'OpenCode native read/create/edit/bash tools or build agent unavailable' };
   return discovery;
 }
-export async function discoverOpencodeExecutionModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startOpencodeService): Promise<ModelDiscovery> {
+export async function discoverOpencodeExecutionModels(executable?: string, directory = process.cwd(), launcher: OpenCodeLauncher = startCompatibleOpencodeService): Promise<ModelDiscovery> {
   let service: OpenCodeService | undefined;
   // Native MCP startup may take 120 seconds; cold isolated plugin loading must
   // finish before discovery can evaluate provider capabilities.
@@ -86,7 +86,7 @@ export interface ExecutionAgent {
 // before service launch/prompt and cannot select another role, model or workspace.
 export type ExecutionPolicy = (state: Readonly<State>, signal: AbortSignal) => Promise<void>;
 export class OpenCodeExecutionAgent implements ExecutionAgent {
-  constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startOpencodeService, private readonly policy: ExecutionPolicy = async () => {}) {}
+  constructor(private readonly config: Config, private readonly launcher: OpenCodeLauncher = startCompatibleOpencodeService, private readonly policy: ExecutionPolicy = async () => {}) {}
   async execute(state: State, store: Store, externalSignal: AbortSignal, prompt: string, context?: Record<string, any>): Promise<NativeResult> {
     assertExecutionState(state, this.config);
     const choice = state.config.executionAgent, task = state.tasks[state.taskIndex], persisted = store.load();
@@ -120,6 +120,7 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
     const eventsStop = new AbortController(); let eventTask: Promise<void> | undefined;
     try {
       service = await this.launcher(choice.opencode.executable, workspace, signal, path.join(state.config.runtimeDir, 'opencode', state.id, 'execution'));
+      if (service.compatibilityRecovery) store.audit('opencode-format-recovered',{role:'execute',reason:service.compatibilityRecovery,promptDispatched:false});
       const discovery = await executionModels(service, workspace, signal);
       const model = discovery.providers.find(p => p.id === choice.opencode.providerID)?.models.find(m => m.id === choice.opencode.modelID);
       observation.context.window(model?.limit?.context, `${choice.opencode.providerID}/${choice.opencode.modelID}`);
