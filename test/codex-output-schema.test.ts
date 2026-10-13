@@ -23,6 +23,7 @@ test('Nullable wire fields restore absent local options while preserving require
   const local = restoreOptionalFields(planSchema, wire);
   assert.deepEqual(validate(planSchema, local), {humanDecision:null,tasks:[{id:'entry',instruction:'Fix entrance',acceptance:['Regression']}]});
   assert.equal(wire.tasks[0]!.dependsOn, null);
+  assert.deepEqual(validate(planSchema,restoreOptionalFields(planSchema,{humanDecision:null,tasks:[],discussionRounds:null,planUpdate:{patches:[{id:'entry',instruction:'Faster',acceptance:null,dependsOn:null,acceptanceStage:null,moduleIds:null}],remove:null}})),{humanDecision:null,tasks:[],planUpdate:{patches:[{id:'entry',instruction:'Faster'}]}});
   assert.throws(()=>validate(planSchema,{...local,tasks:[{...local.tasks[0],dependsOn:['x','x']}]}),/duplicate items/);
   assert.deepEqual(validate(reviewSchema,restoreOptionalFields(reviewSchema,{verdict:'human',reason:'UE pending',contextReview:null,contextConfirmations:null})),{verdict:'human',reason:'UE pending'});
 });
