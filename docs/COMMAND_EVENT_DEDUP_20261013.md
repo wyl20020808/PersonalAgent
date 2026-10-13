@@ -27,3 +27,9 @@ Codex 命令的每个 `item.updated` 都携带累计输出。原公开活动转�
 新增回归覆盖 2195 次命令输出更新、单条记录统计、成功和失败结果、最新证据、历史记录、跨调用隔离、相同命令不同执行，以及 AI 输出增量继续传递。
 
 自审确认仅修改命令公开活动与历史投影；不改变实际执行、观察事件、恢复控制或 AI 文本节流。测试是本地 fixture 自测。没有运行可见 Electron GUI 验收，也未完成用户验收；GUI pending。未推送、发布或更新 DEV/MAIN。
+
+## 最新 TEST 组合验证
+
+取得共享 Git common directory 下的独占 TEST 集成锁后，发现 TEST 已前进到 `bedf684ac2b9470b7d01870954b0538c92f7f32b`（上下文悬浮说明 UI）。在任务分支正常合并该提交，无冲突。组合版本重新通过根目录和 desktop 构建、desktop 类型检查、AI 流式输出与 Codex live 10 项回归，以及命令投影、实时消息和紧凑分组 7 项针对性回归，所有退出码为 0。
+
+`rtk proxy node scripts/check-context-meters.mjs` 在隔离 headless Chromium 中通过上下文悬浮 UI 检查，退出码 0；这不属于可见 Electron 验收。
