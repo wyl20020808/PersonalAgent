@@ -139,7 +139,7 @@ for(const historicalFailure of [false,true])test(`old pass with queued guidance 
   const f=await legacyPass(),state=f.store.load();
   if(historicalFailure){state.phase='failed';state.failure={kind:'unknown',stage:'paused',message:new GuidanceHandoff(false).message,recoverable:false};f.store.save(state);f.store.audit('transition',{phase:'failed',taskIndex:0,loops:state.loops});f.store.audit('error',state.failure);}
   const message={id:randomUUID(),sessionId:randomUUID(),runId:f.store.id,text:'Routine stages continue automatically',time:new Date().toISOString(),attachments:[]};publishGuidance(f.store,message);
-  let replans=0;f.agents.plan=async current=>{replans++;assert.deepEqual(current.completedTaskIds,['edit']);assert.equal(current.guidancePending?.id,message.id);return{humanDecision:null,tasks:[]};};
+  let replans=0;f.agents.plan=async current=>{replans++;assert.deepEqual(current.completedTaskIds,['edit']);assert.equal(current.guidancePending?.id,message.id);return{humanDecision:null,tasks:[],planUpdate:{}};};
   f.agents.execute=async()=>{throw Error('Completed work must never replay');};f.agents.review=async()=>{throw Error('Unchanged accepted work must never review again');};
   const done=await drive(f.store,f.agents,'继续原 Run 并处理新授权');assert.equal(done.phase,'completed',done.reason);assert.equal(replans,1);assert.deepEqual(f.count(),{executions:1,reviews:1});assert.equal(guidanceStatus(f.store,message.id),'applied');
   assert.equal(events(f).filter(e=>e.event==='guidance-failure-reclassified').length,historicalFailure?1:0);

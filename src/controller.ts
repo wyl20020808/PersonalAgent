@@ -260,6 +260,10 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
         const guidance=state.guidancePending;
         const completed=guidance||state.automaticPlanning||state.reworkReplan?state.tasks.filter(task=>state.completedTaskIds?.includes(task.id)):[];
         let tasks=plan.tasks,changed:Set<string>|null=null;
+        if(guidance&&!plan.planUpdate){
+          state.feedback='处理用户引导必须返回 planUpdate，不重述完整计划：patches 只列需要调整的未验收任务及变更字段，remove 列出不再需要的任务，tasks 只放新增任务；计划不变时返回 planUpdate:{} 和 tasks:[]。';
+          throw new FlowError('supervisor',state.feedback);
+        }
         if(plan.planUpdate){
           // A plan update edits the unaccepted plan in place; everything it does not list stays as it is.
           try{

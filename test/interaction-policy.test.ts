@@ -107,7 +107,7 @@ test('safe acceptance process continues across mode switch',()=>scoped(async()=>
 }));
 test('work mode task advancement preserves guidance queued at the final Review boundary',()=>scoped(async()=>{
   writeUserInteractionMode('work');const f=await fixture('guidance-boundary');let plans=0;const executed:string[]=[];
-  const agents:any={executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:++plans===1?'initial':'guided',instruction:'safe task',acceptance:['safe']}] }),execute:async(s:any)=>{executed.push(s.tasks[s.taskIndex].id);return{mode:'native',summary:'fixture'};},review:async(s:any)=>{
+  const agents:any={executionMode:'native',plan:async(s:any)=>({humanDecision:null,tasks:[{id:++plans===1?'initial':'guided',instruction:'safe task',acceptance:['safe']}],...(s.guidancePending?{planUpdate:{}}:{}) }),execute:async(s:any)=>{executed.push(s.tasks[s.taskIndex].id);return{mode:'native',summary:'fixture'};},review:async(s:any)=>{
     if(s.tasks[s.taskIndex].id==='initial')publishGuidance(f.store,{id:randomUUID(),sessionId:randomUUID(),runId:f.store.id,text:'Continue with one additional safe task',time:new Date().toISOString(),attachments:[]});
     return{verdict:'pass',reason:'fixture'};
   }};
