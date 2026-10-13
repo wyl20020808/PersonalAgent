@@ -25,13 +25,17 @@ export function previousContext(state: State, store: Store, role: ModelContext['
   const row = JSON.parse(readFileSync(p, 'utf8')) as ModelContext, current = identity(state, role);
   if (row.backend === current.backend && row.configuredModel === current.configuredModel && current.sessionId && row.sessionId === current.sessionId) return row;
 }
-export function compactLimit(window: number | null, state: State): number | null {
-  return window ? Math.max(1, Math.floor(window * (state.config.contextManagement?.compactRatio ?? 0.85))) : null;
+// A share of the window lets large-window models carry hundreds of thousands of tokens on every request.
+// The working budget bounds occupancy per role; the window share still applies to small models.
+export const CONTEXT_BUDGET = { decision: 120000, execution: 160000 } as const;
+export function compactLimit(window: number | null, state: State, role: ModelContext['role']): number {
+  const budget = state.config.contextManagement?.budgetTokens?.[role] ?? CONTEXT_BUDGET[role];
+  return window ? Math.min(budget, Math.max(1, Math.floor(window * (state.config.contextManagement?.compactRatio ?? 0.85)))) : budget;
 }
 export function contextLimits(state: State, store: Store, role: ModelContext['role']) {
   const current = identity(state, role), previous = previousContext(state, store, role);
   const window = previous?.windowTokens ?? positive(state.config.contextManagement?.modelWindows?.[current.configuredModel ?? '']) ?? null;
-  return { window, compactAt: compactLimit(window, state) };
+  return { window, compactAt: compactLimit(window, state, role) };
 }
 
 /** Current session occupancy, deliberately separate from billable/cumulative usage. */
@@ -55,7 +59,7 @@ export class ContextObservation {
   window(value: unknown, model?: string) {
     const n = positive(value); if (!n) return;
     if (n === this.snapshot.windowTokens && (!model || model === this.snapshot.model)) return;
-    this.snapshot.windowTokens = n; this.snapshot.compactAtTokens = compactLimit(n, this.state);
+    this.snapshot.windowTokens = n; this.snapshot.compactAtTokens = compactLimit(n, this.state, this.snapshot.role);
     if (model) this.snapshot.model = model;
     this.persist();
   }

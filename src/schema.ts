@@ -39,7 +39,7 @@ Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolat
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 Object.assign(configSchema.properties, { decisionAgent: decisionAgentSchema, decisionDiscussion: decisionDiscussionSchema });
 Object.assign(configSchema.properties, { executionAgent: executionAgentSchema });
-Object.assign(configSchema.properties, { contextManagement: { type: 'object', additionalProperties: false, properties: { compactRatio: { type: 'number', minimum: 0.5, maximum: 0.95 }, modelWindows: { type: 'object', additionalProperties: { type: 'integer', minimum: 1024, maximum: 10000000 } } } } });
+Object.assign(configSchema.properties, { contextManagement: { type: 'object', additionalProperties: false, properties: { compactRatio: { type: 'number', minimum: 0.5, maximum: 0.95 }, modelWindows: { type: 'object', additionalProperties: { type: 'integer', minimum: 1024, maximum: 10000000 } }, budgetTokens: { type: 'object', additionalProperties: false, properties: { decision: { type: 'integer', minimum: 20000, maximum: 10000000 }, execution: { type: 'integer', minimum: 20000, maximum: 10000000 } } } } } });
 Object.assign(configSchema.properties, { transportRetryDelaysMs: { type: 'array', maxItems: 5, items: { type: 'integer', minimum: 0, maximum: 60000 }, description: 'Additional retries after provider recovery, default [5000,15000,30000,45000,60000]; [] disables them.' } });
 export interface Task { id: string; instruction: string; acceptance: string[]; dependsOn?: string[]; acceptanceStage?: string; moduleIds?: string[] }
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
@@ -49,7 +49,7 @@ export interface Edits { summary: string; changes: { path: string; content: stri
 export interface NativeResult { mode: 'native'; summary: string }
 export type ExecutionResult = Edits | NativeResult;
 export interface Config {
-  contextManagement?: { compactRatio?: number; modelWindows?: Record<string, number> };
+  contextManagement?: { compactRatio?: number; modelWindows?: Record<string, number>; budgetTokens?: { decision?: number; execution?: number } };
   transportRetryDelaysMs?: number[];
   executionAgent?: ExecutionChoice;
   decisionAgent?: DecisionChoice; decisionDiscussion?: DecisionDiscussion;

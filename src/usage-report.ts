@@ -41,8 +41,10 @@ export function usageReport(directory: string) {
     if (row.inputTokens === null || row.outputTokens === null) continue;
     let value = { input: row.inputTokens, cached: row.cacheReadTokens ?? 0, output: row.outputTokens };
     if (row.agent !== 'codex') value.input += (row.cacheReadTokens ?? 0) + (row.cacheCreationTokens ?? 0);
-    else if (!row.source.endsWith('thread-delta')) {
-      // Records written before per-call deltas hold the Thread's running total on resumed turns.
+    else if (row.source !== 'codex-app-server-turn') {
+      // Between the live channel's arrival and per-turn totals, Codex records held one request or a wrong difference.
+      if (row.source !== 'codex-sdk-0.161.0-turn.completed' || row.resumed && row.completeness === 'partial') { unresolved++; continue; }
+      // Older records hold the Thread's running total on resumed turns.
       const chain = `${row.phase === 'execute' ? 'execute' : 'decision'}:${row.participantId ?? ''}`, previous = threadTotals.get(chain);
       threadTotals.set(chain, { ...value });
       if (row.resumed) {
@@ -51,6 +53,13 @@ export function usageReport(directory: string) {
       }
     }
     for (const group of groups) { group.counted++; group.input += value.input; group.cached += value.cached; group.output += value.output; }
+  }
+  // Occupancy is what one request carries; it is separate from the consumption summed above.
+  const context = { decision: { samples: 0, used: 0, max: 0, compactions: 0 }, execution: { samples: 0, used: 0, max: 0, compactions: 0 } }, compacted = new Map<string, number>();
+  for (const event of events) if (event.event === 'model-context' && context[event.data.role as 'decision' | 'execution']) {
+    const row = context[event.data.role as 'decision' | 'execution'], key = `${event.data.role}:${event.data.participantId ?? ''}:${event.data.sessionId ?? ''}`;
+    if (typeof event.data.usedTokens === 'number' && event.data.usedTokens > 0) { row.samples++; row.used += event.data.usedTokens; row.max = Math.max(row.max, event.data.usedTokens); }
+    row.compactions += Math.max(0, (event.data.compactions ?? 0) - (compacted.get(key) ?? 0)); compacted.set(key, event.data.compactions ?? 0);
   }
   const verdicts: Record<string, number> = {};
   for (const event of events) if (event.event === 'review') verdicts[event.data.verdict] = (verdicts[event.data.verdict] ?? 0) + 1;
@@ -68,8 +77,9 @@ export function usageReport(directory: string) {
     averageInputPerCall: Object.fromEntries(phases.map(phase => [phase, average(byPhase[phase].input, byPhase[phase].counted)])) as Record<typeof phases[number], number | null>,
     inputPerCompletedTask: completed ? average(total.input, completed) : null,
     executionsPerTask: { tasks: perTask.length, average: perTask.length ? Math.round(perTask.reduce((a, b) => a + b, 0) / perTask.length * 10) / 10 : null, max: perTask.length ? Math.max(...perTask) : null },
+    context: Object.fromEntries((['decision', 'execution'] as const).map(role => [role, { average: average(context[role].used, context[role].samples), max: context[role].samples ? context[role].max : null, compactions: context[role].compactions }])) as Record<'decision' | 'execution', { average: number | null; max: number | null; compactions: number }>,
     reviews: verdicts, sessionRotations: count('execution-session-rotated'), reworkReplans: count('rework-replan'), guidance: count('guidance-received'), humanDecisions: count('human-decision'),
-    note: 'input 为归一化后的全部输入（含缓存部分），cached 是其中的缓存读取；只统计有用量记录的调用，withoutUsage 和 unresolvedThreadTotals 未计入。旧 Codex 记录按同一 Thread 的相邻累计值相减还原，失败调用的消耗会并入下一次成功调用。Token 数不等于计费金额。'
+    note: 'input 为归一化后的全部输入（含缓存部分），cached 是其中的缓存读取；只统计有用量记录的调用，withoutUsage 和 unresolvedThreadTotals 未计入。旧 Codex 记录按同一 Thread 的相邻累计值相减还原，失败调用的消耗会并入下一次成功调用；2026-10-12 至 10-13 之间实时通道只记录了单次请求或错误差值的 Codex 记录不计入。Token 数不等于计费金额。'
   };
 }
 
@@ -84,7 +94,9 @@ export function usageTable(reports: Report[]): string {
     ['Session 轮换 / 重新规划', r => `${r.sessionRotations}/${r.reworkReplans}`],
     ['输入合计', r => number(r.tokens.total.input)], ['其中缓存读取 %', r => r.cachedPercent === null ? '-' : r.cachedPercent + '%'], ['输出合计', r => number(r.tokens.total.output)],
     ...phases.map(phase => [`平均输入/次 ${phase}`, (r: Report) => number(r.averageInputPerCall[phase])] as [string, (report: Report) => string]),
-    ['输入/已完成任务', r => number(r.inputPerCompletedTask)]
+    ['输入/已完成任务', r => number(r.inputPerCompletedTask)],
+    ['上下文占用 决策 平均/最高', r => `${number(r.context.decision.average)}/${number(r.context.decision.max)}`], ['上下文占用 执行 平均/最高', r => `${number(r.context.execution.average)}/${number(r.context.execution.max)}`],
+    ['压缩次数 决策/执行', r => `${r.context.decision.compactions}/${r.context.execution.compactions}`]
   ];
   const width = (text: string) => [...text].reduce((size, char) => size + (char.charCodeAt(0) > 255 ? 2 : 1), 0);
   const cells = lines.map(([label, read]) => [label, ...reports.map(read)]), widths = cells[0]!.map((_, column) => Math.max(...cells.map(row => width(row[column]!))));

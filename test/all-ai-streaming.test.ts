@@ -12,6 +12,22 @@ test('only the known nonterminal configuration banner is informational',()=>{
  assert.equal(codexPublicEvent({type:'turn.failed',error:{message:banner}})?.kind,'error');
  for(const message of ['Authentication failed','Tool failed','Rate limit exceeded'])assert.equal(codexPublicEvent({type:'item.completed',item:{id:'bad',type:'error',message}})?.kind,'error');
 });
+test('command deltas do not create operations; start and final retain execution identity and result',()=>{
+ const rows:any[]=[],state={id:'run',config:{executionMode:'native'},tasks:[],taskIndex:0,loops:1} as unknown as State;
+ const store={file:()=> 'D:/nonexistent-command-stream-fixture',audit:(event:string,data:any)=>rows.push({event,data})} as unknown as Store;
+ const record=activityRecorder(state,store,'codex','call','execute');
+ const emit=(type:string,status:string,aggregated_output:string,exit_code?:number)=>{
+  const activity=codexPublicEvent({type,item:{id:'command-1',type:'command_execution',command:'node test.js',status,aggregated_output,exit_code}});
+  if(activity)record(activity);return activity;
+ };
+ emit('item.started','in_progress','');
+ for(let i=0;i<2195;i++)assert.equal(emit('item.updated','in_progress','x'.repeat(i)),null);
+ emit('item.completed','failed','final output',1);record.flush();
+ assert.equal(rows.length,2);assert.ok(rows.every(row=>row.data.streamId==='command-1'));
+ assert.match(rows[1].data.text,/failed · exit_code=1\nfinal output$/);
+ assert.equal(codexPublicEvent({type:'item.updated',item:{id:'answer',type:'agent_message',text:'实时回复'}})?.text,'实时回复');
+});
+
 test('1000 text deltas over one second yield bounded audit writes and exact owned tail',()=>{
  const rows:any[]=[],state={id:'run',config:{executionMode:'native'},tasks:[{id:'original'}],taskIndex:0,loops:1} as unknown as State;
  const store={file:()=> 'D:/nonexistent-owned-stream-fixture',audit:(event:string,data:any)=>rows.push({event,data})} as unknown as Store;

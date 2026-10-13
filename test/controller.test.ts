@@ -75,6 +75,21 @@ test('interrupted execution requires decision and rejects concurrent owner', asy
   assert.equal((await drive(store, new MockAgents(config))).phase, 'paused');
   assert.equal((await drive(store, new MockAgents(config), 'Retry')).phase, 'completed');
 });
+
+test('explicit recovery instructions reach planning, dispatch and verification checkpoints', async () => {
+ for(const phase of ['planning','execute','verify','review'] as const){
+  const {store,config}=await fixture(),state=store.load();
+  if(phase!=='planning')state.tasks=(await new MockAgents(config).plan(state)).tasks;
+  state.phase=phase;state.nextPhase=phase==='review'?'verify':phase;store.save(state);
+  const decision='恢复任务，先核对现有成果，保留已完成记录';
+  const mock=new MockAgents(config),seen:string[]=[];
+  for(const method of ['plan','execute','review'] as const){const original=mock[method].bind(mock);mock[method]=((current:typeof state,...args:any[])=>{seen.push(current.feedback);return (original as any)(current,...args);}) as any;}
+  const result=await drive(store,mock,decision);
+  assert.equal(result.phase,'completed',phase);assert.ok(seen.some(feedback=>feedback.includes(decision)),phase);
+  const events=readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  assert.ok(events.some(event=>event.event==='human-decision'&&event.data.decision===decision),phase);
+ }
+});
 test('reject forbidden paths, duplicate targets, traversal and deletion payloads', async () => {
   const { store } = await fixture(); const workspace = store.load().workspace;
   for (const target of ['../x', '.git/config', 'C:/x', 'foo\\bar', 'NUL.txt', 'x:ads', '.codex/config.toml', 'AGENTS.md', 'foo./bar']) {
