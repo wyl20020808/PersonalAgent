@@ -25,3 +25,9 @@
 ## 2026-10-13 原生能力任务的基线对照
 
 原生能力与 Skills 适配回归 104 项中，103 项通过；唯一失败为 `interaction-policy.test.ts` 的 `pending GUI cannot bypass human/fail Review or a failed safe acceptance check`，断言执行次数为 1，实际为 2。同一用例在未修改 TEST `92024f0` 的构建中单独运行，同样以 `2 !== 1` 失败。本任务没有修改该用例或 Controller 验收逻辑，不将其记为通过，也不据此宣称完整回归通过。与当前决策者自主验收职责的关系仍需独立维护任务核对。
+
+## 2026-10-13 第二份报告的验收契约纠正
+
+当前 TEST `53da0a4` 的 AGENTS.md 与统一规则明确：Controller 不因 tests 为空或程序检查结果自动否决决策者结论；pass 记录 decisionAccepted 并推进，正式交付授权另行保留。因此外部 D1 建议“exit≠0 硬阻断、tests=[] 必须人工”与现行授权冲突，不采纳，也不能把同批旧测试恢复到原固定门禁称为修复。acceptDecision 仍检查当前证据对应的 recordedPass 和 executorExitCode；delivery completionProof 仍检查完成状态、指纹、执行退出码与批准链。固定测试结果与执行者退出码需区分。
+
+D2 的测试维护问题合理。此次报告的 15/561 失败数未取得原日志独立复核，不能视为本轮测试结果。迁移需逐条区分旧逐项用户确认、明确保留的 human/正式交付批准及真实异常，不批量把 paused/userAccepted 改成 completed，也不为绿灯改生产权限。

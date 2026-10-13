@@ -6,3 +6,7 @@
 - 修正：Store.audit 的每次追加全量读取已经在 TEST 改为尾部读取，见 [既有记录](2026-10-10-audit-append-full-read.md)。不能将两者混为同一个仍未修复的瓶颈。
 - 下一步：优先提供明确保留/归档策略及增量索引，保留审计链、关键工具结果和用户可查证内容；不能简单截断安全审计或丢弃恢复证据。
 - 验证：静态确认；性能验证未运行。
+
+## 2026-10-13 第二次外部报告复核
+
+TEST `53da0a4` 的 activityRecorder 初始化（`src/telemetry.ts:16-17`）仍读取全部 audit；Claude/OpenCode executionAttempt 恢复也读取审计查找派发与终态。因此重复初始化带来的累计读取成本有代码依据，与本记录合并，不另建“Store 每次 append 全读”问题。只确认算法与 I/O 路径，没有大型 Run benchmark，不认定已发生 UI 卡死。下一步应优先按 scope/attempt 定位证据，同时保留完整审计链与恢复安全。
