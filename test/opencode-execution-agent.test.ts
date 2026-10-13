@@ -24,7 +24,7 @@ const task={id:'core',instruction:'Update core.js',acceptance:['core.js is fixed
 const plan={humanDecision:null,tasks:[task]};
 const api={paths:{'/session':{post:{requestBody:{content:{'application/json':{schema:{properties:{permission:{type:'array'}}}}}}}},'/session/{sessionID}/message':{post:{requestBody:{content:{'application/json':{schema:{properties:{agent:{type:'string'},format:{properties:{type:{const:'json_schema'}}}}}}}}}},...Object.fromEntries(['/agent','/experimental/tool','/experimental/tool/ids','/global/event','/session/{sessionID}','/session/status','/session/{sessionID}/abort'].map(p=>[p,{}]))}};
 type Options={modelTools?:boolean;upstreamFailures?:number;failureMessage?:string;unknownTool?:boolean;imageSupport?:boolean;missingCreation?:boolean;badStatus?:boolean;badFinish?:string;hang?:boolean;badOwner?:boolean;badModel?:boolean;missingTools?:boolean;missingProtocol?:boolean;error?:boolean;textOnly?:boolean;unfinished?:boolean;wrongSession?:boolean;wrongPart?:boolean;failTest?:boolean;busy?:boolean;closeFailure?:boolean;streamFailure?:boolean;afterWrite?:(directory:string)=>void};
-function fake(options:Options={}){
+function fake(options:Options & {compactFailure?:boolean}={}){
  const sessions=new Map<string,any>(),requests:any[]=[];let prompts=0,closes=0,aborts=0;
  const launcher:OpenCodeLauncher=async(_exe,directory,_signal,runtime)=>{
   const streams:ServerResponse[]=[];
@@ -45,6 +45,7 @@ function fake(options:Options={}){
     return send({...session,...(options.badOwner?{title:'wrong-owner'}:{})});
    }
    if(id&&tail==='/abort'){aborts++;return send(true);}
+   if(id&&tail==='/summarize')return send(!options.compactFailure);
    if(id&&tail==='/message'){
     prompts++;const execution=body.format.schema.properties.mode, discussion=body.format.schema.properties.disagreements;
     const parts:any[]=[];
@@ -83,6 +84,20 @@ function real(f:Awaited<ReturnType<typeof fixture>>,server:ReturnType<typeof fak
 },new OpenCodeDecisionAgent(f.config,server.launcher),config=>new OpenCodeDecisionAgent(config,server.launcher),new OpenCodeExecutionAgent(f.config,server.launcher));}
 const records=(store:Awaited<ReturnType<typeof fixture>>['store'])=>fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(s=>JSON.parse(s));
 function pending(f:Awaited<ReturnType<typeof fixture>>){const state=f.store.load();state.tasks=[task];state.phase='executing';state.nativeExecution=true;state.loops=1;f.store.save(state);return state;}
+
+test('failed OpenCode compaction preserves Session and does not dispatch or retry another prompt',async()=>{
+ for(const role of ['execute','review'] as const){
+  const f=await fixture({timeoutMs:0,transportRetryDelaysMs:[0]}),server=fake({compactFailure:true}),state=pending(f),agents=real(f,server);
+  await agents[role](state,f.store,new AbortController().signal);
+  state.loops++; f.store.save(state); // A later Controller round, never replay the dispatched attempt.
+  const contextRole=role==='execute'?'execution':'decision',session=role==='execute'?state.executionSession?.sessionId:state.decisionSession?.sessionId;
+  const file=f.store.file(`context-window-${contextRole}.json`),snapshot=JSON.parse(fs.readFileSync(file,'utf8'));
+  fs.writeFileSync(file,JSON.stringify({...snapshot,sessionId:session,usedTokens:200000}));
+  await assert.rejects(agents[role](state,f.store,new AbortController().signal),/Context compaction outcome unknown or failed/);
+  assert.equal(server.prompts,1);assert.equal(server.sessions.size,1);
+  assert.equal(records(f.store).filter(e=>e.event==='context-compact-unconfirmed').length,1);
+ }
+});
 
 test('OpenCode SDK certificate error resumes execution and review but never retries an unknown tool outcome',async()=>{
  for(const role of ['execute','review','unknown-tool'] as const){

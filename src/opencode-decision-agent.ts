@@ -204,7 +204,13 @@ export class OpenCodeDecisionAgent implements DecisionAgent {
       if (observation.context.shouldCompact && observation.usage.resumed) {
         observation.context.compact('compacting', observation.usage.callId);
         store.audit('context-compact-dispatch', { backend: 'opencode', sessionId: sessionID, callId: observation.usage.callId });
-        await client.session.summarize({sessionID:sessionID!,directory:workspace,providerID:identity.providerID,modelID:identity.modelID,auto:true},{signal,throwOnError:true});
+        try {
+          const compacted = await client.session.summarize({sessionID:sessionID!,directory:workspace,providerID:identity.providerID,modelID:identity.modelID,auto:true},{signal,throwOnError:true});
+          if (compacted.data !== true) throw Error('Missing successful summarize receipt');
+        } catch(error) {
+          observation.context.observe({type:'context.compaction-failed',message:String(error)});
+          throw new FlowError('context','Context compaction outcome unknown or failed; inspect original Session before retry: '+String(error));
+        }
       }
       const result = await client.session.prompt({sessionID,directory:workspace,model:{providerID:identity.providerID,modelID:identity.modelID},...(identity.variant?{variant:identity.variant}:{}),system:agentRules + interactionAgentRules,format:{type:'json_schema',schema:schema as Record<string,unknown>,retryCount:0},parts},options);
       if (result.data?.info.sessionID !== sessionID || result.data.info.role !== 'assistant' || result.data.info.path?.cwd !== workspace) throw new FlowError('safety','OpenCode response Session/workspace mismatch');
