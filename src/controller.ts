@@ -169,7 +169,7 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
       store.audit('native-result-recovered', { loop: state.loops, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, note: '重新运行当前配置测试和审查；未恢复或覆盖项目文件' });
     }
     if (state.phase === 'executing' && !state.nativeExecution && existsSync(journalFile(store, state))) checkpoint('applying');
-    if (automatic || ['paused', 'executing', 'stopped', 'failed'].includes(state.phase)) {
+    if (automatic || ['paused', 'executing', 'stopped', 'failed'].includes(state.phase) || decision?.trim() && ['planning', 'execute', 'applying', 'verify', 'review'].includes(state.phase)) {
       if (!decision?.trim()) {
         if (state.phase !== 'paused') {
           if (state.phase === 'executing') { state.nextPhase = 'execute'; state.reworkPending = true; state.failure = classifyFailure(new FlowError('interrupted', 'Execution interrupted before durable result; existing file changes are preserved'), 'executing'); }

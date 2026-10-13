@@ -53,7 +53,7 @@ async function parallelFixture(){
  const task=path.join(result.data,'minimap');await git(result.project,['worktree','add','-b','feature/minimap',task]);return {...result,task};
 }
 test('same project group launches independent worktrees while same execution directory stays queued',async()=>{
- const {service,data,project,task}=await parallelFixture();let launches=0;service.launch=()=>{launches++;};
+ const {service,data,project,task}=await parallelFixture();let launches=0;service.launch=store=>{launches++;service.children.set(store.id,{} as any);};
  const first=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
  await service.sessions.send({operation:'sendSession',sessionId:first.id,messageId:randomUUID(),text:'campus feature',directAcknowledged:true});
  const original=service.sessions.detail(first.id).runs[0],store=service.store(original.profileId,original.id),before=fs.readFileSync(store.file('state.json'));
@@ -301,14 +301,13 @@ test('ordinary folder session: two formal Mock runs, immutable project, state/co
  assert.equal(restored.sessions.list().filter(s=>s.runs.some(r=>r.id===first.id)).length,1);
 });
 test('active messages persist without mid-turn injection; edit/cancel and automatic completion handoff',async()=>{
- const {service,data,project}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});const launch=service.launch;service.launch=()=>{};
+ const {service,data,project}=fixture();const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});const launch=service.launch;service.launch=store=>{service.children.set(store.id,{} as any);};
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'first requirement',directAcknowledged:true});const run=service.sessions.detail(session.id).runs[0],store=service.store(run.profileId,run.id),before=fs.readFileSync(store.file('state.json')),audit=fs.readFileSync(store.file('audit.jsonl'));const id=randomUUID();
  const pending=await service.dispatch({operation:'sendSession',sessionId:session.id,messageId:id,text:'补充需求'} ) as Conversation;assert.equal(pending.messages.at(-1)?.status,'pending');assert.deepEqual(fs.readFileSync(store.file('state.json')),before);assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),audit);
  await service.dispatch({operation:'editSessionMessage',sessionId:session.id,messageId:id,text:'修改后的补充要求'});assert.equal(new DesktopService(root,data,process.execPath).sessions.detail(session.id).session.messages.at(-1)?.text,'修改后的补充要求');
  await service.dispatch({operation:'cancelSessionMessage',sessionId:session.id,messageId:id});await assert.rejects(service.dispatch({operation:'processSessionMessage',sessionId:session.id,messageId:id}),/已处理或已取消/);
- const secondId=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:secondId,text:'下一轮开发'});service.launch=launch;
- await service.dispatch({operation:'resume',profileId:run.profileId,runId:run.id,decision:'continue'}).catch(()=>{}); // planning requires no recovery decision, start saved run via formal launcher below.
- service.launch(store,store.file('desktop.config.json'));assert.equal((await done(service,session.id)).phase,'completed');
+ const secondId=randomUUID();await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:secondId,text:'下一轮开发'});service.children.delete(run.id);service.launch=launch;
+ await service.dispatch({operation:'resume',profileId:run.profileId,runId:run.id,decision:'continue'}); assert.equal((await done(service,session.id)).phase,'completed');
  for(let i=0;i<100&&service.sessions.get(session.id).runs.length<2;i++)await new Promise(r=>setTimeout(r,30));
  assert.equal((await done(service,session.id)).phase,'completed');assert.equal(service.sessions.get(session.id).messages.find(m=>m.id===secondId)?.status,'executed');assert.equal(service.sessions.detail(session.id).runs.length,2);
 });
@@ -337,7 +336,7 @@ test('real session creates Run without paid authorization; direct project permis
  const real=service.sessions.create({operation:'createSession',projectPath:project,mode:'real'});
  await assert.rejects(service.sessions.send({operation:'sendSession',sessionId:real.id,messageId:randomUUID(),text:'开发真实功能'}),/首次直接开发/);assert.equal(service.overview().runs.length,0);
  await service.sessions.send({operation:'sendSession',sessionId:real.id,messageId:randomUUID(),text:'开发真实功能',directAcknowledged:true});
- const run=service.sessions.detail(real.id).runs[0];assert.equal(run.mode,'real');assert.equal(run.phase,'planning');assert.equal(service.store(run.profileId,run.id).load().config.globalBudget,undefined);
+ const run=service.sessions.detail(real.id).runs[0];assert.equal(run.mode,'real');assert.equal(run.phase,'interrupted');assert.equal(service.store(run.profileId,run.id).load().config.globalBudget,undefined);
 });
 
 test('chat continuation reaches the real Controller launcher and preserves the existing Run',async()=>{
@@ -417,7 +416,7 @@ test('large project session preparation preserves original runtime provenance wi
  const fd=fs.openSync(path.join(project,'large.bin'),'w');fs.ftruncateSync(fd,101*1024*1024);fs.closeSync(fd);
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'}),messageId=randomUUID();
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId,text:'Large preparation fixture',directAcknowledged:true});
- const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'planning');assert.equal(launches,1);assert.equal(saved.messages[0].runId,runs[0].id);
+ const {session:saved,runs}=service.sessions.detail(session.id);assert.equal(runs.length,1);assert.equal(runs[0].phase,'interrupted');assert.equal(launches,1);assert.equal(saved.messages[0].runId,runs[0].id);
  const store=service.store(runs[0].profileId,runs[0].id);assert.equal(saved.runs[0].runtimeDir,store.load().config.runtimeDir);assert.equal(store.load().source,fs.realpathSync(project));assert.equal(store.load().failure,undefined);
  assert.equal(store.load().snapshotPolicy,'none');assert.equal(fs.existsSync(store.file('project-baseline.json')),false);assert.equal(fs.existsSync(store.file('snapshot-objects')),false);
 });

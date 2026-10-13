@@ -163,7 +163,7 @@ test('real mode creates Run without paid acknowledgement or ledger (launch local
  const entry=service.registry().profiles[0]!,config=JSON.parse(fs.readFileSync(entry.file,'utf8'));config.mode='real';config.projectMode='direct';config.directAuthorization={projectPath:target,acknowledgedAt:new Date().toISOString()};config.globalBudget={file:path.join(data,'missing-legacy-ledger.json'),limit:1};
  const file=path.join(data,'real.config.json');fs.writeFileSync(file,JSON.stringify(config));service.register(file);const p=service.overview().profiles.find(p=>p.mode==='real')!;
  const launch=service.launch;let calls=0;service.launch=()=>{calls++;};
- try{const run=await service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'local interception only'}) as any;assert.equal(run.phase,'planning');assert.equal(calls,1);assert.equal(service.detail(p.id,run.id).auditVerified,true);assert.equal(fs.existsSync(config.globalBudget.file),false);}
+ try{const run=await service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'local interception only'}) as any;assert.equal(run.phase,'interrupted');assert.equal(service.store(p.id,run.id).load().phase,'planning');assert.equal(calls,1);assert.equal(service.detail(p.id,run.id).auditVerified,true);assert.equal(fs.existsSync(config.globalBudget.file),false);}
  finally{service.launch=launch;}
 });
 
