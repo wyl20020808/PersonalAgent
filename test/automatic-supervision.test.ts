@@ -9,7 +9,7 @@ import {createRun,drive} from '../src/controller.js';
 import {MockAgents,type Agents} from '../src/adapters.js';
 import type {Config} from '../src/schema.js';
 import {atomicJson} from '../src/store.js';
-import {supervisionBlock,supervisionDue,supervisionSignature,SUPERVISION_INTERVAL_MS,SUPERVISION_MAX_TAKEOVERS} from '../src/automatic-supervision.js';
+import {supervisionBlock,supervisionBacklog,supervisionDue,supervisionSignature,SUPERVISION_INTERVAL_MS,SUPERVISION_MAX_TAKEOVERS,SUPERVISION_BACKLOG_MS} from '../src/automatic-supervision.js';
 import {classifyFailure} from '../src/failure.js';
 import {crashRestartReason,processAlive,recordCrashRestart} from '../src/crash-watchdog.js';
 
@@ -33,6 +33,21 @@ test('ten minute grace, user activity, invalid timestamps and persistent three-a
  assert.equal(supervisionDue({...state,loops:state.loops+1},base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt,receipt),false);
  assert.equal(supervisionDue(state,base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt+1,receipt),true);
  assert.equal(supervisionDue({...state,updatedAt:'bad'},base+2*SUPERVISION_INTERVAL_MS,base,lastUserAt),false);
+});
+
+test('same-problem retries back off to 30 and 90 minutes, and a Run idle a day before enabling is backlog',async()=>{
+ const {store}=await fixture(),state=store.load(),base=Date.parse(state.updatedAt),signature=supervisionSignature(state,base);
+ const first={signature,attempts:1,lastAttemptAt:base+SUPERVISION_INTERVAL_MS};
+ assert.equal(supervisionDue(state,first.lastAttemptAt+3*SUPERVISION_INTERVAL_MS-1,base,base,first),false);
+ assert.equal(supervisionDue(state,first.lastAttemptAt+3*SUPERVISION_INTERVAL_MS,base,base,first),true);
+ const second={signature,attempts:2,lastAttemptAt:base+4*SUPERVISION_INTERVAL_MS};
+ assert.equal(supervisionDue(state,second.lastAttemptAt+9*SUPERVISION_INTERVAL_MS-1,base,base,second),false);
+ assert.equal(supervisionDue(state,second.lastAttemptAt+9*SUPERVISION_INTERVAL_MS,base,base,second),true);
+ // A different problem is not held back by the previous problem's backoff.
+ assert.equal(supervisionDue(state,second.lastAttemptAt+SUPERVISION_INTERVAL_MS,base,base,{...second,signature:'another problem'}),true);
+ assert.equal(supervisionBacklog(state,base+SUPERVISION_BACKLOG_MS,base),false);
+ assert.equal(supervisionBacklog(state,base+SUPERVISION_BACKLOG_MS+1,base),true);
+ assert.equal(supervisionBacklog(state,base+SUPERVISION_BACKLOG_MS+1,base+1),false);
 });
 
 test('automatic review uses original Run and Sessions; decision acceptance never becomes user approval',async()=>{

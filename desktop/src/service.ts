@@ -1,5 +1,5 @@
 import {MAX_ATTACHMENT_BYTES} from '../../dist/src/attachment-types.js';
-import {SUPERVISION_INTERVAL_MS,AUTOMATIC_DECISION,supervisionBlock,supervisionDue,supervisionSignature} from '../../dist/src/automatic-supervision.js';
+import {SUPERVISION_INTERVAL_MS,AUTOMATIC_DECISION,supervisionBlock,supervisionBacklog,supervisionDue,supervisionSignature} from '../../dist/src/automatic-supervision.js';
 import type {SupervisionReceipt,AutomaticResume} from '../../src/automatic-supervision.js';
 import {discoverOpencodeExecutionModels,switchExecutionAgent} from '../../dist/src/opencode-execution-agent.js';
 import {switchDecisionAgent} from '../../dist/src/decision-switch.js';
@@ -131,17 +131,19 @@ export class DesktopService {
      const result=(status:string,reason:string)=>this.supervisionResults.push({runId:state.id,status,reason});
      const last=session.messages.at(-1);
      // Only real user input identifies a new problem; the listed Session time also moves with every Run save.
-     let lastUserAt=Math.max(enabledAt,Date.parse(session.createdAt),...session.messages.map(message=>Date.parse(message.time)));
+     let userAt=Math.max(Date.parse(session.createdAt),...session.messages.map(message=>Date.parse(message.time)));
      const block=supervisionBlock(state,fs.existsSync(store.file(`native-result-${state.loops}.json`)));
      if(block||this.runActive(store)||fs.existsSync(store.file('stop.request'))||last?.action==='stop'||last?.action==='hold'||pendingContextConfirmations(store).length){result('skipped',block??'运行中、用户停止或待正式确认');continue;}
      // An absent Controller lock does not prove its native model/tools exited.
      const events=this.audit(store),agent=events.filter(event=>['agent-start','agent-finish'].includes(event.event)).at(-1);
-     for(const event of events)if(event.event==='human-decision')lastUserAt=Math.max(lastUserAt,Date.parse(event.time));
+     for(const event of events)if(event.event==='human-decision')userAt=Math.max(userAt,Date.parse(event.time));
      if(agent?.event==='agent-start'){result('skipped','原 Agent 调用结果未知，需人工恢复');continue;}
+     if(supervisionBacklog(state,enabledAt,userAt)){result('skipped','开启全自动模式前已超过一天没有活动；发送新消息后恢复巡检');continue;}
+     const lastUserAt=Math.max(enabledAt,userAt);
      const receiptFile=store.file('automatic-supervision.json');
      const receipt:SupervisionReceipt|undefined=fs.existsSync(receiptFile)?JSON.parse(fs.readFileSync(receiptFile,'utf8')):undefined;
      if(receipt&&(typeof receipt.signature!=='string'||!Number.isSafeInteger(receipt.attempts)||receipt.attempts<1||!Number.isFinite(receipt.lastAttemptAt)))throw Error('自动接管记录损坏，需人工核查');
-     if(!supervisionDue(state,now,enabledAt,lastUserAt,receipt)){result('waiting','等待满十分钟，或同一问题已接管三次、本轮接管已达上限');continue;}
+     if(!supervisionDue(state,now,enabledAt,lastUserAt,receipt)){result('waiting','等待满十分钟或同一问题的重试间隔，或同一问题已接管三次、本轮接管已达上限');continue;}
      await this.validateControllerRuntime();
      const current=this.registry().automaticDevelopment;
      if(this.closing||current?.enabled!==true||current.enabledAt!==authorization.enabledAt)break;
