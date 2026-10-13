@@ -558,6 +558,27 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "promptBudgetTokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "plan": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 1000000
+            },
+            "execute": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 1000000
+            },
+            "review": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 1000000
+            }
+          }
+        },
         "compactRatio": {
           "type": "number",
           "minimum": 0.5,

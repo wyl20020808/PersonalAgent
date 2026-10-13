@@ -48,7 +48,7 @@ export function acceptDecision(store: Store, state: State): State {
   if (previousSession) { delete state.executionSession; delete state.claudeExecutionSessionId; state.codexThreadId = null; }
   // The decision maker starts a fresh Session at a task boundary once the current one holds half its working budget;
   // the task ledger carries what was accepted. Rotation costs no call, compaction does.
-  const decisionSession = state.taskIndex < state.tasks.length && occupancy !== null && occupancy >= halfBudget ? state.decisionSession?.sessionId ?? state.claudeSessionId ?? null : null;
+  const decisionSession = !state.guidancePending && !pendingGuidance(store).length && !processingGuidance(store).length && state.taskIndex < state.tasks.length && occupancy !== null && occupancy >= halfBudget ? state.decisionSession?.sessionId ?? state.claudeSessionId ?? null : null;
   if (decisionSession) { delete state.decisionSession; state.claudeSessionId = null; }
   state.nextPhase = 'execute';
   state.phase = state.taskIndex === state.tasks.length && !pendingGuidance(store).length && !processingGuidance(store).length ? 'completed' : 'execute';
