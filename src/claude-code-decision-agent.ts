@@ -10,6 +10,7 @@ import { assertExecutionState, type ExecutionAgent } from './opencode-execution-
 import type { State, Store } from './store.js';
 import { recordClaudeCall } from './agent-usage.js';
 import { FlowError, classifyFailure } from './failure.js';
+import { runWorkspace, samePath } from './project-branch.js';
 import { activityRecorder, claudePublicEvents } from './telemetry.js';
 import { CallObservation } from './call-observation.js';
 import { contextLimits } from './model-context.js';
@@ -149,7 +150,8 @@ export class ClaudeCodeExecutionAgent extends ClaudeCodeDecisionAgent implements
     if (state.config.executionAgent?.backend !== 'claude-code' || state.phase !== 'executing' || !state.nativeExecution || !task || state.discussion && !state.discussion.closed || state.completedTaskIds?.includes(task.id)) throw new FlowError('safety', 'Claude Execute requires Controller-validated pending native task');
     if (store.id !== state.id || persisted.id !== state.id || persisted.phase !== state.phase || persisted.workspace !== state.workspace || persisted.loops !== state.loops || JSON.stringify(persisted.tasks) !== JSON.stringify(state.tasks) || JSON.stringify(persisted.config) !== JSON.stringify(state.config)) throw new FlowError('safety', 'Claude Execute persisted Run/Plan/workspace mismatch');
     const source = realpathSync(state.source), workspace = realpathSync(state.workspace);
-    if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || workspace !== (state.config.projectMode === 'direct' ? source : realpathSync(store.file('workspace'))) || state.config.projectMode === 'direct' && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'Claude Execute workspace authorization mismatch');
+    // A test-branch worktree is the Run's own isolated checkout; the selected project itself is never edited.
+    if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || !samePath(workspace, realpathSync(runWorkspace(state, store))) || state.config.projectMode === 'direct' && !state.projectBranch && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'Claude Execute workspace authorization mismatch');
     if (state.executionAttempt) {
       if (state.executionAttempt.status !== 'success') {
         const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));

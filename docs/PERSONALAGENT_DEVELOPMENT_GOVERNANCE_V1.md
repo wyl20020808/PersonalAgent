@@ -1,6 +1,6 @@
 # PersonalAgent — MAIN/DEV/TEST 三分支开发与使用治理规则 V2.1
 
-**默认开发规则（2026-10-11 补充）：PersonalAgent 自身的新开发任务，用户未明确指定基线时，默认从最新 `test` 的明确提交创建独立任务分支和 Worktree，完成后满足 V2.1 条件式自主合并要求即可自行提交并整合回 `test`，无需逐次确认。** 不根据当前目录、当前检出分支或发起软件版本改用 DEV/MAIN，也不直接在 TEST 集成工作区改源码。TEST 不可用时报告并核对，不静默回退 DEV/MAIN。仅明确的 DEV 紧急修复从 DEV 创建，MAIN 紧急 hotfix 从 MAIN 创建；用户明确指定的其他基线另行记录。此默认仅适用于 PersonalAgent 自身，其他项目遵循其自身分支规则。
+**默认开发规则（2026-10-11 补充）：PersonalAgent 自身的新开发任务，用户未明确指定基线时，默认从最新 `test` 的明确提交创建独立任务分支和 Worktree，完成后满足 V2.1 条件式自主合并要求即可自行提交并整合回 `test`，无需逐次确认。** 不根据当前目录、当前检出分支或发起软件版本改用 DEV/MAIN，也不直接在 TEST 集成工作区改源码。TEST 不可用时报告并核对，不静默回退 DEV/MAIN。仅明确的 DEV 紧急修复从 DEV 创建，MAIN 紧急 hotfix 从 MAIN 创建；用户明确指定的其他基线另行记录。此默认仅适用于 PersonalAgent 自身。**PersonalAgent 开发目标项目另有程序硬性规则（2026-10-14）：目标项目必须是 Git 仓库根目录且有本地 `test` 分支，每个 Run 从 `test` 新建独立分支 `personalagent/<Run>` 和工作树开发，验收后只合并到 `test`，不推送；缺少 Git 或 `test` 时 Run 被拒绝并返回用户决定是否新建，不得自行创建或改用其他分支。** 详见治理规则“目标项目开发的 test 分支硬性规则”。
 
 版本：V2.1。修订日期：2026-10-11。适用范围：PersonalAgent 自身开发、维护、试用、救援、集成和正式发布。沿用 V1 文件路径，保证既有引用有效。
 
@@ -146,6 +146,19 @@ Claude Code 主要规划和审查，也可必要修改；Codex 主要实现、�
 V2.1 修订记录（2026-10-11）：按用户明确要求，新增满足自测、目标安全和集成互斥条件后自主提交并合并本地 TEST 的持续授权，取消该范围内的逐次确认；同步规则入口与执行契约。DEV/MAIN、其他项目正式交付、远程推送及发布边界不变。本次仅修改规则文档，未执行源码合并，也未实现产品自动合并能力。
 
 清理规则补充记录（2026-10-13）：按用户明确要求，新增 [Agent 临时文件与工作区清理规则 V1](AGENT_WORKSPACE_CLEANUP_RULES.md) 作为第三节所称的批准清理流程，并把收尾清理与清理报告设为任务完成、请求验收和 TEST 自主合并的必要条件；同步 AGENTS.md、CLAUDE.md、统一规则、README.md，并在 `src/decision-guidance.ts` 增加 `workspaceCleanupGuidance` 注入每次 Agent 调用。影响：任务结束须清理本任务临时产物并回收已合并的本任务 Worktree；历史遗留内容仍须先列清单经用户确认。分支职责、合并条件、DEV/MAIN 交付、推送与发布边界不变；两份执行契约只约定执行模式，未改动。
+
+目标项目 test 分支规则记录（2026-10-14）：按用户明确要求，把“目标项目必须有 Git 与本地 test 分支、每个 Run 从 test 新建独立分支和工作树、验收后只合并到 test、缺少 test 时交用户决定”写入程序（`src/project-branch.ts`、Controller、桌面端与 CLI 启动入口），并在 `src/decision-guidance.ts` 增加 `projectBranchGuidance` 注入每次 Agent 调用；同步 AGENTS.md、CLAUDE.md、统一规则。原“其他项目遵循其自身分支规则”的表述改为指向下节硬性规则。PersonalAgent 自身三分支流程、DEV/MAIN 交付、推送与发布边界不变。
+
+## 目标项目开发的 test 分支硬性规则（2026-10-14）
+
+按用户明确要求，PersonalAgent 开发任何目标项目（OpenWorld、FPSArena、ConjoinedTwins 等）都必须满足：目标项目是 Git 仓库根目录，且有本地 `test` 分支。这是程序硬编码规则，不是提示词约定：
+
+1. 桌面端和 CLI 的真实模式 Run 在创建时由 Controller 检查（`src/project-branch.ts`）。不是 Git 仓库、不是仓库根目录或没有本地 `test` 时，Run 直接以 `rejected` 失败，不创建分支、不修改项目，并提示由用户决定是否新建 `test`。Agent 和 Controller 不得自行创建 `test` 或改用其他分支。
+2. 每个 Run 从当前 `test` 提交创建独立分支 `personalagent/<Run ID 前 8 位>` 和工作树（位于该项目 runtimeDir 的 `worktrees/` 下）。Agent 只在该工作树内修改，不提交、不切换或合并分支；用户原项目目录及 `dev`、`main` 等分支不被改动。
+3. 全部任务验收后，Controller 在任务分支提交成果，并只合并到本地 `test`：`test` 未检出时用比较并交换方式更新引用；已在干净工作树检出时在该工作树执行合并；`test` 已前进时先把 `test` 合并进任务分支。合并持有 Git common directory 中的 `personalagent-test-integration.lock`。冲突、锁占用或检出 `test` 的工作树有未提交修改时，`test` 保持不变，Run 暂停并交用户决定，恢复后只重试合并。合并成功后移除该 Run 工作树，保留任务分支。从不推送。
+4. 规则只约束目标项目真实开发；只读讨论 Session 不创建工作树。Mock 演示和规则生效前创建的历史 Run 保持原有行为，不追溯迁移。
+
+影响：没有 `test` 分支的目标项目在新版本中无法开始真实开发，需用户先建立 `test`。PersonalAgent 自身开发仍按本文第二至四节执行。
 
 ## 决策者自主验收与关键决策（2026-10-12）
 

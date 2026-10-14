@@ -1,6 +1,6 @@
 # PersonalAgent 开发规则
 
-**默认开发规则（2026-10-11 补充）：PersonalAgent 自身的新开发任务，用户未明确指定基线时，默认从最新 `test` 的明确提交创建独立任务分支和 Worktree，完成后满足 V2.1 条件式自主合并要求即可自行提交并整合回 `test`，无需逐次确认。** 不根据当前目录、当前检出分支或发起软件版本改用 DEV/MAIN，也不直接在 TEST 集成工作区改源码。TEST 不可用时报告并核对，不静默回退 DEV/MAIN。仅明确的 DEV 紧急修复从 DEV 创建，MAIN 紧急 hotfix 从 MAIN 创建；用户明确指定的其他基线另行记录。此默认仅适用于 PersonalAgent 自身，其他项目遵循其自身分支规则。
+**默认开发规则（2026-10-11 补充）：PersonalAgent 自身的新开发任务，用户未明确指定基线时，默认从最新 `test` 的明确提交创建独立任务分支和 Worktree，完成后满足 V2.1 条件式自主合并要求即可自行提交并整合回 `test`，无需逐次确认。** 不根据当前目录、当前检出分支或发起软件版本改用 DEV/MAIN，也不直接在 TEST 集成工作区改源码。TEST 不可用时报告并核对，不静默回退 DEV/MAIN。仅明确的 DEV 紧急修复从 DEV 创建，MAIN 紧急 hotfix 从 MAIN 创建；用户明确指定的其他基线另行记录。此默认仅适用于 PersonalAgent 自身。**PersonalAgent 开发目标项目另有程序硬性规则（2026-10-14）：目标项目必须是 Git 仓库根目录且有本地 `test` 分支，每个 Run 从 `test` 新建独立分支 `personalagent/<Run>` 和工作树开发，验收后只合并到 `test`，不推送；缺少 Git 或 `test` 时 Run 被拒绝并返回用户决定是否新建，不得自行创建或改用其他分支。** 详见治理规则“目标项目开发的 test 分支硬性规则”。
 
 遵循 @AGENT_WORK_RULES.md。
 

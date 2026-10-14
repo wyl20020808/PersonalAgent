@@ -3,9 +3,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { configSchema, editSchema, nativeResultSchema, planSchema, reviewSchema, validate, type Config, type Edits, type Plan, type Review } from './schema.js';
-import { Store, atomicJson, type Evidence, type Phase, type State } from './store.js';
+import { Store, atomicJson, type Evidence, type Phase, type ProjectBranch, type State } from './store.js';
 import { collectEvidence, prepare, observeWorkspace, git, workspaceHead, workspaceStatus } from './workspace.js';
-import { lockProject, captureProject } from './project-files.js';
+import { lockProject, captureProject, assertProjectRuntime } from './project-files.js';
+import { assertRunWorktree, createProjectWorktree, finishProjectRun, runWorkspace, samePath } from './project-branch.js';
 import { observationScope, contextObservation, gitObservation } from './project-observation.js';
 import type { Agents } from './adapters.js';
 import { AUTOMATIC_DECISION, supervisionBlock, type AutomaticResume } from './automatic-supervision.js';
@@ -32,9 +33,18 @@ import { acceptDecision, recordedPass, decisionAcceptanceDigest } from './decisi
 
 // A task still returned after this many reworks is larger than one round; the decision maker restructures the rest.
 export const REWORK_REPLAN_AFTER = 3;
-export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding' } = {}): Promise<Store> {
+/**
+ * `projectBranch` is the production rule for real target projects: the project must be a Git
+ * repository root with a local `test` branch, the Run works in its own worktree branched from
+ * `test`, and its accepted result is merged only into `test`. Without `test` the Run is refused.
+ */
+export async function createRun(config: Config, source: string, goal: string, options: { purpose?: 'context-onboarding'; projectBranch?: boolean } = {}): Promise<Store> {
   config = validate<Config>(configSchema, config);
   if (options.purpose === 'context-onboarding') throw new Error('Project Context onboarding isolation is unavailable without a content baseline. Maintain documents in authorized direct development.');
+  if (options.projectBranch) {
+    // The worktree is the isolation; its files are edited directly by the native Agents.
+    config = {...config, projectMode: 'direct', executionMode: 'native'};
+  }
   if (!config.projectMode && !existsSync(path.join(source,'.git'))) config = {...config, projectMode:'direct'};
   if (config.projectMode === 'direct' && config.executionMode === 'proposal') throw new Error('Direct project mode requires native execution'); if (!goal.trim()) throw new Error('Goal is required');
   if (config.projectMode === 'direct') config = {...config,executionMode:'native'};
@@ -44,11 +54,20 @@ export async function createRun(config: Config, source: string, goal: string, op
   let releasePreparation: (() => void) | undefined;
   let canonicalSource = path.resolve(source);
   let base: string;
+  let projectBranch: ProjectBranch | undefined;
   try {
     canonicalSource = realpathSync(source);
     releasePreparation = lockProject({ source: canonicalSource, config } as State);
-    base = await prepare(source, isolated, config);
-    assertDeliveryAcceptanceRules({ config, workspace: config.projectMode === 'direct' ? canonicalSource : isolated });
+    if (!options.projectBranch) base = await prepare(source, isolated, config);
+    else {
+      if (!config.allowedRepositories.some(allowed => realpathSync(allowed).toLowerCase() === canonicalSource.toLowerCase())) throw new Error('Repository is not explicitly allowed');
+      assertProjectRuntime(canonicalSource, config.runtimeDir);
+      projectBranch = await createProjectWorktree(canonicalSource, config.runtimeDir, store.id);
+      base = projectBranch.baseCommit;
+      atomicJson(path.join(path.dirname(isolated), 'project-git.json'), { head: base });
+      store.audit('project-worktree-created', projectBranch);
+    }
+    assertDeliveryAcceptanceRules({ config, workspace: projectBranch?.worktree ?? (config.projectMode === 'direct' ? canonicalSource : isolated) });
   }
   catch (error) {
     // Keep a durable, inspectable failure even when clone/preparation never completes.
@@ -64,8 +83,9 @@ export async function createRun(config: Config, source: string, goal: string, op
     }
     throw error;
   } finally { releasePreparation?.(); }
-  const workspace = config.projectMode === 'direct' ? realpathSync(source) : isolated;
+  const workspace = projectBranch?.worktree ?? (config.projectMode === 'direct' ? realpathSync(source) : isolated);
   const state: State = { version: 1, id: store.id, goal, source: realpathSync(source), workspace, base, config, phase: 'planning', nextPhase: 'planning', tasks: [], taskIndex: 0, loops: 0, reworks: 0, claudeSessionId: null, codexThreadId: null, feedback: '', reason: '', evidence: null, executorExitCode: -1, updatedAt: '', beforeExecution: '' };
+  if (projectBranch) state.projectBranch = projectBranch;
   state.snapshotPolicy = 'none';
   state.decisionAgent = decisionIdentity(config);
   initializeDiscussion(state);
@@ -76,6 +96,11 @@ export async function createRun(config: Config, source: string, goal: string, op
   return store;
 }
 export async function drive(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; timeoutMs?: number }, intent: 'resume' | 'visual' | 'rework' = 'resume', automatic?: AutomaticResume): Promise<State> {
+  const before = store.load();
+  if (before.projectBranch?.integration && before.phase === 'completed') return before;
+  return finishProjectRun(store, await driveRun(store, agents, decision, externalSignal, limits, intent, automatic));
+}
+async function driveRun(store: Store, agents: Agents, decision?: string, externalSignal?: AbortSignal, limits?: { maxLoops?: number; maxReworks?: number; timeoutMs?: number }, intent: 'resume' | 'visual' | 'rework' = 'resume', automatic?: AutomaticResume): Promise<State> {
   const unlock = store.lock(); let state: State; let releaseProject: (() => void) | undefined; let automaticFailure: State['failure'];
   // A question the decision maker still returns right after an automatic delegation stays with the user.
   let delegated = !!automatic;
@@ -96,7 +121,8 @@ export async function drive(store: Store, agents: Agents, decision?: string, ext
     assertExecutionState(state);
     if(state.phase==='failed' && state.failure?.stage==='prepare' && !state.failure.recoverable){unlock();return state;}
     if(state.config.projectMode==='direct' && agents.executionMode!=='native') throw new Error('Direct project mode requires native execution adapter');
-    if (state.workspace !== (state.config.projectMode === 'direct' ? realpathSync(state.source) : store.file('workspace')) || realpathSync(state.workspace).toLowerCase() !== path.resolve(state.workspace).toLowerCase()) throw new Error('Persisted workspace path mismatch or junction redirect');
+    if ((state.projectBranch ? !samePath(state.workspace, runWorkspace(state, store)) : state.workspace !== runWorkspace(state, store)) || realpathSync(state.workspace).toLowerCase() !== path.resolve(state.workspace).toLowerCase()) throw new Error('Persisted workspace path mismatch or junction redirect');
+    if (state.projectBranch) await assertRunWorktree(state, store);
     releaseProject=lockProject({...state, source: state.workspace, config: {...state.config, projectMode: 'direct'}});
   }
   catch (error) { unlock(); throw error; }
