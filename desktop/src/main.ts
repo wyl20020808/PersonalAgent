@@ -1,5 +1,6 @@
 import {chatRoute} from './chatRouting.js';
-import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,screen,shell,clipboard} from 'electron';
+import {installRendererRecovery} from './rendererRecovery.js';
+import {app,BrowserWindow,ipcMain,dialog,protocol,session,Menu,MenuItem,screen,shell,clipboard} from 'electron';
 import {restoreWindowBounds,ensureWindowOnDisplay,watchWindowDisplays} from './windowPlacement.js';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -121,15 +122,16 @@ ${request.replacement?'替代方案：'+request.replacement.relative+'\n'+reques
   if(event.sender!==window.webContents||event.senderFrame!==window.webContents.mainFrame||event.senderFrame.url!=='personalagent://app/index.html')throw Error('Untrusted IPC sender');
   const key=`${String(raw?.profileId??'')}:${String(raw?.runId??'')}`,watcher=threadWatchers.get(key);if(watcher){watcher.close();threadWatchers.delete(key);}return {unsubscribed:true};
  });
- await window.loadURL('personalagent://app/index.html');
- let rendererRecoveries=0;
- window.webContents.on('render-process-gone',(_event,details)=>{
-  fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),...details})+'\n');
-  if(quitting||details.reason==='clean-exit'||rendererRecoveries>=2)return;
-  rendererRecoveries++;
-  setTimeout(()=>{if(!window.isDestroyed())void window.loadURL('personalagent://app/index.html').catch(error=>fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),error:redact(String(error))})+'\n'));},1000);
- });
+ const recovery=installRendererRecovery(window,{quitting:()=>quitting,allowed:()=>readInteractionPolicy().mode==='idle',log:entry=>{
+  fs.mkdirSync(path.join(data,'logs'),{recursive:true});
+  fs.appendFileSync(path.join(data,'logs','renderer-failures.jsonl'),JSON.stringify({time:new Date().toISOString(),...entry,...(entry.error?{error:redact(String(entry.error))}:{})})+'\n');
+ }});
+ app.on('will-quit',recovery.dispose);
+ const menu=Menu.getApplicationMenu()??new Menu();
+ menu.append(new MenuItem({label:'恢复界面（保留运行任务）',accelerator:'CmdOrCtrl+Shift+R',click:recovery.recover}));
+ Menu.setApplicationMenu(menu);
  window.on('close',event=>{if((service.children.size||service.sessions.discussionCalls.size)&&!quitting){event.preventDefault();void dialog.showMessageBox(window,{type:'warning',buttons:['留在窗口','停止任务并关闭'],defaultId:0,cancelId:0,message:'Controller 仍有运行中的任务',detail:'关闭前请求安全停止；状态和用量会持久化，之后可恢复。'}).then(async answer=>{if(answer.response===1){quitting=true;await service.stopOwned();app.quit();}});}});
  app.on('second-instance',()=>{if(window.isDestroyed())return;if(window.isMinimized())window.restore();ensureWindowOnDisplay(window,screen);window.show();window.focus();});
+ await window.loadURL('personalagent://app/index.html').catch(()=>recovery.recover());
 });
 app.on('window-all-closed',()=>app.quit());
