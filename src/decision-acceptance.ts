@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import type { State, Store } from './store.js';
 import { pendingGuidance, processingGuidance } from './steering.js';
 import { recordAcceptedTask } from './task-ledger.js';
+import { orderTasks } from './dependencies.js';
 import { contextLimits, previousContext } from './model-context.js';
 
 // A decision receipt is distinct from user approval and from executed tests.
@@ -42,6 +43,7 @@ export function acceptDecision(store: Store, state: State): State {
   // Read the decision Session's occupancy while it is still bound.
   const occupancy = state.discussion ? null : previousContext(state, store, 'decision')?.usedTokens ?? null, halfBudget = contextLimits(state, store, 'decision').compactAt / 2;
   advanceReviewedTask(state);
+  appendFollowUps(store, state);
   // Rework and recovery continue one task's Session; an accepted task ends it so later tasks do not re-read its history.
   // The last task keeps its Session for history and delivery records.
   const previousSession = state.taskIndex < state.tasks.length ? state.executionSession?.sessionId ?? state.codexThreadId ?? null : null;
@@ -58,4 +60,21 @@ export function acceptDecision(store: Store, state: State): State {
   if (decisionSession) store.audit('decision-session-rotated', { previousSession: decisionSession, occupancy, loop: state.loops, nextTaskId: state.tasks[state.taskIndex]?.id ?? null, note: '决策 Session 占用达到工作预算的一半；后续使用新 Session，任务台账提供已验收成果' });
   store.audit('transition', { phase: state.phase, reason: state.reason, taskIndex: state.taskIndex, loops: state.loops, claudeCalls: state.claudeCalls ?? 0 });
   return state;
+}
+
+// A passing review may add work the goal still needs; otherwise the decision maker has to force a replan through rework.
+function appendFollowUps(store: Store, state: State): void {
+  const requested = state.evidence?.decisionReview?.followUpTasks ?? [];
+  if (!requested.length) return;
+  const existing = new Set(state.tasks.map(task => task.id)), added = requested.filter(task => !existing.has(task.id));
+  const skipped = requested.filter(task => existing.has(task.id)).map(task => task.id);
+  try {
+    state.tasks = orderTasks([...state.tasks, ...added], state.config);
+  } catch (error) {
+    store.audit('review-follow-ups-rejected', { tasks: added.map(task => task.id), reason: (error as Error).message, note: '追加任务未通过依赖校验，未加入计划；决策者可在后续验收或重新规划中修正' });
+    return;
+  }
+  state.taskIndex = state.tasks.findIndex(task => !state.completedTaskIds?.includes(task.id));
+  if (state.taskIndex < 0) state.taskIndex = state.tasks.length;
+  store.audit('review-follow-ups', { added: added.map(task => task.id), skippedExisting: skipped, nextTaskId: state.tasks[state.taskIndex]?.id ?? null });
 }
