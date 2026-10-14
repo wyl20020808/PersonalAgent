@@ -390,8 +390,12 @@ test('real session creates Run without paid authorization; direct project permis
  const {service,project}=fixture();service.launch=()=>{};
  const real=service.sessions.create({operation:'createSession',projectPath:project,mode:'real'});
  await assert.rejects(service.sessions.send({operation:'sendSession',sessionId:real.id,messageId:randomUUID(),text:'开发真实功能'}),/首次直接开发/);assert.equal(service.overview().runs.length,0);
+ // A plain folder is refused for real development and the user is told to decide on a test branch.
  await service.sessions.send({operation:'sendSession',sessionId:real.id,messageId:randomUUID(),text:'开发真实功能',directAcknowledged:true});
- const run=service.sessions.detail(real.id).runs[0];assert.equal(run.mode,'real');assert.equal(run.phase,'interrupted');assert.equal(service.store(run.profileId,run.id).load().config.globalBudget,undefined);
+ const refused=service.sessions.detail(real.id).runs[0];assert.equal(refused.phase,'failed');assert.match(refused.reason,/不是 Git 仓库/);assert.equal(fs.existsSync(path.join(project,'.git')),false);
+ await git(project,['init','-b','main']);await git(project,['add','.']);await git(project,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','base']);await git(project,['branch','test']);
+ await service.sessions.send({operation:'sendSession',sessionId:real.id,messageId:randomUUID(),text:'开发真实功能'});
+ const run=service.sessions.detail(real.id).runs[1];assert.equal(run.mode,'real');assert.equal(run.phase,'interrupted');assert.equal(service.store(run.profileId,run.id).load().config.globalBudget,undefined);
 });
 
 test('chat continuation reaches the real Controller launcher and preserves the existing Run',async()=>{

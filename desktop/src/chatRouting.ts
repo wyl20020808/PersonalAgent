@@ -1,6 +1,8 @@
 /** Route by verified runtime state; the existing Agent interprets the user's actual request. */
-export function chatRoute(text:string,run?:{phase:string;active?:boolean;nextPhase?:string;manualAcceptanceDigest?:string|null;failure?:{recoverable:boolean}|null},hasAttachments=false):'start'|'queue'|'stop'|'hold'|'resume'|'rework'|'accept'|'acknowledge'{
+export function chatRoute(text:string,run?:{phase:string;active?:boolean;nextPhase?:string;manualAcceptanceDigest?:string|null;failure?:{recoverable:boolean;stage?:string}|null},hasAttachments=false):'start'|'queue'|'stop'|'hold'|'resume'|'rework'|'accept'|'acknowledge'{
  const value=text.trim().replace(/[。！!]+$/,'').trim();
+ // A Run refused during preparation (for example no local test branch) never started; the next message starts afresh.
+ if(run?.phase==='failed'&&run.failure?.stage==='prepare'&&!run.failure.recoverable)run=undefined;
  if(!hasAttachments&&/^(停止|暂停|先停一下|停止任务|暂停任务|不要继续|stop|pause)$/i.test(value))return run?'stop':'acknowledge';
  if(!hasAttachments&&/^(保持暂停|先别执行|暂时不要执行)$/i.test(value))return 'hold';
  if(run&&(run.active||['planning','execute','executing','applying','verify','review'].includes(run.phase)))return 'queue';

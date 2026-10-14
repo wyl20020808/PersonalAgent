@@ -5,6 +5,7 @@ import { lockProject } from './project-files.js';
 import { pendingGuidance, processingGuidance } from './steering.js';
 import { advanceReviewedTask } from './decision-acceptance.js';
 import { recordAcceptedTask } from './task-ledger.js';
+import { finishProjectRun } from './project-branch.js';
 
 export function manualAcceptanceDigest(state: State): string | null {
   if (state.phase !== 'paused' || state.nextPhase !== 'verify' || state.evidence?.acceptanceMode !== 'decision-user' || !['pass', 'human'].includes(state.evidence.decisionReview?.verdict ?? '') || state.evidence.userAccepted) return null;
@@ -13,6 +14,9 @@ export function manualAcceptanceDigest(state: State): string | null {
 // Human acceptance is separate from independent test success. Recheck the exact
 // observed evidence under the same locks as development; never invoke an Agent here.
 export async function acceptManual(store: Store, digest: string, observations: string): Promise<State> {
+  return finishProjectRun(store, await acceptCurrent(store, digest, observations));
+}
+async function acceptCurrent(store: Store, digest: string, observations: string): Promise<State> {
   const unlock=store.lock();let release:(()=>void)|undefined;
   try {
     const state=store.load();release=lockProject({...state,source:state.workspace,config:{...state.config,projectMode:'direct'}});

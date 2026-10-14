@@ -163,7 +163,12 @@ test('real mode creates Run without paid acknowledgement or ledger (launch local
  const entry=service.registry().profiles[0]!,config=JSON.parse(fs.readFileSync(entry.file,'utf8'));config.mode='real';config.projectMode='direct';config.directAuthorization={projectPath:target,acknowledgedAt:new Date().toISOString()};config.globalBudget={file:path.join(data,'missing-legacy-ledger.json'),limit:1};
  const file=path.join(data,'real.config.json');fs.writeFileSync(file,JSON.stringify(config));service.register(file);const p=service.overview().profiles.find(p=>p.mode==='real')!;
  const launch=service.launch;let calls=0;service.launch=()=>{calls++;};
- try{const run=await service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'local interception only'}) as any;assert.equal(run.phase,'interrupted');assert.equal(service.store(p.id,run.id).load().phase,'planning');assert.equal(calls,1);assert.equal(service.detail(p.id,run.id).auditVerified,true);assert.equal(fs.existsSync(config.globalBudget.file),false);}
+ try{
+  // Real development needs a local test branch; without one the Run is refused before any launch.
+  const refused=await service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'no test branch'}) as any;assert.equal(refused.phase,'failed');assert.match(refused.reason,/没有本地 test 分支/);assert.equal(calls,0);
+  await git(target,['branch','test']);
+  const run=await service.dispatch({operation:'start',profileId:p.id,repository:target,goal:'local interception only'}) as any;assert.equal(run.phase,'interrupted');
+  const state=service.store(p.id,run.id).load();assert.equal(state.phase,'planning');assert.equal(state.source,fs.realpathSync(target));assert.notEqual(state.workspace,state.source);assert.equal(await git(state.workspace,['symbolic-ref','--short','HEAD']),state.projectBranch!.branch);assert.equal(calls,1);assert.equal(service.detail(p.id,run.id).auditVerified,true);assert.equal(fs.existsSync(config.globalBudget.file),false);}
  finally{service.launch=launch;}
 });
 

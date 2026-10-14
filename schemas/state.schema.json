@@ -1265,6 +1265,63 @@
         }
       ]
     },
+    "projectBranch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "integrationBranch",
+        "branch",
+        "baseCommit",
+        "worktree"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string"
+        },
+        "integrationBranch": {
+          "const": "test"
+        },
+        "branch": {
+          "type": "string",
+          "pattern": "^personalagent/[0-9a-f]{8}$"
+        },
+        "baseCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40,64}$"
+        },
+        "worktree": {
+          "type": "string"
+        },
+        "integration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "commit",
+            "previousTarget",
+            "at"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "merged",
+                "no-changes"
+              ]
+            },
+            "commit": {
+              "type": "string"
+            },
+            "previousTarget": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "automaticPlanning": {
       "type": "object",
       "additionalProperties": false,

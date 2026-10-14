@@ -75,7 +75,7 @@ try {
     let store: Store;
     if (command === 'start' || command === 'context-start') {
       if (!values.repo || !values.goal) throw new Error('--repo and --goal are required');
-      store = await createRun(timeoutMs === undefined ? config : validate<Config>(configSchema, { ...config, timeoutMs }), values.repo, values.goal, command === 'context-start' ? { purpose: 'context-onboarding' } : {}); console.log(`Run ID: ${store.id}`);
+      store = await createRun(timeoutMs === undefined ? config : validate<Config>(configSchema, { ...config, timeoutMs }), values.repo, values.goal, command === 'context-start' ? { purpose: 'context-onboarding' } : { projectBranch: config.mode === 'real' }); console.log(`Run ID: ${store.id}`);
     } else {
       if (!['context-request', 'context-decide', 'context-pending', 'resume', 'status', 'stop', 'manual-accept', 'project-restore', 'delivery-preview', 'delivery-approve', 'delivery-apply', 'delivery-status'].includes(command)) throw new Error('Unknown command');
       if (!values.id) throw new Error('--id is required'); store = new Store(config.runtimeDir, values.id);

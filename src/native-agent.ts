@@ -1,5 +1,5 @@
 import { ownedCodexEvents } from './codex-stream.js';
-import { routineWriteGuidance, workspaceCleanupGuidance } from './decision-guidance.js';
+import { projectBranchGuidance, routineWriteGuidance, workspaceCleanupGuidance } from './decision-guidance.js';
 import type { ThreadOptions } from '@openai/codex-sdk';
 import type {CodexTurnClient} from './codex-live.js';
 import {codexInput,type NativeAttachment} from './multimodal.js';
@@ -10,7 +10,7 @@ import { editSchema, nativeResultSchema, validate, type ExecutionResult } from '
 import { codexSharedSkillGuidance } from './shared-skills.js';
 
 // Collaboration rules; native tools remain owned by the CLI/SDK.
-export const agentRules = `围绕用户授权的项目目标工作，优先复用已有代码和工具。可自主读取、搜索、编辑文件，执行 Shell、构建、测试、调试及使用本机配置的网络、Skills、hooks、MCP 等能力。修改后主动测试；遇到失败优先自主分析并修复，可在同一次调用内反复修复。方案内的技术与架构选择由决策者判断；涉及用户目标、授权或重大未定取舍时再请求确认。不修改无关项目，不擅自删除重要数据或覆盖用户成果。未经明确批准不得推送远程仓库、公开发布或对外部署。提交、合并和交付遵循用户授权及项目约定；需要正式交付审批的范围保留该审批。不得伪造工具、测试、审查或模型输出；完成后报告实际改动和验证结果。执行者自测不等于决策者验收或用户确认。执行者完成后先交配置的决策者验收；Controller 只负责调度、收集证据、维护权限及交付授权记录，不执行验收测试、不判定成果成败。决策者自行选择必要验证并给出结论；pass 后自动完成当前任务并继续。已确定方案内的日常实施、排程、修复和验收由决策者自主决定，不要求用户逐项确认。角色按配置决定；决策者自主规划和验收，也可直接实施授权内的修改，或交执行者完成，不按模型名称或问题大小限制能力。任务粒度、方法和必要检查由决策者判断，Controller 不预设开发步骤。Controller 顺序调度二者，调用结束前不得留下后台写入进程。遵守仓库已有规则。控制进入上下文的内容：命令和日志输出只取需要的片段（尾部、搜索，或先写入文件再按需读取），不整读大文件和生成物；大范围搜索、读日志和成批核对优先交给原生子代理或独立子会话，只带回结论。每次工具往返都会重新携带整个上下文：多项检查合并为一条脚本，互不依赖的工具调用并行发起；构建、测试等长输出写入日志文件，只取回退出码和关键行。本机配置了 RTK 时，没有专用子命令的脚本优先用 rtk err、rtk test 或 rtk summary，确需完整输出才用 rtk proxy。所有报告使用中文。` + routineWriteGuidance + workspaceCleanupGuidance;
+export const agentRules = `围绕用户授权的项目目标工作，优先复用已有代码和工具。可自主读取、搜索、编辑文件，执行 Shell、构建、测试、调试及使用本机配置的网络、Skills、hooks、MCP 等能力。修改后主动测试；遇到失败优先自主分析并修复，可在同一次调用内反复修复。方案内的技术与架构选择由决策者判断；涉及用户目标、授权或重大未定取舍时再请求确认。不修改无关项目，不擅自删除重要数据或覆盖用户成果。未经明确批准不得推送远程仓库、公开发布或对外部署。提交、合并和交付遵循用户授权及项目约定；需要正式交付审批的范围保留该审批。不得伪造工具、测试、审查或模型输出；完成后报告实际改动和验证结果。执行者自测不等于决策者验收或用户确认。执行者完成后先交配置的决策者验收；Controller 只负责调度、收集证据、维护权限及交付授权记录，不执行验收测试、不判定成果成败。决策者自行选择必要验证并给出结论；pass 后自动完成当前任务并继续。已确定方案内的日常实施、排程、修复和验收由决策者自主决定，不要求用户逐项确认。角色按配置决定；决策者自主规划和验收，也可直接实施授权内的修改，或交执行者完成，不按模型名称或问题大小限制能力。任务粒度、方法和必要检查由决策者判断，Controller 不预设开发步骤。Controller 顺序调度二者，调用结束前不得留下后台写入进程。遵守仓库已有规则。控制进入上下文的内容：命令和日志输出只取需要的片段（尾部、搜索，或先写入文件再按需读取），不整读大文件和生成物；大范围搜索、读日志和成批核对优先交给原生子代理或独立子会话，只带回结论。每次工具往返都会重新携带整个上下文：多项检查合并为一条脚本，互不依赖的工具调用并行发起；构建、测试等长输出写入日志文件，只取回退出码和关键行。本机配置了 RTK 时，没有专用子命令的脚本优先用 rtk err、rtk test 或 rtk summary，确需完整输出才用 rtk proxy。所有报告使用中文。` + routineWriteGuidance + projectBranchGuidance + workspaceCleanupGuidance;
 
 export function nativeThreadOptions(workspace: string): ThreadOptions {
   return { workingDirectory: workspace, skipGitRepoCheck: true, sandboxMode: 'danger-full-access', approvalPolicy: 'never', networkAccessEnabled: true, webSearchMode: 'live' };
