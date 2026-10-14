@@ -930,6 +930,60 @@
                     ],
                     "additionalProperties": false
                   }
+                },
+                "followUpTasks": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                      },
+                      "instruction": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100000
+                      },
+                      "acceptance": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100000
+                        },
+                        "minItems": 1
+                      },
+                      "dependsOn": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                        }
+                      },
+                      "acceptanceStage": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                      },
+                      "moduleIds": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "instruction",
+                      "acceptance"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "Only with verdict pass: further tasks the goal still needs, appended to the plan after this task with new IDs. Use this instead of rework when the accepted task is done but more work remains."
                 }
               },
               "required": [
