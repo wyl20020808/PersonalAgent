@@ -13,7 +13,14 @@ import {guidanceSchema,type Guidance} from './steering.js';
 
 export type Phase = 'planning' | 'execute' | 'executing' | 'applying' | 'verify' | 'review' | 'paused' | 'stopped' | 'failed' | 'completed';
 export interface Evidence { acceptanceMode?: 'decision-user'; decisionReview?: Review; decisionAccepted?: boolean; userAccepted?: boolean; verificationScope?: string; contextReport?: ContextReport; screenshots?: Screenshot[]; diff: string; taskDiff?: string; roundDiff?: string; acceptanceRulesHash?: string; status: string; head: string; snapshotDigest: string; tests: ProcessResult[]; executorExitCode: number; passed: boolean; issues: string[] }
+export const INTEGRATION_BRANCH = 'test';
+/** Real target-project Runs work in their own worktree branched from `test` and merge back only into `test`. */
+export interface ProjectBranch {
+  repository: string; integrationBranch: typeof INTEGRATION_BRANCH; branch: string; baseCommit: string; worktree: string;
+  integration?: { status: 'merged' | 'no-changes'; commit: string; previousTarget: string; at: string };
+}
 export interface State {
+  projectBranch?: ProjectBranch;
   automaticPlanning?: { reason: string };
   userRequired?: boolean;
   /** The executor ended its turn on a question; the user's reply goes straight back to that Session. */
@@ -53,6 +60,10 @@ const stateProperties = {
 };
 export const stateSchema = { type: 'object', properties: { ...stateProperties, deferredTaskIds: { type: 'array', uniqueItems: true, items: str }, snapshotPolicy: { const: 'none' }, purpose: { enum: ['context-onboarding','conversation-discussion'] }, projectContextEnabled: { type: 'boolean' }, nativeExecution: { type: 'boolean' }, completedTaskIds: { type: 'array', uniqueItems: true, items: str }, claudeCalls: integer, reviewRepairs: integer, totalReworks: integer, reworkPending: { type: 'boolean' }, failure: { anyOf: [{ type: 'null' }, { type: 'object', properties: { kind: { enum: failureKinds }, stage: str, message: str, recoverable: { type: 'boolean' } }, required: ['kind', 'stage', 'message', 'recoverable'], additionalProperties: false }] } }, required: Object.keys(stateProperties), additionalProperties: false };
 Object.assign(stateSchema.properties, {
+  projectBranch: { type: 'object', additionalProperties: false, required: ['repository','integrationBranch','branch','baseCommit','worktree'], properties: {
+    repository: str, integrationBranch: { const: INTEGRATION_BRANCH }, branch: { type: 'string', pattern: '^personalagent/[0-9a-f]{8}$' }, baseCommit: { type: 'string', pattern: '^[0-9a-f]{40,64}$' }, worktree: str,
+    integration: { type: 'object', additionalProperties: false, required: ['status','commit','previousTarget','at'], properties: { status: { enum: ['merged','no-changes'] }, commit: str, previousTarget: str, at: str } }
+  } },
   automaticPlanning: {type:'object',additionalProperties:false,required:['reason'],properties:{reason:str}},
   userRequired: {type:'boolean'},
   executorQuestion: {type:'object',additionalProperties:false,required:['taskId','loop'],properties:{taskId:str,loop:{type:'integer',minimum:0},reply:str}},

@@ -6,6 +6,7 @@ import { FlowError, classifyFailure, providerFailure } from './failure.js';
 import { configSchema, nativeResultSchema, validate, type Config, type NativeResult } from './schema.js';
 import type { State, Store } from './store.js';
 import { CallObservation } from './call-observation.js';
+import { runWorkspace, samePath } from './project-branch.js';
 import { activityRecorder, redact } from './telemetry.js';
 import { agentRules } from './native-agent.js';
 import { interactionAgentRules } from './interaction-policy.js';
@@ -94,8 +95,8 @@ export class OpenCodeExecutionAgent implements ExecutionAgent {
     if (persisted.id !== state.id || store.id !== state.id || persisted.workspace !== state.workspace || persisted.phase !== 'executing' || persisted.loops !== state.loops ||
       JSON.stringify(persisted.tasks) !== JSON.stringify(state.tasks) || JSON.stringify(persisted.config) !== JSON.stringify(state.config)) throw new FlowError('safety', 'OpenCode Execute persisted Run/Plan/workspace mismatch');
     const source = realpathSync(state.source);
-    if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || realpathSync(state.workspace) !== (state.config.projectMode === 'direct' ? source : realpathSync(store.file('workspace'))) ||
-      state.config.projectMode === 'direct' && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'OpenCode Execute workspace authorization mismatch');
+    if (!state.config.allowedRepositories.some(directory => realpathSync(directory) === source) || !samePath(realpathSync(state.workspace), realpathSync(runWorkspace(state, store))) ||
+      state.config.projectMode === 'direct' && !state.projectBranch && (!state.config.directAuthorization?.acknowledgedAt || realpathSync(state.config.directAuthorization.projectPath) !== source)) throw new FlowError('safety', 'OpenCode Execute workspace authorization mismatch');
     if (state.executionAttempt) {
       if (state.executionAttempt.status !== 'success') {
         const events = readFileSync(store.file('audit.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
