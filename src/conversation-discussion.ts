@@ -7,9 +7,10 @@ import {ClaudeCodeDecisionAgent} from './claude-code-decision-agent.js';
 import {CodexDecisionAgent} from './codex-decision-agent.js';
 import {OpenCodeDecisionAgent} from './opencode-decision-agent.js';
 import {bindRunAttachments} from './multimodal.js';
+import {clarificationQuestionsSchema,clarificationGuidance,type ClarificationQuestion} from './task-agreement.js';
 
-export const conversationReplySchema={type:'object',additionalProperties:false,required:['reply','plan'],properties:{reply:{type:'string',minLength:1,maxLength:20000},plan:{type:'string',maxLength:12000}}};
-export type ConversationReply={reply:string;plan:string};
+export const conversationReplySchema={type:'object',additionalProperties:false,required:['reply','plan'],properties:{reply:{type:'string',minLength:1,maxLength:20000},plan:{type:'string',maxLength:12000},questions:clarificationQuestionsSchema}};
+export type ConversationReply={reply:string;plan:string;questions?:ClarificationQuestion[]};
 export type ConversationDiscussionInput={nodeExecutable?:string;onProgress?:(progress:import('./discussion-stream.js').DiscussionProgress)=>void;runtimeDir:string;stateId?:string;projectPath:string;sessionId:string;config:Config;text:string;history:{role:'user'|'assistant';text:string}[];plan:string;attachments?:{name:string;mimeType:string;bytes:Buffer}[]};
 
 /** A conversational decision Session, never registered or scheduled as a development Run. */
@@ -28,7 +29,7 @@ export async function conversationDiscussion(input:ConversationDiscussionInput,o
  const unlock=store.lock();
  try{
   bindRunAttachments(store,input.attachments??[]);state=store.load();
-  const prompt=JSON.stringify({action:'当前是用户选择的只读讨论模式：与用户讨论项目问题，怎么讨论由你决定，可用只读工具查看项目。本模式不修改文件、不运行命令、不派发执行；转入开发由用户通过应用中的开始执行入口触发，讨论里的“开始/继续/执行”不触发实施。reply 为给用户的中文回复；plan 为当前候选方案，内容和形式由你决定，尚不能形成方案时为空字符串。',projectPath:state.source,history:input.history.slice(-40),previousPlan:input.plan,userMessage:input.text});
+  const prompt=JSON.stringify({action:'当前是用户选择的只读讨论模式：与用户讨论项目问题，怎么讨论由你决定，可用只读工具查看项目。本模式不修改文件、不运行命令、不派发执行；转入开发由用户通过应用中的开始执行入口触发，讨论里的“开始/继续/执行”不触发实施。reply 为给用户的中文回复；plan 为当前候选方案，内容和形式由你决定，尚不能形成方案时为空字符串。',clarification:clarificationGuidance,projectPath:state.source,history:input.history.slice(-40),previousPlan:input.plan,userMessage:input.text});
   store.audit('conversation-discussion-turn',{sessionId:input.sessionId,text:input.text});
   let output:ConversationReply;
   if(input.config.mode==='mock'){
@@ -38,6 +39,8 @@ export async function conversationDiscussion(input:ConversationDiscussionInput,o
    const agent=adapter??(state.decisionAgent?.backend==='codex'?new CodexDecisionAgent(state.config):state.decisionAgent?.backend==='opencode'?new OpenCodeDecisionAgent(state.config):new ClaudeCodeDecisionAgent(state.config));
    output=(await agent.structured<ConversationReply>({state,store,role:'plan',phase:'plan',readOnly:true,nodeExecutable:input.nodeExecutable,onPublicProgress:input.onProgress,prompt,schema:conversationReplySchema,workspace:state.workspace,runId:state.id,taskId:null,signal,timeoutMs:input.config.timeoutMs})).output;
   }
-  validate(conversationReplySchema,output);store.audit('conversation-discussion-reply',output);return output;
+  validate(conversationReplySchema,output);
+  if(output.questions?.some(q=>q.recommended>=q.options.length)||new Set(output.questions?.map(q=>q.id)).size!==(output.questions?.length??0))throw Error('澄清问题选项或标识无效');
+  store.audit('conversation-discussion-reply',output);return output;
  }finally{unlock();}
 }

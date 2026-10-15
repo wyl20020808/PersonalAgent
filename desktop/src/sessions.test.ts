@@ -15,6 +15,54 @@ import type {State} from '../../src/store.js';
 import {claimGuidance,guidanceStatus,pendingGuidance} from '../../dist/src/steering.js';
 import {runAttachments} from '../../dist/src/multimodal.js';
 import type {DecisionModels,DecisionAgent} from './types.js';
+
+test('automatic intake requires answers and current plan confirmation; preferences steer the original Run',async t=>{
+ const {service,data,project}=fixture();
+ t.after(()=>{service.children.clear();fs.rmSync(data,{recursive:true,force:true});});
+ fs.writeFileSync(service.registryFile,JSON.stringify({...service.registry(),automaticDevelopment:{enabled:true,enabledAt:new Date().toISOString()}}));
+ const chat=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
+ assert.equal(chat.chatMode,'discuss');assert.equal(chat.intakeRequired,true);
+ let turns=0;
+ service.sessions.discuss=async()=>++turns===1?{reply:'先选择范围',plan:'',questions:[{id:'scope',title:'先做哪个版本？',options:[{label:'原型',description:'先验证核心流程'},{label:'完整版本',description:'覆盖主要功能'}],recommended:0}]}:{reply:'方案已整理',plan:'目标：核心流程。范围：原型。完成标准：可验证运行。',questions:[]};
+ await service.sessions.send({operation:'sendSession',sessionId:chat.id,messageId:randomUUID(),text:'开发一个工具'});
+ const first=await settleDiscussion(service,chat.id);
+ assert.equal(first.runs.length,0);assert.equal(first.messages.at(-1)?.clarificationQuestions?.length,1);
+ await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:chat.id,messageId:randomUUID(),projectMode:'direct'}),/回答当前问题/);
+ await service.sessions.send({operation:'sendSession',sessionId:chat.id,messageId:randomUUID(),text:'原型'});
+ const ready=await settleDiscussion(service,chat.id),preferences={time:'low' as const,tokens:'medium' as const,notes:'先完成核心流程'};
+ await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:chat.id,messageId:randomUUID(),projectMode:'direct'}),/时间与 Token/);
+ await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:chat.id,messageId:randomUUID(),projectMode:'direct',taskPreferences:preferences,planMessageId:first.messages[0].id}),/方案已更新/);
+ service.launch=()=>{};
+ const request={directAcknowledged:true,operation:'executeDiscussion' as const,sessionId:chat.id,messageId:randomUUID(),projectMode:'direct' as const,taskPreferences:preferences,planMessageId:ready.messages.at(-1)!.id};
+ const started=await service.sessions.executeDiscussion(request);
+ assert.equal(started.runs.length,1);assert.deepEqual(started.taskPreferences,preferences);
+ assert.equal((await service.sessions.executeDiscussion(request)).runs.length,1);
+ const ref=started.runs[0],store=service.store(ref.profileId,ref.id),before=store.load();
+ assert.match(before.goal,/快速完成/);assert.match(before.goal,/不是精确耗时承诺/);
+ service.children.set(ref.id,{} as any);
+ const auditBefore=fs.readFileSync(store.file('audit.jsonl'));
+ const update={operation:'updateTaskPreferences' as const,sessionId:chat.id,messageId:randomUUID(),preferenceRevision:1,taskPreferences:{...preferences,time:'high' as const}};
+ const changed=await service.dispatch(update) as Conversation;
+ assert.equal(changed.preferenceRevision,2);assert.equal(changed.runs.length,1);
+ assert.equal(pendingGuidance(store).length,1);assert.match(pendingGuidance(store)[0].text,/深入开发/);
+ assert.deepEqual(store.load(),before,'UI must not write Controller state during execution');
+ assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),auditBefore,'Controller remains the sole audit writer');
+ await service.dispatch(update);assert.equal(pendingGuidance(store).length,1);
+ await assert.rejects(service.dispatch({...update,messageId:randomUUID()}),/已更新/);
+ assert.equal(new DesktopService(root,data,process.execPath).sessions.get(chat.id).taskPreferences?.time,'high');
+ service.children.clear();await assert.rejects(service.dispatch({...update,messageId:randomUUID(),preferenceRevision:2}),/未运行/);
+ const completed=store.load();completed.phase='completed';store.save(completed);await service.sessions.drainCompleted(ref.id);
+ const final=service.sessions.get(chat.id);assert.equal(final.runs.length,1);assert.equal(final.messages.find(m=>m.id===update.messageId)?.autoQueued,false);
+ assert.match(final.messages.find(m=>m.id===update.messageId)?.error??'',/未应用/);
+});
+
+test('task preference IPC rejects invalid tiers and authority injection',()=>{
+ const base={operation:'updateTaskPreferences',sessionId:randomUUID(),messageId:randomUUID(),preferenceRevision:0,taskPreferences:{time:'low',tokens:'medium',notes:''}};
+ assert.doesNotThrow(()=>validateRequest(base));
+ assert.throws(()=>validateRequest({...base,taskPreferences:{...base.taskPreferences,time:'unlimited'}}));
+ assert.throws(()=>validateRequest({...base,taskPreferences:{...base.taskPreferences,push:true}}));
+ assert.throws(()=>validateRequest({...base,preferenceRevision:-1}));
+});
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
 test('sidebar rename persists display name and deletion keeps data without resurrecting imported Runs',async()=>{
