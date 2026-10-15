@@ -26,6 +26,7 @@ const node=desktopNode(root);
 if(process.platform!=='win32')process.env.PATH=[path.dirname(node),path.join(root,'node_modules/.bin'),process.env.PATH].join(path.delimiter);
 const id=instanceId(),data=instanceData(root),title='PersonalAgent '+id.toUpperCase();
 process.env.PERSONALAGENT_INSTANCE=id;claimInstanceData(data);
+atomicJson(path.join(data,'startup.json'),{time:new Date().toISOString(),pid:process.pid,platform:process.platform,arch:process.arch,packaged:app.isPackaged,instance:id,root,node});
 if(process.platform==='win32'&&!/^D:[\\/]/i.test(data))throw Error('Desktop data must be on D drive');
 assertD(data);assertD(root);
 fs.mkdirSync(path.join(data,'tmp'),{recursive:true});process.env.TEMP=path.join(data,'tmp');process.env.TMP=process.env.TEMP;process.env.TMPDIR=process.env.TEMP;process.env.XDG_CACHE_HOME=path.join(data,'cache');process.env.npm_config_cache=path.join(data,'cache/npm');

@@ -9,7 +9,7 @@ import {packager} from '@electron/packager';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 if(process.platform!=='darwin')throw Error('Build on a native Mac; do not copy Windows dependencies');
 const output=path.resolve(process.env.PERSONAL_AGENT_PACKAGE_OUTPUT??path.join(root,'../packages'));
-const scratch=await fs.mkdtemp(path.join(path.dirname(output),'personalagent-package-'));
+const scratch=await fs.mkdtemp(path.join(root,'../personalagent-package-'));
 const stage=path.join(scratch,'app');
 const run=(file,args,cwd=root)=>execFileSync(file,args,{cwd,stdio:'inherit'});
 try{
@@ -32,7 +32,14 @@ try{
  await fs.symlink('../lib/node_modules/npm/bin/npm-cli.js',path.join(nodeRoot,'bin/npm'));
  await fs.symlink('../lib/node_modules/npm/bin/npx-cli.js',path.join(nodeRoot,'bin/npx'));
  await fs.mkdir(output,{recursive:true});
- const apps=await packager({dir:stage,out:scratch,name:'PersonalAgent DEV Trial',platform:'darwin',arch:process.arch,electronVersion:desktop.devDependencies.electron,appBundleId:'io.personalagent.devtrial',appVersion:desktop.version,asar:false,prune:false,extraResource:[nodeRoot],download:{cacheRoot:path.join(root,'../electron-cache')},osxSign:{identity:'-',identityValidation:false,hardenedRuntime:false},overwrite:false});
+ const electronCache=path.join(root,'../electron-cache'),zipName=`electron-v${desktop.devDependencies.electron}-darwin-${process.arch}.zip`;
+ const checksums=JSON.parse(await fs.readFile(path.join(root,'desktop/node_modules/electron/checksums.json'),'utf8'));
+ let electronZipDir;
+ for(const entry of await fs.readdir(electronCache).catch(()=>[])){
+  const directory=path.join(electronCache,entry);
+  try{const digest=createHash('sha256').update(await fs.readFile(path.join(directory,zipName))).digest('hex');if(digest===checksums[zipName]){electronZipDir=directory;break;}}catch{/* Use the normal verified download when no matching cache exists. */}
+ }
+ const apps=await packager({dir:stage,out:scratch,name:'PersonalAgent DEV Trial',platform:'darwin',arch:process.arch,electronVersion:desktop.devDependencies.electron,appBundleId:'io.personalagent.devtrial',appVersion:desktop.version,asar:false,prune:false,extraResource:[nodeRoot],electronZipDir,download:{cacheRoot:electronCache},osxSign:{identity:'-',identityValidation:false,hardenedRuntime:false},overwrite:false});
  const app=path.join(output,'PersonalAgent DEV Trial.app');
  try{await fs.access(app);throw Error('Output app already exists; choose a fresh output directory');}catch(e){if(e.code!=='ENOENT')throw e;}
  await fs.rename(apps[0],app);
