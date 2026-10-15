@@ -42,7 +42,7 @@ try{
   const directory=path.join(electronCache,entry);
   try{const digest=createHash('sha256').update(await fs.readFile(path.join(directory,zipName))).digest('hex');if(digest===checksums[zipName]){electronZipDir=directory;break;}}catch{/* Use the normal verified download when no matching cache exists. */}
  }
- const apps=await packager({dir:stage,out:scratch,name:'PersonalAgent DEV Trial',platform:'darwin',arch:process.arch,electronVersion:desktop.devDependencies.electron,appBundleId:'io.personalagent.devtrial',appVersion:desktop.version,asar:false,prune:false,extraResource:[nodeRoot],electronZipDir,download:{cacheRoot:electronCache},osxSign:{identity:'-',identityValidation:false,hardenedRuntime:false},overwrite:false});
+ const apps=await packager({dir:stage,out:scratch,name:'PersonalAgent DEV Trial',platform:'darwin',arch:process.arch,electronVersion:desktop.devDependencies.electron,appBundleId:'io.personalagent.devtrial',appVersion:desktop.version,asar:false,prune:false,extraResource:[nodeRoot],electronZipDir,download:{cacheRoot:electronCache},osxSign:{identity:'-',identityValidation:false,optionsForFile:()=>({hardenedRuntime:false,additionalArguments:['--options','0']})},overwrite:false});
  const app=path.join(output,'PersonalAgent DEV Trial.app');
  try{await fs.access(app);throw Error('Output app already exists; choose a fresh output directory');}catch(e){if(e.code!=='ENOENT')throw e;}
  await fs.rename(path.join(apps[0],'PersonalAgent DEV Trial.app'),app);
