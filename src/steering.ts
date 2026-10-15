@@ -1,13 +1,14 @@
 import fs from 'node:fs';
+import {resourceLimitsSchema,type ResourceLimits} from './resource-limits.js';
 import {atomicJson,type Store} from './store.js';
 import {validate} from './schema.js';
 import {attachmentRefSchema,type AttachmentRef} from './attachment-types.js';
 import {readNativeAttachment} from './multimodal.js';
 import {projectTarget} from './project-files.js';
 
-export type Guidance={id:string;sessionId:string;runId:string;text:string;time:string;sequence?:number;attachments:AttachmentRef[]};
+export type Guidance={id:string;sessionId:string;runId:string;text:string;time:string;sequence?:number;resourceLimits?:ResourceLimits;attachments:AttachmentRef[]};
 const uuid={type:'string',pattern:'^[a-f0-9-]{36}$'};
-export const guidanceSchema={type:'object',additionalProperties:false,required:['id','sessionId','runId','text','time','attachments'],properties:{id:uuid,sessionId:uuid,runId:uuid,text:{type:'string',minLength:1,maxLength:5000},time:{type:'string'},sequence:{type:'integer',minimum:1},attachments:{type:'array',maxItems:8,items:attachmentRefSchema}}};
+export const guidanceSchema={type:'object',additionalProperties:false,required:['id','sessionId','runId','text','time','attachments'],properties:{resourceLimits:resourceLimitsSchema,id:uuid,sessionId:uuid,runId:uuid,text:{type:'string',minLength:1,maxLength:5000},time:{type:'string'},sequence:{type:'integer',minimum:1},attachments:{type:'array',maxItems:8,items:attachmentRefSchema}}};
 type Status='pending'|'processing'|'applied'|'cancelled';
 function file(store:Store,id:string,status:Status){if(!/^[a-f0-9-]{36}$/.test(id))throw Error('引导消息 ID 无效');return store.file(`guidance/${status}/${id}.json`);}
 function prepare(store:Store){for(const status of ['pending','processing','applied','cancelled'] as const)fs.mkdirSync(store.file('guidance/'+status),{recursive:true});}

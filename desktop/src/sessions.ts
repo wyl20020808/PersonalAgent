@@ -142,14 +142,14 @@ export class SessionStore {
    if(existing){if(!existing.preferenceUpdate||existing.text!==text)throw Error('Message ID reused with different content');if(existing.status!=='failed')return this.public(session);throw Error('上次投入调整未成功，请刷新后重新提交');}
    if((session.preferenceRevision??0)!==r.preferenceRevision)throw Error('投入约定已更新，请刷新后重试');
    const {runs,unavailableRuns}=this.resolve(session),last=runs.at(-1);
-   if(unavailableRuns.length||!last||['completed','stopped','failed'].includes(last.phase)||!last.active)throw Error('当前任务未运行；请恢复任务后调整投入，不会自动启动新任务');
+   if(unavailableRuns.length||!last||['completed','stopped','failed'].includes(last.phase)||(!last.active&&last.phase!=='paused'))throw Error('当前任务未运行；请恢复任务后调整投入，不会自动启动新任务');
    this.service.writable(last.profileId);
    const store=this.service.store(last.profileId,last.id);
    const message:Saved['messages'][number]={preferenceUpdate:true,id:r.messageId!,time:new Date().toISOString(),text,status:'steering',action:'steer',runId:last.id,guidanceRunId:last.id,autoQueued:false};
    // Persist intent before publishing, so a restart never loses a published user change.
    const previousPreferences=session.taskPreferences,previousRevision=session.preferenceRevision;
    session.messages.push(message);session.taskPreferences=structuredClone(r.taskPreferences!);session.preferenceRevision=(session.preferenceRevision??0)+1;session.updatedAt=message.time;this.update(session);
-   try{publishGuidance(store,{id:message.id,sessionId:session.id,runId:last.id,text,time:message.time,attachments:[]});
+   try{publishGuidance(store,{id:message.id,sessionId:session.id,runId:last.id,text,time:message.time,attachments:[],...(r.taskPreferences?.limits?{resourceLimits:r.taskPreferences.limits}:{})});
     fs.appendFileSync(path.join(this.service.data,'user-actions.jsonl'),JSON.stringify({time:message.time,operation:'updateTaskPreferences',runId:last.id,messageId:message.id,revision:session.preferenceRevision,preferences:session.taskPreferences})+'\n',{flush:true});
    }catch(error){session.taskPreferences=previousPreferences;session.preferenceRevision=previousRevision;message.status='failed';message.error=redact(String(error));this.update(session);throw error;}
    return this.public(session);
@@ -365,7 +365,7 @@ export class SessionStore {
    message.status='starting';this.update(session);
    const linked=(run:Run)=>{if(run.phase!=='failed')bindRunAttachments(this.service.store(run.profileId,run.id),nativeAttachments);session.profileId=run.profileId;session.runs.push({id:run.id,profileId:run.profileId,runtimeDir:this.service.config(run.profileId).config.runtimeDir});message!.runId=run.id;message!.status=run.phase==='failed'?'failed':'executed';message!.error=run.phase==='failed'?run.reason:undefined;session.directAuthorized=true;this.update(session);this.service.store(run.profileId,run.id).audit('desktop-session-link',{sessionId:session.id,messageId:message!.id,taskPreferences:session.taskPreferences,preferenceRevision:session.preferenceRevision});};
    if(!session.profileId){
-    await this.service.startProject({operation:'startProject',projectPath:session.projectPath,goal,...session.settings,maxLoops:session.settings.maxLoops,selectedTests:session.selectedTests,directAcknowledged:r.directAcknowledged===true||session.directAuthorized,realAcknowledged:r.realAcknowledged},linked);
+    await this.service.startProject({operation:'startProject',projectPath:session.projectPath,goal,taskPreferences:session.taskPreferences,...session.settings,maxLoops:session.settings.maxLoops,selectedTests:session.selectedTests,directAcknowledged:r.directAcknowledged===true||session.directAuthorized,realAcknowledged:r.realAcknowledged},linked);
    }else{
     // Revalidate immutable, hashed config and project identity before launching another run.
     const {config}=this.service.config(session.profileId);
@@ -373,7 +373,7 @@ export class SessionStore {
     if(JSON.stringify(config.executionAgent??{backend:'codex'})!==JSON.stringify(session.settings.executionAgent??{backend:'codex'}))throw Error('会话执行后端已改变，拒绝启动');
     if(JSON.stringify(config.decisionDiscussion)!==JSON.stringify(session.settings.decisionDiscussion))throw Error('会话讨论参与者已改变，拒绝启动');
     if(config.mode!==session.settings.mode||config.projectMode!==session.settings.projectMode||config.allowedRepositories.length!==1||config.allowedRepositories[0].toLowerCase()!==session.projectPath.toLowerCase())throw Error('会话项目授权已改变，拒绝启动');
-    await this.service.start({operation:'start',profileId:session.profileId,mode:session.settings.mode,repository:session.projectPath,goal,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
+    await this.service.start({operation:'start',profileId:session.profileId,mode:session.settings.mode,repository:session.projectPath,goal,taskPreferences:session.taskPreferences,maxLoops:session.settings.maxLoops,maxReworks:session.settings.maxReworks,realAcknowledged:r.realAcknowledged},linked);
    }
   }catch(error){if(!message.runId){message.status='failed';message.error=(error as Error).message;this.update(session);}throw error;}
   return this.public(session);

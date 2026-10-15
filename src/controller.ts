@@ -31,6 +31,8 @@ import {asksUser,AWAITING_REPLY} from './user-question.js';
 import {applyPlanUpdate} from './plan-update.js';
 import { acceptDecision, recordedPass, decisionAcceptanceDigest } from './decision-acceptance.js';
 
+import {loadResources,saveResources,refreshResources,resourceBlock,type ResourceState} from './resource-control.js';
+
 // A task still returned after this many reworks is larger than one round; the decision maker restructures the rest.
 export const REWORK_REPLAN_AFTER = 3;
 /**
@@ -126,6 +128,7 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
     releaseProject=lockProject({...state, source: state.workspace, config: {...state.config, projectMode: 'direct'}});
   }
   catch (error) { unlock(); throw error; }
+  let resources:ResourceState|undefined;
   const stop = new AbortController();
   const abort = () => stop.abort(); externalSignal?.addEventListener('abort', abort, { once: true });
   if (externalSignal?.aborted) stop.abort();
@@ -154,14 +157,22 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
     assertOperationPolicy({ kind: 'model' });
     if (!(role === 'review' && state.evidence?.contextReport) && !(role === 'execute' && taskContextBaseline(state, store))) assertRunContext(state, store);
     if(state.snapshotPolicy !== 'none' && existsSync(path.join(state.workspace,'.git')))await validateGitObjects(state.workspace,await workspaceHead(state,stop.signal),stop.signal);
+    if(resources){refreshResources(store,state,resources);const reason=resourceBlock(resources);if(reason)throw new FlowError('budget',reason);}
     const started = Date.now(), before = await observeWorkspace(state, stop.signal);
     const baseline = `agent-${agent}-${role}-${state.loops}-${state.claudeCalls ?? 0}-${started}-baseline.json`;
     await captureBaseline(store, state, baseline, stop.signal);
     store.audit('agent-start', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops });
-    try { return await timed(signal=>withGuidanceHandoff(store,signal,operation), role === 'plan' && state.discussion && !state.discussion.closed ? 0 : state.config.timeoutMs); }
+    const resourceAbort=new AbortController();
+    if(resources){resources.activeSince=Date.now();saveResources(store,resources);}
+    const resourceTimer=resources?setInterval(()=>{if(resourceBlock(resources!))resourceAbort.abort();},250):undefined;
+    try { return await timed(signal=>withGuidanceHandoff(store,AbortSignal.any([signal,resourceAbort.signal]),operation), role === 'plan' && state.discussion && !state.discussion.closed ? 0 : state.config.timeoutMs); }
+    catch(error){if(resourceAbort.signal.aborted&&!stop.signal.aborted)throw new FlowError('budget',resourceBlock(resources!)??'运行时间上限已达到');throw error;}
     finally {
+      if(resourceTimer)clearInterval(resourceTimer);
+      if(resources){resources.activeMs+=Math.max(0,Date.now()-resources.activeSince!);resources.activeSince=null;resources.operations++;refreshResources(store,state,resources);}
       // Processes have exited (or been killed) before recording their real diff.
       const after = await observeWorkspace(state, undefined);
+      if(resources&&role==='execute'){resources.stagnant=before===after?resources.stagnant+1:0;saveResources(store,resources);}
       const diff = state.snapshotPolicy === 'none' ? (await gitObservation(state.workspace)).diff : await baselineDiff(store, state, baseline, new AbortController().signal);
       store.audit('agent-finish', { agent, role, taskId: state.tasks[state.taskIndex]?.id ?? null, loop: state.loops, durationMs: Date.now() - started, before, after, changed: state.snapshotPolicy === 'none' && !existsSync(path.join(state.workspace,'.git')) ? null : before !== after, verificationScope: state.snapshotPolicy === 'none' ? observationScope : undefined, diff, status: await workspaceStatus(state) });
       if (role === 'plan') atomicJson(store.file('planning-observation.json'), { before, after, diff, status: await workspaceStatus(state), verificationScope: state.snapshotPolicy === 'none' ? observationScope : 'planning baseline comparison', baseline: state.snapshotPolicy === 'none' ? undefined : store.file(baseline), note: 'Planning changes are part of the authorized work. Inspect this receipt and current files when reviewing; absence of a full snapshot does not prove no changes.' });
@@ -191,6 +202,11 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
   }
   try {
     if (state.phase === 'completed') return state;
+    if(state.config.autonomousDevelopment||state.config.resourceLimits){
+      resources=loadResources(store,state);
+      if(resources.activeSince!==null){resources.activeMs+=Math.max(0,Date.now()-resources.activeSince);resources.activeSince=null;store.audit('resource-time-recovered',{activeMs:resources.activeMs,note:'进程中断期间无法精确计时，保守计入至恢复时刻；不清零'});}
+      refreshResources(store,state,resources);
+    }
     if (state.phase === 'planning' && state.discussion?.steps.some(s => s.status === 'running')) {
       for (const step of state.discussion.steps.filter(s => s.status === 'running')) { step.status = 'interrupted'; step.error = '规划进程中断，调用是否完成未知；需要明确恢复指令'; store.audit('discussion-step-failed', { participantId: step.participantId, participantAgent: state.discussion.participants.find(p=>p.id===step.participantId)!.agent, discussionStage: step.stage, status: step.status, error: step.error }); }
       state.nextPhase = 'planning'; state.failure = classifyFailure(new FlowError('interrupted', '双决策调用中断；保留已完成初稿、Session 和调用次数。恢复需要明确指令。'), 'planning');
@@ -240,7 +256,7 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
         }
       }
       state.feedback = [state.feedback, `${automatic ? 'Automatic delegation to decision maker' : 'User decision'}: ${decision}`, automatic ? `暂停原因：${state.reason}` : ''].filter(Boolean).join('\n');
-      if (!automatic) delete state.userRequired;
+      if (!automatic) {delete state.userRequired;if(resources){resources.stagnant=0;resources.replans=0;saveResources(store,resources);}}
       const answering = !automatic && state.executorQuestion;
       if (answering) { answering.reply = [answering.reply, decision].filter(Boolean).join('\n'); state.nextPhase = 'execute'; }
       // An ended connection or timeout failure resumes where it stopped; other nodes go back to the decision maker.
@@ -279,6 +295,18 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
           checkpoint('planning','决策者接管用户引导；不等待整项任务验收');
           store.audit('guidance-received',{message,completedTaskIds:state.completedTaskIds,remainingTasks:state.tasks.slice(state.taskIndex)});
           continue;
+        }
+      }
+      if(!resources&&processingGuidance(store).some(message=>message.resourceLimits))resources=loadResources(store,state);
+      if(resources){
+        refreshResources(store,state,resources);
+        const blocked=resourceBlock(resources);if(blocked)throw new FlowError('budget',blocked);
+        if(state.config.autonomousDevelopment&&state.phase==='execute'&&resources.stagnant>=3){
+          if(resources.replans>=1){state.userRequired=true;throw new FlowError('supervisor','重新规划后仍连续三轮无工作区变化或验收进展；暂停空转，保留原 Run');}
+          resources.replans++;resources.stagnant=0;saveResources(store,resources);
+          state.automaticPlanning={reason:'连续三次执行没有工作区变化或新增验收成果。检查阻碍，改变方法并仅规划剩余工作；无法推进时明确说明，不重复原操作。'};
+          state.feedback=state.automaticPlanning.reason;state.nextPhase='planning';if(state.discussion)state.discussion.closed=true;
+          store.audit('no-progress-replan',{accepted:resources.accepted});checkpoint('planning',state.feedback);continue;
         }
       }
       if(state.phase==='execute'&&state.taskIndex>=state.tasks.length){checkpoint('completed');continue;}
@@ -456,6 +484,7 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
         state.evidence.decisionReview = review;
         if (review.verdict === 'pass') {
           acceptDecision(store, state);
+          if(resources)refreshResources(store,state,resources);
         } else if (review.verdict === 'human') {
           state.nextPhase = 'verify'; if (delegated || state.config.autonomousDevelopment) state.userRequired = true; checkpoint('paused', review.reason);
           for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
@@ -494,6 +523,7 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
     }
   } catch (error) {
     const stage = state.phase;
+    if(resources){refreshResources(store,state,resources);if(error instanceof FlowError&&error.kind==='budget')state.userRequired=true;}
     // A structurally valid synthesis rejected by Controller does not repeat the
     // collaborative cycle. Explicit resume uses the existing primary-only Replan.
     if (stage === 'planning' && state.discussion?.steps.some(s => s.stage === 'synthesis' && s.status === 'success')) state.discussion.closed = true;

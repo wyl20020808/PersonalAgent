@@ -477,6 +477,32 @@
           ],
           "additionalProperties": false
         },
+        "resourceLimits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "activeMs",
+            "tokens"
+          ],
+          "properties": {
+            "activeMs": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1000,
+              "maximum": 604800000
+            },
+            "tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 1000000000
+            }
+          }
+        },
         "autonomousDevelopment": {
           "type": "boolean"
         },
@@ -1410,6 +1436,32 @@
         "attachments"
       ],
       "properties": {
+        "resourceLimits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "activeMs",
+            "tokens"
+          ],
+          "properties": {
+            "activeMs": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1000,
+              "maximum": 604800000
+            },
+            "tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 1000000000
+            }
+          }
+        },
         "id": {
           "type": "string",
           "pattern": "^[a-f0-9-]{36}$"
@@ -1522,6 +1574,32 @@
           "attachments"
         ],
         "properties": {
+          "resourceLimits": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "activeMs",
+              "tokens"
+            ],
+            "properties": {
+              "activeMs": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1000,
+                "maximum": 604800000
+              },
+              "tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 1000000000
+              }
+            }
+          },
           "id": {
             "type": "string",
             "pattern": "^[a-f0-9-]{36}$"

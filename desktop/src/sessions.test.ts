@@ -29,7 +29,7 @@ test('automatic intake requires answers and current plan confirmation; preferenc
  assert.equal(first.runs.length,0);assert.equal(first.messages.at(-1)?.clarificationQuestions?.length,1);
  await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:chat.id,messageId:randomUUID(),projectMode:'direct'}),/回答当前问题/);
  await service.sessions.send({operation:'sendSession',sessionId:chat.id,messageId:randomUUID(),text:'原型'});
- const ready=await settleDiscussion(service,chat.id),preferences={time:'low' as const,tokens:'medium' as const,notes:'先完成核心流程'};
+ const ready=await settleDiscussion(service,chat.id),preferences={time:'low' as const,tokens:'medium' as const,notes:'先完成核心流程',limits:{activeMs:1800000,tokens:100000}};
  await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:chat.id,messageId:randomUUID(),projectMode:'direct'}),/时间与 Token/);
  await assert.rejects(service.sessions.executeDiscussion({operation:'executeDiscussion',sessionId:chat.id,messageId:randomUUID(),projectMode:'direct',taskPreferences:preferences,planMessageId:first.messages[0].id}),/方案已更新/);
  service.launch=()=>{};
@@ -39,6 +39,7 @@ test('automatic intake requires answers and current plan confirmation; preferenc
  assert.equal((await service.sessions.executeDiscussion(request)).runs.length,1);
  const ref=started.runs[0],store=service.store(ref.profileId,ref.id),before=store.load();
  assert.equal(before.config.autonomousDevelopment,true,'confirmed automatic intake persists autonomous execution in the Run');
+ assert.deepEqual(before.config.resourceLimits,preferences.limits);
  assert.match(before.goal,/快速完成/);assert.match(before.goal,/不是精确耗时承诺/);
  service.children.set(ref.id,{} as any);
  const auditBefore=fs.readFileSync(store.file('audit.jsonl'));
@@ -46,12 +47,17 @@ test('automatic intake requires answers and current plan confirmation; preferenc
  const changed=await service.dispatch(update) as Conversation;
  assert.equal(changed.preferenceRevision,2);assert.equal(changed.runs.length,1);
  assert.equal(pendingGuidance(store).length,1);assert.match(pendingGuidance(store)[0].text,/深入开发/);
+ assert.deepEqual(pendingGuidance(store)[0].resourceLimits,preferences.limits);
  assert.deepEqual(store.load(),before,'UI must not write Controller state during execution');
  assert.deepEqual(fs.readFileSync(store.file('audit.jsonl')),auditBefore,'Controller remains the sole audit writer');
  await service.dispatch(update);assert.equal(pendingGuidance(store).length,1);
  await assert.rejects(service.dispatch({...update,messageId:randomUUID()}),/已更新/);
  assert.equal(new DesktopService(root,data,process.execPath).sessions.get(chat.id).taskPreferences?.time,'high');
  service.children.clear();await assert.rejects(service.dispatch({...update,messageId:randomUUID(),preferenceRevision:2}),/未运行/);
+ const paused=store.load();paused.phase='paused';store.save(paused);
+ const pausedUpdate={...update,messageId:randomUUID(),preferenceRevision:2,taskPreferences:{...preferences,limits:{activeMs:86400000,tokens:1000000}}};
+ await service.dispatch(pausedUpdate);assert.equal(store.load().phase,'paused','adjustment never resumes a paused Run');
+ assert.equal(pendingGuidance(store).length,2);assert.deepEqual(store.load().config.resourceLimits,preferences.limits,'Desktop does not rewrite Controller limits');
  const completed=store.load();completed.phase='completed';store.save(completed);await service.sessions.drainCompleted(ref.id);
  const final=service.sessions.get(chat.id);assert.equal(final.runs.length,1);assert.equal(final.messages.find(m=>m.id===update.messageId)?.autoQueued,false);
  assert.match(final.messages.find(m=>m.id===update.messageId)?.error??'',/未应用/);
@@ -62,6 +68,8 @@ test('task preference IPC rejects invalid tiers and authority injection',()=>{
  assert.doesNotThrow(()=>validateRequest(base));
  assert.throws(()=>validateRequest({...base,taskPreferences:{...base.taskPreferences,time:'unlimited'}}));
  assert.throws(()=>validateRequest({...base,taskPreferences:{...base.taskPreferences,push:true}}));
+ assert.throws(()=>validateRequest({...base,taskPreferences:{...base.taskPreferences,limits:{activeMs:-1,tokens:100}}}));
+ assert.throws(()=>validateRequest({...base,taskPreferences:{...base.taskPreferences,limits:{activeMs:null,tokens:1.5}}}));
  assert.throws(()=>validateRequest({...base,preferenceRevision:-1}));
 });
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');

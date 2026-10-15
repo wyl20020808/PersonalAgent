@@ -1,3 +1,4 @@
+import {resourceLimitsSchema,type ResourceLimits} from './resource-limits.js';
 import { Ajv } from 'ajv';
 
 const ajv = new Ajv({ allErrors: true, strict: true });
@@ -42,6 +43,7 @@ Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'prop
 Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 Object.assign(configSchema.properties, { decisionAgent: decisionAgentSchema, decisionDiscussion: decisionDiscussionSchema });
+Object.assign(configSchema.properties, {resourceLimits:resourceLimitsSchema});
 Object.assign(configSchema.properties, { autonomousDevelopment: {type: 'boolean'} });
 Object.assign(configSchema.properties, { executionAgent: executionAgentSchema });
 Object.assign(configSchema.properties, { contextManagement: { type: 'object', additionalProperties: false, properties: { promptBudgetTokens: { type: "object", additionalProperties: false, properties: Object.fromEntries(["plan", "execute", "review"].map(key => [key, { type: "integer", minimum: 1024, maximum: 1000000 }])) }, compactRatio: { type: 'number', minimum: 0.5, maximum: 0.95 }, modelWindows: { type: 'object', additionalProperties: { type: 'integer', minimum: 1024, maximum: 10000000 } }, budgetTokens: { type: 'object', additionalProperties: false, properties: { decision: { type: 'integer', minimum: 20000, maximum: 10000000 }, execution: { type: 'integer', minimum: 20000, maximum: 10000000 } } } } } });
@@ -56,6 +58,7 @@ export interface Edits { summary: string; changes: { path: string; content: stri
 export interface NativeResult { mode: 'native'; summary: string }
 export type ExecutionResult = Edits | NativeResult;
 export interface Config {
+  resourceLimits?: ResourceLimits;
   autonomousDevelopment?: boolean;
   contextManagement?: { promptBudgetTokens?: { plan?: number; execute?: number; review?: number }; compactRatio?: number; modelWindows?: Record<string, number>; budgetTokens?: { decision?: number; execution?: number } };
   transportRetryDelaysMs?: number[];
