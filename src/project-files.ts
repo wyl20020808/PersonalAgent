@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync, unlinkSync, openSync, closeSync, fsyncSync, readSync, fstatSync, copyFileSync, renameSync, constants } from 'node:fs';
 import path from 'node:path';
+import { runtimeHome } from './platform-runtime.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { assertD, atomicJson, type State, type Store } from './store.js';
 
@@ -161,7 +162,7 @@ export function assertProjectRuntime(root: string, runtime: string): void {
 }
 export function lockProject(state: State): () => void {
   if(state.config.projectMode!=='direct') return () => {};
-  const directory=process.platform==='win32' ? 'D:/PersonalAgent-data/project-locks' : path.resolve('.project-locks'); mkdirSync(directory,{recursive:true});
+  const directory=path.join(runtimeHome(),'project-locks'); mkdirSync(directory,{recursive:true});
   const file=path.join(directory,`${hashBytes(realpathSync(state.source).toLowerCase())}.json`);
   // Unique claims serialize stale-guard recovery among new versions. Never
   // reuse a claim name: deleting a dead claim cannot delete a successor's claim.
