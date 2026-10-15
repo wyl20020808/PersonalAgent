@@ -47,3 +47,11 @@ test('clean exit, shutdown, destroyed windows and disposal do not reload',async(
  f.quitting=false;f.crash();f.window.emit('closed');assert.equal(f.scheduled.size,0);assert.equal(f.contents.listenerCount('render-process-gone'),0);f.recovery.recover();assert.equal(f.loads,0);
  const g=fixture();g.crash();g.destroyed=true;await g.advance(1000);assert.equal(g.loads,0);g.recovery.dispose();
 });
+test('closed and repeated shutdown disposal never access destroyed BrowserWindow properties',()=>{
+ const f=fixture();f.crash();f.destroyed=true;
+ Object.defineProperty(f.window,'webContents',{get(){throw new TypeError('Object has been destroyed');}});
+ assert.doesNotThrow(()=>f.window.emit('closed'));
+ assert.doesNotThrow(()=>f.recovery.dispose());
+ assert.equal(f.contents.listenerCount('render-process-gone'),0);
+ assert.equal(f.scheduled.size,0);
+});
