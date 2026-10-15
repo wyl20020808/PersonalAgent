@@ -15,12 +15,14 @@ export const taskSchema = object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-
 Object.assign(taskSchema.properties, { dependsOn: { type: 'array', uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } }, acceptanceStage: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } });
 Object.assign(taskSchema.properties, { moduleIds: { type: 'array', uniqueItems: true, items: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 export const planSchema = object({ tasks: { type: 'array', items: taskSchema, minItems: 0 }, humanDecision: { type: ['string', 'null'], minLength: 1 } });
+Object.assign(planSchema.properties, {executorReply: text, goalAssessment: object({complete: {type:'boolean'}, reason:text})});
 Object.assign(planSchema.properties, {discussionRounds:{type:'integer',minimum:0}});
 // Guidance only: adjusts the unaccepted plan in place instead of restating it. Patches carry the task id and the fields to replace.
 Object.assign(planSchema.properties, {planUpdate:{type:'object',additionalProperties:false,properties:{patches:{type:'array',items:{...taskSchema,required:['id']}},remove:{type:'array',uniqueItems:true,items:taskSchema.properties.id}}}});
 const contextModuleReview = object({ moduleId: text, documentUpdated: { type: 'boolean' }, noUpdateReason: { type: 'string' }, checkedFiles: { type: 'array', items: text }, constraintsChanged: { type: 'boolean' }, disposition: text });
 const contextReviewSchema = { ...object({ expansionReason: { type: 'string' }, unmappedReason: { type: 'string' }, checkedContracts: { type: 'array', description: '实际已核对的精确契约 ID，例如 ["hud","geometry"]；不填标题或文件名，不编造核对。旧输出的精确相对路径仅由 Controller 按本轮安全清单兼容。', items: text }, modules: { type: 'array', items: contextModuleReview }, confirmationNotes: { type: 'array', items: object({ path: text, reason: text }) } }), required: ['expansionReason', 'unmappedReason', 'checkedContracts', 'modules'] };
 export const reviewSchema = { ...object({ verdict: { type: 'string', enum: ['pass', 'rework', 'human', 'fail'] }, reason: text, contextReview: contextReviewSchema, contextConfirmations: { type: 'array', items: object({ relative: text, action: { enum: ['accepted', 'rejected', 'superseded'] } }) }, followUpTasks: { type: 'array', maxItems: 20, items: taskSchema, description: 'Only with verdict pass: further tasks the goal still needs, appended to the plan after this task with new IDs. Use this instead of rework when the accepted task is done but more work remains.' } }), required: ['verdict', 'reason'] };
+Object.assign(reviewSchema.properties, {goalAssessment: object({complete: {type: 'boolean'}, reason: text})});
 export const editSchema = object({ summary: text, changes: { type: 'array', maxItems: 50, items: object({ path: { type: 'string', minLength: 1, maxLength: 240 }, content: { type: 'string', maxLength: 1000000 } }) } });
 export const nativeResultSchema = object({ mode: { const: 'native' }, summary: text });
 export const configSchema = object({
@@ -40,6 +42,7 @@ Object.assign(configSchema.properties, { executionMode: { enum: ['native', 'prop
 Object.assign(configSchema.properties, { projectMode: { enum: ['direct', 'isolated'] }, workspaceMode: { enum: ['direct', 'isolated'] }, directAuthorization: object({ projectPath: text, acknowledgedAt: { type: 'string', minLength: 1 } }) });
 Object.assign(configSchema.properties, { acceptanceStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'integer', minimum: 0, maximum: 19 } } }, globalBudget: object({ file: text, limit: { type: 'integer', minimum: 1, maximum: 100000 } }) });
 Object.assign(configSchema.properties, { decisionAgent: decisionAgentSchema, decisionDiscussion: decisionDiscussionSchema });
+Object.assign(configSchema.properties, { autonomousDevelopment: {type: 'boolean'} });
 Object.assign(configSchema.properties, { executionAgent: executionAgentSchema });
 Object.assign(configSchema.properties, { contextManagement: { type: 'object', additionalProperties: false, properties: { promptBudgetTokens: { type: "object", additionalProperties: false, properties: Object.fromEntries(["plan", "execute", "review"].map(key => [key, { type: "integer", minimum: 1024, maximum: 1000000 }])) }, compactRatio: { type: 'number', minimum: 0.5, maximum: 0.95 }, modelWindows: { type: 'object', additionalProperties: { type: 'integer', minimum: 1024, maximum: 10000000 } }, budgetTokens: { type: 'object', additionalProperties: false, properties: { decision: { type: 'integer', minimum: 20000, maximum: 10000000 }, execution: { type: 'integer', minimum: 20000, maximum: 10000000 } } } } } });
 Object.assign(configSchema.properties, { transportRetryDelaysMs: { type: 'array', maxItems: 5, items: { type: 'integer', minimum: 0, maximum: 60000 }, description: 'Additional retries after provider recovery, default [5000,15000,30000,45000,60000]; [] disables them.' } });
@@ -47,12 +50,13 @@ export interface Task { id: string; instruction: string; acceptance: string[]; d
 Object.assign(configSchema.properties, { taskStages: { type: 'object', minProperties: 1, propertyNames: { pattern: '^[a-zA-Z0-9_-]{1,64}$' }, additionalProperties: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' } } });
 /** Guidance replies must be a plan update; a restated plan is not accepted. */
 export const guidancePlanSchema = { ...planSchema, required: [...planSchema.required, 'planUpdate'] };
-export interface Plan { tasks: Task[]; humanDecision: string | null; discussionRounds?: number; planUpdate?: { patches?: (Partial<Task> & { id: string })[]; remove?: string[] } }
-export interface Review { verdict: 'pass' | 'rework' | 'human' | 'fail'; reason: string; contextReview?: { confirmationNotes?: { path: string; reason: string }[]; expansionReason: string; unmappedReason: string; checkedContracts: string[]; modules: { moduleId: string; documentUpdated: boolean; noUpdateReason: string; checkedFiles: string[]; constraintsChanged: boolean; disposition: string }[] }; contextConfirmations?: { relative: string; action: 'accepted' | 'rejected' | 'superseded' }[]; followUpTasks?: Task[] }
+export interface Plan { goalAssessment?: {complete:boolean;reason:string}; executorReply?: string; tasks: Task[]; humanDecision: string | null; discussionRounds?: number; planUpdate?: { patches?: (Partial<Task> & { id: string })[]; remove?: string[] } }
+export interface Review { goalAssessment?: { complete: boolean; reason: string }; verdict: 'pass' | 'rework' | 'human' | 'fail'; reason: string; contextReview?: { confirmationNotes?: { path: string; reason: string }[]; expansionReason: string; unmappedReason: string; checkedContracts: string[]; modules: { moduleId: string; documentUpdated: boolean; noUpdateReason: string; checkedFiles: string[]; constraintsChanged: boolean; disposition: string }[] }; contextConfirmations?: { relative: string; action: 'accepted' | 'rejected' | 'superseded' }[]; followUpTasks?: Task[] }
 export interface Edits { summary: string; changes: { path: string; content: string }[] }
 export interface NativeResult { mode: 'native'; summary: string }
 export type ExecutionResult = Edits | NativeResult;
 export interface Config {
+  autonomousDevelopment?: boolean;
   contextManagement?: { promptBudgetTokens?: { plan?: number; execute?: number; review?: number }; compactRatio?: number; modelWindows?: Record<string, number>; budgetTokens?: { decision?: number; execution?: number } };
   transportRetryDelaysMs?: number[];
   executionAgent?: ExecutionChoice;

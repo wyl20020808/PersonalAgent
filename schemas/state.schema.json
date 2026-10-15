@@ -477,6 +477,9 @@
           ],
           "additionalProperties": false
         },
+        "autonomousDevelopment": {
+          "type": "boolean"
+        },
         "executionAgent": {
           "oneOf": [
             {
@@ -984,6 +987,24 @@
                     "additionalProperties": false
                   },
                   "description": "Only with verdict pass: further tasks the goal still needs, appended to the plan after this task with new IDs. Use this instead of rework when the accepted task is done but more work remains."
+                },
+                "goalAssessment": {
+                  "type": "object",
+                  "properties": {
+                    "complete": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100000
+                    }
+                  },
+                  "required": [
+                    "complete",
+                    "reason"
+                  ],
+                  "additionalProperties": false
                 }
               },
               "required": [
@@ -1354,6 +1375,9 @@
         },
         "reply": {
           "type": "string"
+        },
+        "source": {
+          "const": "decision"
         }
       }
     },
@@ -2243,6 +2267,29 @@
                           "null"
                         ],
                         "minLength": 1
+                      },
+                      "executorReply": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100000
+                      },
+                      "goalAssessment": {
+                        "type": "object",
+                        "properties": {
+                          "complete": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100000
+                          }
+                        },
+                        "required": [
+                          "complete",
+                          "reason"
+                        ],
+                        "additionalProperties": false
                       },
                       "discussionRounds": {
                         "type": "integer",

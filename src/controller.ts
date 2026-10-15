@@ -136,11 +136,17 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
     if (task && state.phase !== 'planning') state.guidanceResume ??= { taskId: task.id, phase: ['verify', 'review'].includes(state.phase) ? 'verify' : 'execute', feedback: state.feedback, reworkPending: state.reworkPending === true };
   };
   const checkpoint = (phase: Phase, reason = '') => { state.phase = phase; state.reason = reason; store.save(state); store.audit('transition', { phase, reason, loops: state.loops, taskIndex: state.taskIndex, reworks: state.reworks, totalReworks: state.totalReworks ?? 0, claudeCalls: state.claudeCalls ?? 0 }); };
-  // The question waits for the user; acceptance and the decision maker are not involved.
+  // Autonomous Runs delegate questions immediately; the decision maker still owns authorization boundaries.
   const awaitReply = (summary: string) => {
     if (!asksUser(summary)) return false;
     state.executorQuestion = { taskId: state.tasks[state.taskIndex]!.id, loop: state.loops }; state.userRequired = true; state.nextPhase = 'execute';
-    store.audit('executor-question', state.executorQuestion); checkpoint('paused', AWAITING_REPLY);
+    store.audit('executor-question', state.executorQuestion);
+    if(state.config.autonomousDevelopment){
+      delete state.userRequired;
+      state.automaticPlanning={reason:summary};state.feedback=summary;state.nextPhase='planning';
+      if(state.discussion)state.discussion.closed=true;
+      checkpoint('planning','执行者的问题交给决策者');
+    }else checkpoint('paused', AWAITING_REPLY);
     return true;
   };
   const reworkLimited = () => state.config.maxReworks !== undefined && state.reworks >= state.config.maxReworks;
@@ -285,7 +291,15 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
         assertPlanningContext(state, store);
         const plan = validate<Plan>(planSchema, await agentOperation('claude', 'plan', signal => agents.plan(state, store, signal)));
         assertDiscussionPlan(state, plan);
-        if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; if (delegated) state.userRequired = true; checkpoint('paused', plan.humanDecision); continue; }
+        if (plan.humanDecision) { if (state.discussion) state.discussion.closed = true; store.audit('planning-human-decision', plan); state.nextPhase = 'planning'; if (delegated || state.config.autonomousDevelopment) state.userRequired = true; checkpoint('paused', plan.humanDecision); continue; }
+        if(plan.executorReply){
+          if(!state.config.autonomousDevelopment||!state.executorQuestion||!state.automaticPlanning||state.guidancePending||plan.tasks.length||plan.planUpdate)throw new FlowError('validation','executorReply requires an autonomous executor question and an unchanged plan');
+          state.executorQuestion.reply=plan.executorReply;state.executorQuestion.source='decision';
+          state.feedback=plan.executorReply;delete state.automaticPlanning;delete state.userRequired;
+          if(state.discussion)state.discussion.closed=true;
+          state.nextPhase='execute';store.audit('executor-question-decided',{taskId:state.executorQuestion.taskId,reply:plan.executorReply});
+          checkpoint('execute','决策者已答复，继续原任务和 Session');continue;
+        }
         if (!plan.tasks.length&&!state.guidancePending&&!state.automaticPlanning) throw new Error('Plan must include tasks or request human decision');
         if (!plan.tasks.length&&!state.guidancePending&&state.automaticPlanning&&state.taskIndex<state.tasks.length) {
           // An automatic replan cannot close work no acceptance has confirmed.
@@ -317,6 +331,10 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
           }
         }
         if((guidance||state.automaticPlanning||state.reworkReplan)&&tasks.some(task=>completed.some(previous=>previous.id===task.id)))throw new FlowError('validation','引导计划不能重复已验收任务 ID；需要修改既有成果时使用新任务 ID');
+        if(state.config.autonomousDevelopment&&!tasks.length){
+          if(plan.goalAssessment?.complete!==true)throw new FlowError('supervisor','An empty autonomous replan requires evidence-backed goalAssessment.complete=true');
+          store.audit('goal-assessment',{...plan.goalAssessment,source:'plan'});
+        }
         state.tasks = orderTasks([...completed,...tasks], state.config);
         state.taskIndex=completed.length;state.completedTaskIds=completed.map(task=>task.id);
         // An interrupted task the update left untouched continues where it stopped: finished execution is verified, not repeated.
@@ -418,7 +436,7 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
             if (roundDiff !== undefined) state.evidence.roundDiff = roundDiff;
             state.evidence.decisionReview = review;
             store.audit('review-evidence', state.evidence);
-            state.nextPhase = 'verify'; if (delegated) state.userRequired = true; checkpoint('paused', review.reason);
+            state.nextPhase = 'verify'; if (delegated || state.config.autonomousDevelopment) state.userRequired = true; checkpoint('paused', review.reason);
             for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
           }
           else if (review.verdict === 'fail') { state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason); }
@@ -439,7 +457,7 @@ async function driveRun(store: Store, agents: Agents, decision?: string, externa
         if (review.verdict === 'pass') {
           acceptDecision(store, state);
         } else if (review.verdict === 'human') {
-          state.nextPhase = 'verify'; if (delegated) state.userRequired = true; checkpoint('paused', review.reason);
+          state.nextPhase = 'verify'; if (delegated || state.config.autonomousDevelopment) state.userRequired = true; checkpoint('paused', review.reason);
           for (const request of review.contextConfirmations ?? []) prepareUnlocked(store, request.relative, request.action);
         } else if (review.verdict === 'fail') {
           state.failure = classifyFailure(new FlowError('rejected', review.reason), 'review'); checkpoint('failed', review.reason);

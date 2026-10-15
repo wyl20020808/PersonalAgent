@@ -67,6 +67,10 @@ export class MockAgents implements Agents {
     return edits;
   }
   async review(state: State, store?: Store): Promise<Review> {
+    const review=await this.reviewFixture(state,store);
+    return state.config.autonomousDevelopment&&review.verdict==='pass'?{...review,goalAssessment:{complete:state.tasks.every((task,index)=>index===state.taskIndex||state.completedTaskIds?.includes(task.id)),reason:'Local mock fixture only; not real project acceptance'}}:review;
+  }
+  private async reviewFixture(state: State, store?: Store): Promise<Review> {
     if (state.discussion && store) return withParticipant(state, store, state.discussion.config.primary, 'review', async (view, scoped) => { mockParticipantSession(view, scoped); return this.review(view); });
     if (this.config.mockScenario === 'human' && !state.feedback) return { verdict: 'human', reason: 'Need user decision' };
     if(state.purpose==='context-onboarding') {

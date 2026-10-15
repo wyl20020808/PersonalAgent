@@ -38,6 +38,7 @@ test('automatic intake requires answers and current plan confirmation; preferenc
  assert.equal(started.runs.length,1);assert.deepEqual(started.taskPreferences,preferences);
  assert.equal((await service.sessions.executeDiscussion(request)).runs.length,1);
  const ref=started.runs[0],store=service.store(ref.profileId,ref.id),before=store.load();
+ assert.equal(before.config.autonomousDevelopment,true,'confirmed automatic intake persists autonomous execution in the Run');
  assert.match(before.goal,/快速完成/);assert.match(before.goal,/不是精确耗时承诺/);
  service.children.set(ref.id,{} as any);
  const auditBefore=fs.readFileSync(store.file('audit.jsonl'));

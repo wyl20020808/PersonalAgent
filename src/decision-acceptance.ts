@@ -37,6 +37,20 @@ export function advanceReviewedTask(state: State): void {
 
 export function acceptDecision(store: Store, state: State): State {
   if (state.evidence?.decisionReview?.verdict !== 'pass' || state.executorExitCode !== 0 || !recordedPass(store, state)) throw Error('Decision acceptance requires recorded pass for current evidence');
+  const goalReview = state.evidence.decisionReview;
+  if(state.config.autonomousDevelopment){
+    // Validate before recording acceptance: rejected follow-ups must never silently close the goal.
+    const followUps=goalReview.followUpTasks??[],ids=new Set(state.tasks.map(task=>task.id));
+    for(const task of followUps){if(ids.has(task.id))throw Error('Autonomous follow-up IDs must be new and unique');ids.add(task.id);}
+    orderTasks([...state.tasks,...followUps],state.config);
+    const finalTask=state.tasks.every((task,index)=>index===state.taskIndex||state.completedTaskIds?.includes(task.id));
+    if(finalTask){
+      const assessment=goalReview.goalAssessment;
+      if(!assessment)throw Error('Final autonomous acceptance requires goalAssessment');
+      if(assessment.complete&&followUps.length||!assessment.complete&&!followUps.length)throw Error('Goal assessment and remaining tasks disagree');
+      store.audit('goal-assessment',{...assessment,taskId:state.tasks[state.taskIndex]!.id,followUpTaskIds:followUps.map(task=>task.id)});
+    }
+  }
   state.evidence.decisionAccepted = true;
   store.audit('decision-acceptance', { taskId: state.tasks[state.taskIndex]!.id, taskIndex: state.taskIndex, loop: state.loops, digest: decisionAcceptanceDigest(state), evidence: state.evidence, testsExecuted: 0 });
   recordAcceptedTask(store, state);

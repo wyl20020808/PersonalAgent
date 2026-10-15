@@ -42,7 +42,7 @@ export default function SettingsPage({overview,busy,onRequest,onRefresh,onPrepar
    </>}
    {category==='automation'&&<>
     <h3>开发会话</h3>
-    <div className="settings-group"><SettingRow label="全自动开发模式" tip="本实例每 10 分钟检查开发会话。等待用户满 10 分钟后，交回当前决策者判断并继续原目标。默认关闭；崩溃时有开发任务则自动重启并恢复同一实例，正常退出不重启。手动停止、结果未知的中断、权限与正式交付审批仍需人工处理。同一问题最多接管 3 次。关闭后停止新接管，已开始的任务继续。"><button type="button" className={`toggle ${automatic?.enabled?'on':''}`} role="switch" aria-label="全自动开发模式" aria-checked={automatic?.enabled??false} disabled={busy} onClick={()=>onRequest({operation:'automaticDevelopment',automaticDevelopment:!automatic?.enabled})}><span/></button></SettingRow></div>
+    <div className="settings-group"><SettingRow label="全自动开发模式" tip="新任务先澄清目标和投入偏好，再由决策者自主处理普通问题；最后验收核对整体目标，未完成就追加任务。权限和明确保留的批准仍需用户。后台每 10 分钟检查异常恢复。关闭后不再启用新任务或后台接管；已启动任务保留本次模式，可用停止按钮终止。"><button type="button" className={`toggle ${automatic?.enabled?'on':''}`} role="switch" aria-label="全自动开发模式" aria-checked={automatic?.enabled??false} disabled={busy} onClick={()=>onRequest({operation:'automaticDevelopment',automaticDevelopment:!automatic?.enabled})}><span/></button></SettingRow></div>
     {(automatic?.lastScanAt||automatic?.error||automatic?.results.length)&&<details className="settings-details"><summary>最近巡检{automatic.lastScanAt&&<span>{time(automatic.lastScanAt)}</span>}</summary><div className="settings-details-body">
      <p>已委托 {automatic.results.filter(result=>result.status==='delegated').length} 个会话</p>
      {automatic.error&&<p className="settings-error" role="status">{automatic.error}</p>}

@@ -62,6 +62,29 @@
       ],
       "minLength": 1
     },
+    "executorReply": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "goalAssessment": {
+      "type": "object",
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000
+        }
+      },
+      "required": [
+        "complete",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
     "discussionRounds": {
       "type": "integer",
       "minimum": 0

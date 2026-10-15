@@ -455,6 +455,9 @@
       ],
       "additionalProperties": false
     },
+    "autonomousDevelopment": {
+      "type": "boolean"
+    },
     "executionAgent": {
       "oneOf": [
         {

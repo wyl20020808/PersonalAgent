@@ -22,6 +22,8 @@ export function projectMessages(state:State,events:any[],notes:Note[]):ChatMessa
    if(e.event==='created'){role='user';title='项目目标';text=d.goal??state.goal;kind='goal';status='executed';}
    else if(e.event==='automatic-decision'){title='全自动模式 · 决策者接管';text=d.decision;kind='decision';status='delegated';}
    else if(e.event==='automatic-supervision-dispatch'){title='后台巡检 · 超时委托';text='用户等待超过十分钟，已请求当前决策者判断。第 '+d.attempts+' 次接管；接管不代表恢复或验收已通过。';kind='decision';status='delegated';}
+   else if(e.event==='executor-question-decided'){role=decisionRole;title='决策者已答复';text=d.reply;kind='decision';status='delegated';}
+   else if(e.event==='goal-assessment'){role=decisionRole;title=d.complete?'大目标已验收':'继续完成大目标';text=d.reason;kind='review';status=d.complete?'pass':'continuing';}
    else if(e.event==='automatic-supervision-error'){title='后台巡检失败';text=d.message;kind='error';status='failed';}
    else if(e.event==='human-decision'){role='user';title='Controller 已收到人工决策';text=d.decision+'\n\n收到决策不代表已开始执行；请查看后续派单或暂停事件。';kind='decision';status='recorded';}
    else if(e.event==='limits-updated'){title='授权预算已更新';text=`每任务返工上限：${d.maxReworks??'保持不变'}；已有消耗保留。${d.timeoutMs===undefined?'':d.timeoutMs===0?'运行时间：不限时。':`运行时间：${d.timeoutMs} 毫秒。`}`;kind='system';}

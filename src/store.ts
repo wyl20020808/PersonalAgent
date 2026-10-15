@@ -24,7 +24,7 @@ export interface State {
   automaticPlanning?: { reason: string };
   userRequired?: boolean;
   /** The executor ended its turn on a question; the user's reply goes straight back to that Session. */
-  executorQuestion?: { taskId: string; loop: number; reply?: string };
+  executorQuestion?: { taskId: string; loop: number; reply?: string; source?: 'decision' };
   reworkReplan?: { taskId: string; reworks: number };
   guidancePending?: Guidance;
   /** Where the interrupted task continues when a guidance planUpdate leaves it untouched. */
@@ -66,7 +66,7 @@ Object.assign(stateSchema.properties, {
   } },
   automaticPlanning: {type:'object',additionalProperties:false,required:['reason'],properties:{reason:str}},
   userRequired: {type:'boolean'},
-  executorQuestion: {type:'object',additionalProperties:false,required:['taskId','loop'],properties:{taskId:str,loop:{type:'integer',minimum:0},reply:str}},
+  executorQuestion: {type:'object',additionalProperties:false,required:['taskId','loop'],properties:{taskId:str,loop:{type:'integer',minimum:0},reply:str,source:{const:'decision'}}},
   reworkReplan: {type:'object',additionalProperties:false,required:['taskId','reworks'],properties:{taskId:str,reworks:{type:'integer',minimum:0}}},
   guidancePending: guidanceSchema,
   guidanceResume: {type:'object',additionalProperties:false,required:['taskId','phase','feedback','reworkPending'],properties:{taskId:str,phase:{enum:['execute','verify']},feedback:str,reworkPending:{type:'boolean'}}},
