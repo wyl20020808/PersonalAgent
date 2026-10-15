@@ -6,6 +6,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {createRun} from '../src/controller.js';
 import {Store,type State} from '../src/store.js';
 import {lockProject} from '../src/project-files.js';
+import {runtimeHome} from '../src/platform-runtime.js';
 import {FlowError} from '../src/failure.js';
 import type {Config} from '../src/schema.js';
 import {hashBytes} from '../src/project-files.js';
@@ -67,7 +68,7 @@ test('malformed audit tail rejects append without replacing existing evidence',(
 function lockFixture(name:string) {
   const source=path.join(root,name);fs.mkdirSync(source);
   const state={source,config:config(source,`${name}-runtime`),id:randomUUID()} as State;
-  const directory=process.platform==='win32'?'D:/PersonalAgent-data/project-locks':path.resolve('.project-locks');fs.mkdirSync(directory,{recursive:true});
+  const directory=path.join(runtimeHome(),'project-locks');fs.mkdirSync(directory,{recursive:true});
   const file=path.join(directory,`${hashBytes(fs.realpathSync(source).toLowerCase())}.json`);
   return {state,file};
 }

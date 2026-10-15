@@ -13,9 +13,11 @@
     "demo": "node dist/scripts/demo.js"
   },
   "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.300",
     "@openai/codex-sdk": "0.161.0",
     "@opencode-ai/sdk": "1.18.35",
     "ajv": "^8.17.1",
+    "opencode-ai": "1.18.35",
     "undici": "^7.30.0",
     "yaml": "2.9.1"
   },

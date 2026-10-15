@@ -142,9 +142,9 @@ test('sensitive diagnostics are redacted before entering Renderer',()=>{const te
 
 test('configuration import accepts optional D path but never bypasses native trust confirmation',async()=>{
  assert.deepEqual(validateRequest({operation:'importProfile'}),{operation:'importProfile'});
- for(const file of ['D:/fixtures/config.json','D:\\fixtures\\config.json'])assert.equal(validateRequest({operation:'importProfile',file}).file,file);
+ for(const file of process.platform==='win32'?['D:/fixtures/config.json','D:\\fixtures\\config.json']:['/tmp/fixtures/config.json'])assert.equal(validateRequest({operation:'importProfile',file}).file,file);
  for(const file of ['C:/config.json','../config.json','\\\\server\\config.json',''])assert.throws(()=>validateRequest({operation:'importProfile',file}));
- await assert.rejects(service.dispatch({operation:'importProfile',file:'D:/fixtures/config.json'}),/Native file dialog required/);
+ await assert.rejects(service.dispatch({operation:'importProfile',file:process.platform==='win32'?'D:/fixtures/config.json':'/tmp/fixtures/config.json'}),/Native file dialog required/);
 });
 test('create authorized Direct Mock profile without touching delivered games',async()=>{await service.prepareMock();const entry=service.registry().profiles[0]!;const config=JSON.parse(fs.readFileSync(entry.file,'utf8'));config.projectMode='direct';config.executionMode='native';config.directAuthorization={projectPath:config.allowedRepositories[0],acknowledgedAt:new Date().toISOString()};fs.writeFileSync(entry.file,JSON.stringify(config));service.register(entry.file);const p=service.overview().profiles[0]!;profileId=p.id;target=p.repositories[0]!;head=await git(target,['rev-parse','HEAD']);assert.equal(p.mode,'mock');assert.equal(await git(target,['status','--porcelain']),'');assert.equal(service.overview().runs.length,0);});
 test('trusted upper limits and repository whitelist cannot be expanded by GUI',async()=>{

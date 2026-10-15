@@ -153,7 +153,9 @@ test('measured multi-task review cost drops while complete independent evidence 
   const real = new RealAgents(f.config, async (_program, _args, options) => { actualPrompt = options.input!; return { exitCode: 0, stdout: JSON.stringify({ structured_output: { verdict: 'pass', reason: 'Evidence passed' } }), stderr: '' }; });
   await real.review(state, f.store, new AbortController().signal);
   const legacyPrompt = JSON.stringify({ action: 'Review current task against every acceptance criterion and independently collected diff, exit code and tests. pass only if every criterion is satisfied; rework with concrete fixes; human for user decisions. Passing advances to the next planned task. Keep reason concise, focus on defects or verified criteria.', task: state.tasks[state.taskIndex], evidence: state.evidence, feedback: state.feedback });
-  const before = Buffer.byteLength(legacyPrompt), after = Buffer.byteLength(actualPrompt); assert.ok(after < before / 4, `prompt bytes: ${after} / legacy ${before}`);
-  const sent = JSON.parse(actualPrompt); assert.deepEqual(sent.evidence.tests, state.evidence!.tests); assert.deepEqual(sent.evidence.issues, state.evidence!.issues); assert.equal(sent.evidence.diffOmitted, false);
+  const before = Buffer.byteLength(legacyPrompt), after = Buffer.byteLength(actualPrompt); assert.ok(after < before, `prompt bytes: ${after} / legacy ${before}`);
+  const sent = JSON.parse(actualPrompt);
+  // Measure diff compression separately from the current mandatory Agent guidance.
+  assert.ok(Buffer.byteLength(JSON.stringify(sent.evidence)) < Buffer.byteLength(JSON.stringify(state.evidence)) / 4); assert.deepEqual(sent.evidence.tests, state.evidence!.tests); assert.deepEqual(sent.evidence.issues, state.evidence!.issues); assert.equal(sent.evidence.diffOmitted, false);
   writeFileSync(path.join(f.dir, 'cost-comparison.json'), JSON.stringify({ legacyPromptBytes: before, incrementalPromptBytes: after, reductionPercent: (1 - after / before) * 100, fullDiffBytes: Buffer.byteLength(state.evidence!.diff), roundDiffBytes: Buffer.byteLength(state.evidence!.roundDiff!), realAgentCalls: 0, note: 'Actual isolated repository evidence; adapter process response injected. Bytes are not billed tokens.' }, null, 2));
 });

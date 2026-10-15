@@ -1,3 +1,4 @@
+import {runtimeHome} from './platform-runtime.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -71,15 +72,16 @@ export function v1ProviderConfig(config: Record<string, any>): Record<string, an
   return { provider, ...policy, ...(config.enabled_providers ? { enabled_providers: config.enabled_providers } : {}), ...(config.disabled_providers ? { disabled_providers: config.disabled_providers } : {}) };
 }
 export function opencodeEnvironment(directory: string, runtimeDirectory?: string): NodeJS.ProcessEnv {
-  const root = runtimeDirectory ?? path.join(process.env.PERSONAL_AGENT_OPENCODE_RUNTIME_DIR ?? (process.platform === 'win32' ? 'D:/PersonalAgent-data/opencode-v1' : path.join(os.tmpdir(), 'personal-agent-opencode')), 'discovery', createHash('sha256').update(directory).digest('hex'));
+  const root = runtimeDirectory ?? path.join(process.env.PERSONAL_AGENT_OPENCODE_RUNTIME_DIR ?? path.join(runtimeHome(), 'opencode-v1'), 'discovery', createHash('sha256').update(directory).digest('hex'));
   const userConfig = process.env.PERSONAL_AGENT_OPENCODE_CONFIG_FILE ?? path.join(os.homedir(), '.config/opencode/opencode.json');
   let config: Record<string, any> = {};
   if (fs.existsSync(userConfig)) {
     try { config = JSON.parse(fs.readFileSync(userConfig, 'utf8').replace(/^\uFEFF/, '')); }
     catch { throw new FlowError('supervisor', 'OpenCode config is not valid JSON; contents withheld'); }
   } else if (process.env.PERSONAL_AGENT_OPENCODE_CONFIG_FILE) throw new FlowError('supervisor', 'OpenCode configured provider file not found');
-  const env: NodeJS.ProcessEnv = { ...process.env, XDG_DATA_HOME: path.join(root, 'data'), XDG_STATE_HOME: path.join(root, 'state'), XDG_CONFIG_HOME: path.join(root, 'config'), XDG_CACHE_HOME: path.join(root, 'cache'), TEMP: path.join(root, 'tmp'), TMP: path.join(root, 'tmp'), OPENCODE_DB: path.join(root, 'data/opencode.db'), OPENCODE_CONFIG_DIR: path.join(root, 'config/opencode'), OPENCODE_CONFIG_CONTENT: JSON.stringify(v1ProviderConfig(config)), OPENCODE_DISABLE_PROJECT_CONFIG: 'true', OPENCODE_DISABLE_AUTOUPDATE: 'true' };
+  const env: NodeJS.ProcessEnv = { ...process.env, XDG_DATA_HOME: path.join(root, 'data'), XDG_STATE_HOME: path.join(root, 'state'), XDG_CONFIG_HOME: path.join(root, 'config'), XDG_CACHE_HOME: path.join(root, 'cache'), TEMP: path.join(root, 'tmp'), TMP: path.join(root, 'tmp'), TMPDIR: path.join(root, 'tmp'), OPENCODE_DB: path.join(root, 'data/opencode.db'), OPENCODE_CONFIG_DIR: path.join(root, 'config/opencode'), OPENCODE_CONFIG_CONTENT: JSON.stringify(v1ProviderConfig(config)), OPENCODE_DISABLE_PROJECT_CONFIG: 'true', OPENCODE_DISABLE_AUTOUPDATE: 'true' };
   const serviceConfig = JSON.parse(env.OPENCODE_CONFIG_CONTENT!);
+  env.npm_config_cache = path.join(root, 'cache/npm');
   serviceConfig.compaction = { ...serviceConfig.compaction, auto: true };
   const roots = userSkillRoots();
   const skillDirectories = sharedSkills(roots.filter((_, index) => !['1','true'].includes(process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS ?? '') || ![1,2].includes(index))).skills.map(skill => skill.directory);

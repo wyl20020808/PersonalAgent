@@ -1,3 +1,5 @@
+import {npmCli} from '../src/platform-runtime.js';
+import os from 'node:os';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,7 +20,7 @@ import { RealAgents } from '../src/real-agents.js';
 import { randomUUID } from 'node:crypto';
 import { publishGuidance } from '../src/steering.js';
 
-const root = fs.mkdtempSync(path.join('D:/', 'pa-mode-'));
+const root = fs.realpathSync(fs.mkdtempSync(path.join(process.platform==='win32'?'D:/':os.tmpdir(), 'pa-mode-')));
 test.after(() => fs.rmSync(root, { recursive: true, force: true }));
 const file = path.join(root, 'policy.json');
 const scoped = (operation: () => Promise<void> | void) => interactionPolicyContext.run(file, operation);
@@ -63,9 +65,9 @@ test('literal script chain, npm lifecycle and encoded command inspected before l
 test('real work-mode editing, Node/Python, npm build/test and Git mutations succeed in isolated project',()=>scoped(async()=>{
   writeUserInteractionMode('work');const dir=path.join(root,'ordinary');fs.mkdirSync(dir);applyEdits(dir,{summary:'edit',changes:[{path:'source.js',content:'export const value = 1;\n'}]});
   assert.equal((await runProcess(process.execPath,['-e','console.log("background")'],{cwd:dir,timeoutMs:4000})).exitCode,0);
-  assert.equal((await runProcess('python',['-c','print("background")'],{cwd:dir,timeoutMs:4000})).exitCode,0);
+  assert.equal((await runProcess(process.platform==='win32'?'python':'python3',['-c','print("background")'],{cwd:dir,timeoutMs:4000})).exitCode,0);
   fs.writeFileSync(path.join(dir,'build.cjs'),'require("fs").writeFileSync("built.txt","ok")');fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({scripts:{build:'node build.cjs',test:'node -e "require(\'assert\').equal(1+1,2)"'}}));
-  const npm=path.join(path.dirname(process.execPath),'node_modules/npm/bin/npm-cli.js');for(const args of [['run','build'],['test']])assert.equal((await runProcess(process.execPath,[npm,...args],{cwd:dir,timeoutMs:8000})).exitCode,0);
+  const npm=npmCli(process.execPath);for(const args of [['run','build'],['test']])assert.equal((await runProcess(process.execPath,[npm,...args],{cwd:dir,timeoutMs:8000})).exitCode,0);
   for(const args of [['init'],['add','.'],['-c','core.hooksPath=NUL','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','approved local fixture'],['status','--porcelain'],['diff']])assert.equal((await runProcess('git',args,{cwd:dir,timeoutMs:4000})).exitCode,0);
 }));
 test('confirmed isolated headless launcher runs; headed/unknown/CDP defers',()=>scoped(async()=>{
@@ -117,7 +119,7 @@ test('pending GUI cannot bypass human/fail Review or a failed safe acceptance ch
   writeUserInteractionMode('work');
   for(const [name,verdict,exit]of [['human','human',0],['fail','fail',0],['safe-failure','pass',1]] as const){
     const f=await fixture('approval-'+name,[{executable:process.execPath,args:['-e','console.log("mock GUI")'],interaction:{kind:'desktop'}},{executable:process.execPath,args:['-e',`process.exit(${exit})`]}]);let executed=0;
-    const agents:any={executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'first',instruction:'fixture',acceptance:['safe']},{id:'independent',instruction:'fixture',acceptance:['safe']}]}),execute:async()=>{executed++;return{mode:'native',summary:'fixture'};},review:async()=>({verdict,reason:'fixture approval boundary'})};
+    const agents:any={executionMode:'native',plan:async()=>({humanDecision:null,tasks:[{id:'first',instruction:'fixture',acceptance:['safe']},{id:'independent',instruction:'fixture',acceptance:['safe']}]}),execute:async()=>{executed++;return{mode:'native',summary:'fixture'};},review:async(s:any)=>{if(name==='safe-failure'){const checked=await runAcceptanceProcess(s,1,new AbortController().signal,{env:process.env});assert.equal(checked.exitCode,1);return{verdict:'human',reason:'Decision maker observed a failed safe check'};}return{verdict,reason:'fixture approval boundary'};}};
     const state=await controllerDrive(f.store,agents);assert.equal(executed,1);assert.equal(state.phase,verdict==='fail'?'failed':'paused');assert.deepEqual(state.deferredTaskIds??[],[]);
   }
 }));

@@ -50,8 +50,8 @@ test('direct recovery refuses external changes and active different-run writer; 
 test('isolated delivery refuses source changes after creation',async()=>{
   const f=await fixture('isolated','existing');await drive(f.store,native());fs.writeFileSync(path.join(f.source,'existing.txt'),'new user work\n');await assert.rejects(previewDelivery(f.store,f.source,''),/source changed/);
 });
-test('no tests does not produce completed or verified result',async()=>{
-  const f=await fixture('direct');f.config.tests=[];const store=await createRun(f.config,f.source,'unverified fixture');const state=await controllerDrive(store,native());assert.equal(state.phase,'paused');assert.equal(state.evidence!.passed,false);assert.equal(state.evidence!.decisionReview!.verdict,'pass');assert.equal(state.evidence!.userAccepted,undefined);
+test('decision pass can complete without claiming independent tests or user acceptance',async()=>{
+  const f=await fixture('direct');f.config.tests=[];const store=await createRun(f.config,f.source,'unverified fixture');const state=await controllerDrive(store,native());assert.equal(state.phase,'completed');assert.equal(state.evidence!.decisionAccepted,true);assert.equal(state.evidence!.passed,false);assert.equal(state.evidence!.decisionReview!.verdict,'pass');assert.equal(state.evidence!.userAccepted,undefined);
 });
 test('empty file deletion remains visible in incremental evidence',async()=>{
   const f=await fixture('isolated');fs.writeFileSync(path.join(f.source,'empty-before.txt'),'');const store=await createRun(f.config,f.source,'empty deletion fixture');fs.unlinkSync(path.join(store.load().workspace,'empty-before.txt'));assert.match((await baselineDiff(store,store.load(),'project-baseline.json',new AbortController().signal))!,/empty-before.txt \(deleted\)/);

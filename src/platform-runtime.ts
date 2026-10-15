@@ -28,6 +28,15 @@ export function desktopNode(root: string): string {
   return candidate;
 }
 
+// Selected project checks use native executables; never assume Windows suffixes.
+export function projectTestCommand(command: string, node: string): { executable: string; args: string[] } {
+  if (command.startsWith('npm run ')) return { executable: node, args: [npmCli(node), 'run', command.slice(8)] };
+  const names = command === 'cargo test' ? ['cargo'] : process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python'];
+  const executable = names.map(name => findExecutable(name)).find(Boolean);
+  if (!executable) throw Error('本机未安装所选测试工具：' + names.join('/'));
+  return { executable, args: command === 'cargo test' ? ['test'] : ['-m', 'pytest'] };
+}
+
 export function claudeExecutable(): string {
   return process.env.PERSONAL_AGENT_CLAUDE_EXECUTABLE ?? (process.platform === 'win32' ? 'C:/Users/WYL20/.local/bin/claude.exe' : findExecutable('claude') ?? 'claude');
 }

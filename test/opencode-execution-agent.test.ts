@@ -202,7 +202,7 @@ test('failed tools/response/ownership/nonterminal result never masquerade as com
 });
 test('timeout/cancel preserves writes, aborts native Session and requires human recovery',async()=>{
  for(const cancel of [false,true]){
-  const f=await fixture({timeoutMs:cancel?3000:200}),server=fake({hang:true}),state=pending(f),abort=new AbortController();if(cancel)setTimeout(()=>abort.abort(),150);
+  const f=await fixture({timeoutMs:cancel?0:5000}),abort=new AbortController(),server=fake({hang:true,...(cancel?{afterWrite:()=>abort.abort()}: {})}),state=pending(f);
   await assert.rejects(()=>new OpenCodeExecutionAgent(f.config,server.launcher).execute(state,f.store,abort.signal,'{}'),cancel?/Stopped/:/Timeout/);
   assert.equal(fs.readFileSync(path.join(f.source,'core.js'),'utf8'),'fixed\n');assert.equal(server.aborts,1);assert.equal(server.closes,1);
   assert.equal(f.store.load().executionAttempt?.status,'interrupted');const again=f.store.load();again.loops++;f.store.save(again);

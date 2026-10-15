@@ -16,13 +16,20 @@ import {instanceId,instanceData,claimInstanceData} from '../../dist/src/instance
 import {desktopNode,desktopPath} from '../../dist/src/platform-runtime.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 process.env.PATH=desktopPath();
+// Packaged trials default to TEST and carry their own native CLI installations.
+// Explicit instance/data selections still win; authentication stays in the user home.
+if(app.isPackaged){
+ const metadata=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
+ process.env.PERSONALAGENT_INSTANCE??=metadata.personalAgentInstance??'test';
+}
 const node=desktopNode(root);
-if(process.platform!=='win32')process.env.PATH=path.dirname(node)+path.delimiter+process.env.PATH;
+if(process.platform!=='win32')process.env.PATH=[path.dirname(node),path.join(root,'node_modules/.bin'),process.env.PATH].join(path.delimiter);
 const id=instanceId(),data=instanceData(root),title='PersonalAgent '+id.toUpperCase();
 process.env.PERSONALAGENT_INSTANCE=id;claimInstanceData(data);
+atomicJson(path.join(data,'startup.json'),{time:new Date().toISOString(),pid:process.pid,platform:process.platform,arch:process.arch,packaged:app.isPackaged,instance:id,root,node});
 if(process.platform==='win32'&&!/^D:[\\/]/i.test(data))throw Error('Desktop data must be on D drive');
 assertD(data);assertD(root);
-fs.mkdirSync(path.join(data,'tmp'),{recursive:true});process.env.TEMP=path.join(data,'tmp');process.env.TMP=process.env.TEMP;process.env.XDG_CACHE_HOME=path.join(data,'cache');process.env.npm_config_cache=path.join(data,'cache/npm');
+fs.mkdirSync(path.join(data,'tmp'),{recursive:true});process.env.TEMP=path.join(data,'tmp');process.env.TMP=process.env.TEMP;process.env.TMPDIR=process.env.TEMP;process.env.XDG_CACHE_HOME=path.join(data,'cache');process.env.npm_config_cache=path.join(data,'cache/npm');
 app.setPath('userData',path.join(data,'electron'));app.setPath('sessionData',path.join(data,'electron/session'));app.setPath('crashDumps',path.join(data,'crash-dumps'));app.setAppLogsPath(path.join(data,'logs'));app.setName('PersonalAgent');app.enableSandbox();
 protocol.registerSchemesAsPrivileged([{scheme:'personalagent',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 const locked=app.requestSingleInstanceLock();if(!locked)app.quit();
@@ -90,10 +97,10 @@ if(locked)app.whenReady().then(async()=>{
    if(r.operation==='chooseProject'){const picked=await dialog.showOpenDialog(window,{title:'选择项目文件夹',properties:['openDirectory','createDirectory']});return picked.canceled?null:service.inspectProject(picked.filePaths[0]!);}
    if(r.operation==='startProject'){
     const project=service.inspectProject(r.projectPath!);
-    if(r.projectMode==='direct'&&!project.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改所选项目目录',detail:`项目：${project.path}\n文件修改即刻保存在此目录；内部快照位于 PersonalAgent 的 D 盘运行目录。原生 Shell 可访问其他目录，项目规则不是技术隔离。\nMock 仅生成 hello.txt/done.txt 和每次 Run 的 mock-result 标记；真实模式使用本机 Agent 工具。`});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
+    if(r.projectMode==='direct'&&!project.directAuthorized){const answer=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','授权直接开发'],defaultId:0,cancelId:0,message:'Agent 将直接修改所选项目目录',detail:`项目：${project.path}\n文件修改即刻保存在此目录；内部快照位于 PersonalAgent 的本机隔离运行目录。原生 Shell 可访问其他目录，项目规则不是技术隔离。\nMock 仅生成 hello.txt/done.txt 和每次 Run 的 mock-result 标记；真实模式使用本机 Agent 工具。`});if(answer.response!==1)throw Error('用户取消直接开发授权');r.directAcknowledged=true;}
     service.validateProjectStart(r);
    }
-   if(r.operation==='importProfile'){const pick=r.file?{canceled:false,filePaths:[r.file]}:await dialog.showOpenDialog(window,{title:'导入可信 Controller 配置（D 盘）',defaultPath:root,properties:['openFile'],filters:[{name:'Controller JSON',extensions:['json']}]});if(pick.canceled)return service.overview();assertD(pick.filePaths[0]!);const confirm=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','信任并导入'],defaultId:0,cancelId:0,message:'确认信任此本地配置？',detail:`配置文件：${pick.filePaths[0]}\n主进程校验授权仓库；配置中的检查命令交决策者参考，由决策者自行选择验证方法。仅导入你编写或核验过的配置；不会导入或显示原始认证凭据。`});if(confirm.response!==1)return service.overview();return service.register(pick.filePaths[0]!);}
+   if(r.operation==='importProfile'){const pick=r.file?{canceled:false,filePaths:[r.file]}:await dialog.showOpenDialog(window,{title:'导入可信本机 Controller 配置',defaultPath:root,properties:['openFile'],filters:[{name:'Controller JSON',extensions:['json']}]});if(pick.canceled)return service.overview();assertD(pick.filePaths[0]!);const confirm=await dialog.showMessageBox(window,{type:'warning',buttons:['取消','信任并导入'],defaultId:0,cancelId:0,message:'确认信任此本地配置？',detail:`配置文件：${pick.filePaths[0]}\n主进程校验授权仓库；配置中的检查命令交决策者参考，由决策者自行选择验证方法。仅导入你编写或核验过的配置；不会导入或显示原始认证凭据。`});if(confirm.response!==1)return service.overview();return service.register(pick.filePaths[0]!);}
    if(r.operation==='start')service.validateStart(r);
    if(r.operation==='resume')service.validateResume(r);
    if(r.operation==='contextDecide'){const run=service.store(r.profileId!,r.runId!).load();const request=service.publicRun(run,r.profileId!).contextConfirmations?.find(item=>item.id===r.requestId&&item.requestHash===r.digest);if(!request)throw Error('文档确认请求已变化');const answer=await dialog.showMessageBox(window,{type:'question',buttons:['取消',r.cancel?'取消该确认请求':'明确执行文档决策'],defaultId:0,cancelId:0,message:'正式契约/决策确认；不批准成果交付',detail:`项目：${request.projectId}

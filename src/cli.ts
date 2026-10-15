@@ -1,3 +1,4 @@
+import {runtimeHome} from './platform-runtime.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -55,7 +56,7 @@ try {
   }
   else if (command === 'usage-report') {
     if (!values.run?.length) throw new Error('--run is required');
-    const reports = values.run.map(run => usageReport(existsSync(path.join(path.resolve(run), 'audit.jsonl')) ? path.resolve(run) : findRun(path.resolve(values.data ?? 'D:/PersonalAgent-data'), run)));
+    const reports = values.run.map(run => usageReport(existsSync(path.join(path.resolve(run), 'audit.jsonl')) ? path.resolve(run) : findRun(path.resolve(values.data ?? runtimeHome()), run)));
     console.log(values.table ? usageTable(reports) : JSON.stringify(reports, null, 2));
   }
   else if (command === 'context-stamp') {

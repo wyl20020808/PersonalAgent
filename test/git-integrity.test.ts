@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import {randomUUID,createHash} from 'node:crypto';
 import {git,prepare} from '../src/workspace.js';
 import {GitError,gitProcess,gitDiffCheck,gitHead,validateGitObjects} from '../src/git-process.js';
@@ -12,7 +13,8 @@ import {MockAgents} from '../src/adapters.js';
 import {Store} from '../src/store.js';
 import type {Config} from '../src/schema.js';
 
-const root=path.resolve(process.platform==='win32'?'D:/uaf1/git-regression':'.validation/git-regression',randomUUID());fs.mkdirSync(root,{recursive:true});
+const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'pa-git-')));
+test.after(()=>fs.rmSync(root,{recursive:true,force:true}));
 async function fixture(){
  const dir=path.join(root,randomUUID().slice(0,8)),source=path.join(dir,'source');fs.mkdirSync(source,{recursive:true});
  await git(source,['init']);fs.writeFileSync(path.join(source,'seed.txt'),'seed\n');await git(source,['add','.']);await git(source,['-c','user.name=Test','-c','user.email=test@example.invalid','commit','-m','seed']);

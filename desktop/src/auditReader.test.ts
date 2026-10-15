@@ -18,7 +18,7 @@ test('large UTF-8 records cross chunks; unchanged reads share only verified cach
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
 test('owned history worker coalesces reads, rejects mutation and closes cleanly',async()=>{
- const root=fileURLToPath(new URL('../..',import.meta.url)),dir=fs.mkdtempSync('D:/PersonalAgent-data/history-reader-test-'),reader=new HistoryReader(root,dir,process.execPath);
+ const root=fileURLToPath(new URL('../..',import.meta.url)),dir=fs.mkdtempSync(path.join(process.platform==='win32'?'D:/PersonalAgent-data':os.tmpdir(),'history-reader-test-')),reader=new HistoryReader(root,dir,process.execPath);
  try{const request={operation:'thread',profileId:'95b07a05-6350-48f7-822b-bfe6db3634ef',runId:'fbd7645c-e909-47e6-86f1-ad4bca135515'},first=reader.read(request);assert.equal(reader.read(request),first);await assert.rejects(first,/Profile is not registered/);
  await assert.rejects(reader.read({operation:'stop',profileId:'95b07a05-6350-48f7-822b-bfe6db3634ef',runId:'fbd7645c-e909-47e6-86f1-ad4bca135515'}),/read operations only/);
  }finally{await reader.close();fs.rmSync(dir,{recursive:true,force:true});}
