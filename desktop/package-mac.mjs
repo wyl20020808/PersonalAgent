@@ -29,8 +29,11 @@ try{
  // Project npm checks must also work when Finder has no Node/npm on PATH.
  const npmRoot=path.resolve(npmCli(process.execPath),'../..');
  await fs.cp(npmRoot,path.join(nodeRoot,'lib/node_modules/npm'),{recursive:true});
- await fs.symlink('../lib/node_modules/npm/bin/npm-cli.js',path.join(nodeRoot,'bin/npm'));
- await fs.symlink('../lib/node_modules/npm/bin/npx-cli.js',path.join(nodeRoot,'bin/npx'));
+ // extraResource copying can absolutize symlinks. Relocatable wrappers keep all
+ // resolution inside the bundle after moving it out of the build directory.
+ for(const [name,entry] of [['npm','npm-cli.js'],['npx','npx-cli.js']]){
+  await fs.writeFile(path.join(nodeRoot,'bin',name),`#!/bin/sh\nexec "$(dirname "$0")/node" "$(dirname "$0")/../lib/node_modules/npm/bin/${entry}" "$@"\n`,{mode:0o755});
+ }
  await fs.mkdir(output,{recursive:true});
  const electronCache=path.join(root,'../electron-cache'),zipName=`electron-v${desktop.devDependencies.electron}-darwin-${process.arch}.zip`;
  const checksums=JSON.parse(await fs.readFile(path.join(root,'desktop/node_modules/electron/checksums.json'),'utf8'));
@@ -42,7 +45,8 @@ try{
  const apps=await packager({dir:stage,out:scratch,name:'PersonalAgent DEV Trial',platform:'darwin',arch:process.arch,electronVersion:desktop.devDependencies.electron,appBundleId:'io.personalagent.devtrial',appVersion:desktop.version,asar:false,prune:false,extraResource:[nodeRoot],electronZipDir,download:{cacheRoot:electronCache},osxSign:{identity:'-',identityValidation:false,hardenedRuntime:false},overwrite:false});
  const app=path.join(output,'PersonalAgent DEV Trial.app');
  try{await fs.access(app);throw Error('Output app already exists; choose a fresh output directory');}catch(e){if(e.code!=='ENOENT')throw e;}
- await fs.rename(apps[0],app);
+ await fs.rename(path.join(apps[0],'PersonalAgent DEV Trial.app'),app);
+ run('/usr/bin/codesign',['--verify','--deep','--strict','--verbose=2',app]);
  const archive=path.join(output,`PersonalAgent-DEV-Trial-${process.arch}.zip`);
  run('/usr/bin/ditto',['-c','-k','--sequesterRsrc','--keepParent',app,archive]);
  const hash=createHash('sha256').update(await fs.readFile(archive)).digest('hex');
