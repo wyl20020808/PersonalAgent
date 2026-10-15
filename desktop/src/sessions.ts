@@ -1,3 +1,4 @@
+import {claudeExecutable} from '../../dist/src/platform-runtime.js';
 import {modelContexts} from '../../dist/src/model-context.js';
 import {Store} from '../../dist/src/store.js';
 import {projectMessages} from './thread.js';
@@ -232,7 +233,7 @@ export class SessionStore {
  }
  async discuss(session:Saved,message:Saved['messages'][number],text:string):Promise<ConversationReply>{
   const runtimeDir=path.join(this.service.data,'conversation-discussions',session.id);
-  const config:Config={allowedRepositories:[session.projectPath],runtimeDir,mode:session.settings.mode,projectMode:'direct',executionMode:'native',claudeExecutable:'C:/Users/WYL20/.local/bin/claude.exe',claudeStreaming:true,timeoutMs:0,mockScenario:'pass',tests:[],decisionAgent:session.settings.decisionAgent??{backend:'claude-code'}};
+  const config:Config={allowedRepositories:[session.projectPath],runtimeDir,mode:session.settings.mode,projectMode:'direct',executionMode:'native',claudeExecutable:claudeExecutable(),claudeStreaming:true,timeoutMs:0,mockScenario:'pass',tests:[],decisionAgent:session.settings.decisionAgent??{backend:'claude-code'}};
   const history=session.messages.filter(m=>m.id!==message.id&&m.action==='discuss'&&m.discussionReply).flatMap(m=>[{role:'user' as const,text:m.text},{role:'assistant' as const,text:m.discussionReply!}]);
   const onProgress=(progress:import('../../src/discussion-stream.js').DiscussionProgress)=>{const fresh=this.get(session.id),target=fresh.messages.find(m=>m.id===message.id)!;if((progress.reply===undefined||progress.reply===target.discussionDraft)&&(!progress.status||progress.status===target.discussionProgress))return;if(progress.reply!==undefined){target.discussionDraft=progress.reply;if(progress.reply)target.discussionReplyTime??=new Date().toISOString();}if(progress.status)target.discussionProgress=progress.status;fresh.updatedAt=new Date().toISOString();this.update(fresh);};
   const controller=new AbortController(),promise=conversationDiscussion({nodeExecutable:this.service.node,onProgress,runtimeDir,stateId:session.discussionStateId,projectPath:session.projectPath,sessionId:session.id,config,text,history,plan:session.discussionPlan??'',attachments:this.attachmentBytes(session,message)},id=>{const fresh=this.get(session.id);fresh.discussionStateId=id;this.update(fresh);},controller.signal);

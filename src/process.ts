@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import { assertOperationPolicy, watchInteractionPolicy, decideOperation, InteractionPolicyError, type OperationMetadata } from './interaction-policy.js';
 import { guidanceTool } from './guidance-handoff.js';
@@ -10,7 +11,22 @@ export async function terminateTree(pid: number): Promise<void> {
       const child = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
       child.on('error', () => resolve()); child.on('close', () => resolve());
     });
-  } else { try { process.kill(-pid, 'SIGKILL'); } catch { /* Already exited. */ } }
+  } else {
+    // Native agents can create a second detached group (App Server or a tool).
+    // Killing only the worker group leaves those descendants running on macOS.
+    const owned = new Set([pid]);
+    let rows: { pid: number; parent: number; group: number }[] = [];
+    try {
+      const {stdout} = await promisify(execFile)('/bin/ps', ['-axo', 'pid=,ppid=,pgid='], { timeout: 3000, maxBuffer: 4 * 1024 * 1024 });
+      rows = stdout.trim().split('\n').map(line => { const [child, parent, group] = line.trim().split(/\s+/).map(Number); return { pid: child!, parent: parent!, group: group! }; });
+      let added: boolean;
+      do { added = false; for (const row of rows) if (owned.has(row.parent) && !owned.has(row.pid)) { owned.add(row.pid); added = true; } } while (added);
+    } catch { /* The original detached group remains safe to terminate. */ }
+    const groups = new Set(rows.filter(row => owned.has(row.pid) && owned.has(row.group)).map(row => row.group));
+    groups.add(pid);
+    for (const group of groups) try { process.kill(-group, 'SIGKILL'); } catch { /* Already exited. */ }
+    for (const child of [...owned].reverse()) if (child !== process.pid) try { process.kill(child, 'SIGKILL'); } catch { /* Already exited. */ }
+  }
 }
 export function runProcess(executable: string, args: string[], options: {
   cwd: string; env?: NodeJS.ProcessEnv; signal?: AbortSignal; timeoutMs: number; input?: string;

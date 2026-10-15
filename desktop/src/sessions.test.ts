@@ -59,7 +59,7 @@ test('sidebar rejects unknown paths, invalid titles, active Runs and queued mess
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
  assert.throws(()=>validateRequest({operation:'deleteSession',sessionId:'bad'}));
  assert.throws(()=>validateRequest({operation:'renameProject',projectPath:project,title:'x'.repeat(81)}));
- assert.throws(()=>service.sidebarProjectPath('D:/unknown-sidebar-project'),/未在侧栏登记/);
+ assert.throws(()=>service.sidebarProjectPath(path.resolve(root,'unknown-sidebar-project')),/未在侧栏登记/);
  await assert.rejects(service.dispatch({operation:'renameProject',projectPath:project,title:'  '}),/不能为空/);
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'active fixture',directAcknowledged:true});
  const ref=service.sessions.get(session.id).runs[0],store=service.store(ref.profileId,ref.id),state=store.load();state.phase='executing';store.save(state);

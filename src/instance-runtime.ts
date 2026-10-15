@@ -13,6 +13,8 @@ export function instanceId(): InstanceId {
 export function instanceData(root: string): string {
   const id = instanceId();
   const data = assertD(process.env.PERSONAL_AGENT_DESKTOP_DATA ?? (id === 'main' && process.platform === 'win32' ? path.join(root, '.desktop-data') : path.join(sharedRuntime, 'instances', id)));
+  const main = process.platform === 'win32' ? 'D:/PersonalAgent/.desktop-data' : path.join(sharedRuntime, 'instances/main');
+  if (id !== 'main' && path.resolve(data).toLowerCase() === path.resolve(main).toLowerCase()) throw new Error(`${id.toUpperCase()} cannot use historical MAIN data`);
   if (id === 'dev' && path.resolve(data).toLowerCase() === path.resolve('D:/PersonalAgent/.desktop-data').toLowerCase()) throw new Error('DEV cannot use historical MAIN data');
   if (id === 'test' && ['D:/PersonalAgent/.desktop-data',path.join(sharedRuntime,'instances/dev')].some(other=>path.resolve(other).toLowerCase()===path.resolve(data).toLowerCase())) throw new Error('TEST cannot use MAIN or DEV data');
   return data;
