@@ -48,3 +48,9 @@ node scripts/validate-shared-skills-real.mjs D:/PersonalAgent-data/native-capabi
 ## 最新组合
 
 实现提交 `805896e`；持有 Git common directory 中本任务独占创建的 `personalagent-test-integration.lock`，整合最新 TEST `85c17366fd3f0ff8e6d3b471e0f35890d40f6917`，组合提交 `78eb66e`，无冲突。组合构建通过，适配与权限专项 16/16、最新 Context Integrity 专项 4/4 通过。最终组合的真实无模型发现再次确认 Claude/OpenCode 各 61 个技能、OpenCode Serena connected；证据位于 `D:/PersonalAgent-data/native-capabilities-20261013/final-combination/native-capabilities.json`。实际本地 TEST 交付提交以 Git 历史为准。
+
+## 用户授权交付 DEV
+
+用户随后明确要求合入 DEV。从 DEV `47ff4960019b35eb77f66186d2c2eccafd03bbae` 建立独立候选，正常合并已验收 TEST `f1262b9`，候选组合 `369c396`；只新增本功能的 15 个文件，不带入额外 TEST 功能，保留 DEV 原有历史和行为。候选构建通过，配置/Skills/Context/流式专项 20/20、Session 升级与讨论/原生配置专项 4/4 通过；真实无模型发现再次确认两端各 61 个技能、Serena connected。
+
+交付前检查未发现 DEV 桌面实例或执行 Worker。DEV 原有两份未提交 schema 及未跟踪文件不属于本任务，不纳入提交；构建前后按原始字节保存与恢复导出的 schemas。共享 DEV 集成锁覆盖目标核对、合并和构建，证据保存在 `D:/PersonalAgent-data/native-capabilities-dev-20261013/`。没有自动启动或重启实例，没有推送或更新 MAIN。此前 OpenCode 模型超时和全量回归边界仍保留，不因交付 DEV 改写为通过。
