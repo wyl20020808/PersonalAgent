@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { instanceData, claimInstanceData } from '../src/instance-runtime.js';
+import { instanceData, claimInstanceData, sharedRuntime } from '../src/instance-runtime.js';
 import { lockProject } from '../src/project-files.js';
 import type { State, Store } from '../src/store.js';
 import { createRun } from '../src/controller.js';
@@ -28,9 +28,9 @@ function worker(code:string,instanceId:string){
 }
 test('independent MAIN/DEV claims preserve legacy data and reject shared data',()=>{
   const dir=fixture(),old=process.env.PERSONALAGENT_INSTANCE,override=process.env.PERSONAL_AGENT_DESKTOP_DATA;
-  try{delete process.env.PERSONAL_AGENT_DESKTOP_DATA;process.env.PERSONALAGENT_INSTANCE='main';assert.equal(instanceData('D:/PersonalAgent'),path.resolve('D:/PersonalAgent/.desktop-data'));
+  try{delete process.env.PERSONAL_AGENT_DESKTOP_DATA;process.env.PERSONALAGENT_INSTANCE='main';assert.equal(instanceData('D:/PersonalAgent'),path.resolve(process.platform==='win32'?'D:/PersonalAgent/.desktop-data':path.join(sharedRuntime,'instances/main')));
     fs.writeFileSync(path.join(dir,'sessions.json'),'historical');claimInstanceData(dir);assert.equal(fs.readFileSync(path.join(dir,'sessions.json'),'utf8'),'historical');
-    process.env.PERSONALAGENT_INSTANCE='dev';assert.equal(instanceData('D:/PersonalAgent'),path.resolve('D:/PersonalAgent-data/instances/dev'));assert.throws(()=>claimInstanceData(dir),/another instance/);
+    process.env.PERSONALAGENT_INSTANCE='dev';assert.equal(instanceData('D:/PersonalAgent'),path.resolve(sharedRuntime,'instances/dev'));assert.throws(()=>claimInstanceData(dir),/another instance/);
     process.env.PERSONAL_AGENT_DESKTOP_DATA='D:/PersonalAgent/.desktop-data';assert.throws(()=>instanceData('D:/PersonalAgent'),/historical MAIN/);
   }finally{if(old===undefined)delete process.env.PERSONALAGENT_INSTANCE;else process.env.PERSONALAGENT_INSTANCE=old;if(override===undefined)delete process.env.PERSONAL_AGENT_DESKTOP_DATA;else process.env.PERSONAL_AGENT_DESKTOP_DATA=override;}
 });
@@ -54,8 +54,8 @@ test('TEST has independent default data and rejects MAIN/DEV claims without chan
  const dir=fixture(),old=process.env.PERSONALAGENT_INSTANCE,override=process.env.PERSONAL_AGENT_DESKTOP_DATA;
  try{
   process.env.PERSONALAGENT_INSTANCE='test';delete process.env.PERSONAL_AGENT_DESKTOP_DATA;
-  assert.equal(instanceData('D:/PersonalAgent-worktrees/test'),path.resolve('D:/PersonalAgent-data/instances/test'));
-  for(const data of ['D:/PersonalAgent/.desktop-data','D:/PersonalAgent-data/instances/dev']){process.env.PERSONAL_AGENT_DESKTOP_DATA=data;assert.throws(()=>instanceData('D:/PersonalAgent-worktrees/test'),/TEST cannot use MAIN or DEV data/);}
+  assert.equal(instanceData('D:/PersonalAgent-worktrees/test'),path.resolve(sharedRuntime,'instances/test'));
+  for(const data of ['D:/PersonalAgent/.desktop-data',path.join(sharedRuntime,'instances/dev')]){process.env.PERSONAL_AGENT_DESKTOP_DATA=data;assert.throws(()=>instanceData('D:/PersonalAgent-worktrees/test'),/TEST cannot use MAIN or DEV data/);}
   for(const owner of ['main','dev']){
    const shared=path.join(dir,owner);fs.mkdirSync(shared);fs.writeFileSync(path.join(shared,'sessions.json'),'history');
    process.env.PERSONALAGENT_INSTANCE=owner;claimInstanceData(shared);const marker=fs.readFileSync(path.join(shared,'instance.json'));

@@ -2,7 +2,9 @@
 export function localFilePath(value:string):string|undefined{
  let file=value.trim();
  try{file=decodeURIComponent(file);}catch{return;}
- if(/^file:\/\//i.test(file))file=file.replace(/^file:\/\/(?:localhost)?\/?/i,'');
+ if(/^file:\/\//i.test(file)){
+  try{const url=new URL(file);if(url.hostname&&url.hostname!=='localhost')return;file=decodeURIComponent(url.pathname);if(/^\/[a-z]:\//i.test(file))file=file.slice(1);}catch{return;}
+ }
  if(/^[a-z][a-z\d+.-]*:/i.test(file)&&!/^\w:[\\/]/.test(file))return;
  if(file.startsWith('//')||file.startsWith('\\\\')||/[\x00-\x1f]/.test(file))return;
  file=file.replace(/(?:#L?\d+(?:[-:]\d+)?|:\d+(?::\d+)?)$/i,'').replaceAll('\\','/');

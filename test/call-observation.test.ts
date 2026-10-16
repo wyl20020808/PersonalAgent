@@ -136,7 +136,7 @@ test('partial progress survives missing finish; old Runs and calls remain separa
   const file = f.store.file('audit.jsonl'); fs.appendFileSync(file, '{"event":"agent-usage","data":{}}\n'); assert.throws(() => runUsage(f.store), /审计|Audit|integrity/);
 });
 
-for (const task of ['T1', 'T2', 'T3'] as const) test(`${task} repeatable fixed task uses actual Diff, full contracts and decision/user acceptance (injected Mock)`, async () => {
+for (const task of ['T1', 'T2', 'T3'] as const) test(`${task} repeatable fixed task uses actual Diff, full contracts and autonomous decision acceptance (injected Mock)`, async () => {
   const f = await runFixedRegression(folder(), task);
   assert.equal(f.result.metrics.actualPaidCalls, 0); assert.equal(f.result.metrics.finalIndependentPass, true);
   assert.equal(f.result.usage.calls.length, task === 'T2' ? 5 : 3);

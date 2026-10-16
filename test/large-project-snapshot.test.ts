@@ -9,7 +9,7 @@ import { createHistoricalRun as createRun } from './helpers/historical-run.js';
 import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { git, snapshot, repositoryContext } from '../src/workspace.js';
 import { captureBaseline, baselineDiff } from '../src/incremental.js';
-import { previewDelivery } from '../src/delivery.js';
+import { previewDelivery, applyDelivery } from '../src/delivery.js';
 import type { Config } from '../src/schema.js';
 import type { Agents } from '../src/adapters.js';
 
@@ -50,7 +50,7 @@ for (const mode of ['direct','isolated'] as const) for (const useGit of [false,t
   await captureBaseline(store,state,'round-1-baseline.json',new AbortController().signal);const count=fs.readdirSync(store.file('snapshot-objects')).length;
   await captureBaseline(store,state,'round-2-baseline.json',new AbortController().signal);assert.equal(fs.readdirSync(store.file('snapshot-objects')).length,count);
   const agents:Agents={executionMode:'native',async plan(){return {humanDecision:null,tasks:[{id:'change',instruction:'change source',acceptance:['external test passes']}]};},async execute(s){fs.writeFileSync(path.join(s.workspace,'main.cpp'),'new');return {mode:'native',summary:'local fixture only'};},async review(){return {verdict:'pass',reason:'local fixture only'};}};
-  const result=await drive(store,agents);assert.equal(result.phase,'completed',result.reason);assert.equal(result.evidence?.userAccepted, true);assert.notEqual(await snapshot(state.workspace,undefined,true),original);
+  const result=await drive(store,agents);assert.equal(result.phase,'completed',result.reason);assert.equal(result.evidence?.decisionAccepted, true);assert.equal(result.evidence?.userAccepted, undefined);assert.notEqual(await snapshot(state.workspace,undefined,true),original);
   const preview=await previewDelivery(store,source,mode==='direct'?'direct':'project-files');assert.ok(preview.digest);
   const asset=path.join(state.workspace,'Content','World.umap'), fd=fs.openSync(asset,'r+');fs.writeSync(fd,Buffer.from([9]),0,1,0);fs.closeSync(fd);
   assert.notEqual(await snapshot(state.workspace,undefined,true),result.evidence!.snapshotDigest);
@@ -58,12 +58,12 @@ for (const mode of ['direct','isolated'] as const) for (const useGit of [false,t
   assert.ok(loadProject(store.file('project-baseline.json')).files['Content/World.umap']);
 });
 
-for(const resource of ['asset.uasset','blob.dat']) test(`${resource} edits reach decision reviewer and wait for explicit user acceptance`,async()=>{
+for(const resource of ['asset.uasset','blob.dat']) test(`${resource} edits reach decision reviewer without inventing test or delivery approval`,async()=>{
   const {dir,source}=fixture();fs.writeFileSync(path.join(source,resource),Buffer.from([0,1]));
   const config:Config={mode:'mock',projectMode:'direct',executionMode:'native',runtimeDir:path.join(dir,'runtime'),allowedRepositories:[source],directAuthorization:{projectPath:source,acknowledgedAt:new Date().toISOString()},claudeExecutable:'NEVER-PAID',timeoutMs:5000,maxLoops:2,maxReworks:0,mockScenario:'pass',tests:[{executable:process.execPath,args:['-e','process.exit(0)']}]};
   const store=await createRun(config,source,'local resource change');let reviews=0;
   const agents:Agents={executionMode:'native',async plan(){return {humanDecision:null,tasks:[{id:'asset',instruction:'change asset',acceptance:['resource review']}]};},async execute(s){fs.writeFileSync(path.join(s.workspace,resource),Buffer.from([0,2]));return {mode:'native',summary:'local fixture'};},async review(){reviews++;return {verdict:'pass',reason:'must never run'};}};
-  const result=await controllerDrive(store,agents);assert.equal(result.phase,'paused');assert.equal(result.evidence!.passed,false);assert.equal(reviews,1);assert.equal(result.evidence!.decisionReview!.verdict,'pass');assert.equal(result.evidence!.userAccepted,undefined);await assert.rejects(previewDelivery(store,source,'direct'),/completed verification/);
+  const result=await controllerDrive(store,agents);assert.equal(result.phase,'completed');assert.equal(result.evidence!.decisionAccepted,true);assert.equal(result.evidence!.passed,false);assert.equal(reviews,1);assert.equal(result.evidence!.decisionReview!.verdict,'pass');assert.equal(result.evidence!.userAccepted,undefined);const preview=await previewDelivery(store,source,'direct');await assert.rejects(applyDelivery(store,preview.id),/approval|approved/i);
   const audit=fs.readFileSync(store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line)), checkpoint=audit.filter(row=>row.event==='direct-checkpoint').at(-1).data.checkpoint;
   restoreProject(store,checkpoint,'explicit local fixture restore');assert.deepEqual(fs.readFileSync(path.join(source,resource)),Buffer.from([0,1]));
 });

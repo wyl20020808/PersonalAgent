@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import {parseFileChanges,messageFiles,recordedDiff,findFileChange} from './fileChanges.js';
 import type {ChatMessage,ChatFilePreview} from './types.js';
 import {DesktopService,validateRequest} from './service.js';
@@ -20,7 +20,7 @@ test('image tool and generated Markdown use event-bound read-only preview, never
  const message=service.thread(ref.profileId,ref.id).messages.find(item=>item.title==='Codex 查看图片')!,before=fs.readFileSync(store.file('audit.jsonl'));
  const preview=await service.readChatFile(ref.profileId,ref.id,message.id,image);assert.match(preview.file?.dataUrl??'',/^data:image\/png;base64,/);
  assert.ok(fs.readFileSync(store.file('audit.jsonl')).equals(before));
- store.audit('agent-activity',{agent:'codex',kind:'tool',title:'Codex URI 查看图片',text:JSON.stringify({tool:'view_image',status:'completed',input:{path:'file:///'+image.replaceAll('\\','/')}}),source:'codex-sdk-runStreamed'});
+ store.audit('agent-activity',{agent:'codex',kind:'tool',title:'Codex URI 查看图片',text:JSON.stringify({tool:'view_image',status:'completed',input:{path:pathToFileURL(image).href}}),source:'codex-sdk-runStreamed'});
  const uri=service.thread(ref.profileId,ref.id).messages.find(item=>item.title==='Codex URI 查看图片')!;assert.match((await service.readChatFile(ref.profileId,ref.id,uri.id,image.replaceAll('\\','/'))).file?.dataUrl??'',/^data:image\/png/);
  await assert.rejects(service.readChatFile(ref.profileId,ref.id,message.id,path.join(project,'unlisted.png')),/未在/);
  assert.ok(fs.readFileSync(store.file('audit.jsonl')).subarray(0,before.length).equals(before));

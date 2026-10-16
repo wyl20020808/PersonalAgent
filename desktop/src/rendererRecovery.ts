@@ -11,6 +11,9 @@ export function installRendererRecovery(window:BrowserWindow,options:{
 }){
  const now=options.now??Date.now,schedule=options.schedule??setTimeout,cancel=options.cancel??clearTimeout;
  const interval=10*60*1000;
+ // BrowserWindow.webContents throws once the native window is destroyed,
+ // including from the closed event. Keep the emitter for shutdown cleanup.
+ const contents=window.webContents;
  let attempts:number[]=[],timer:ReturnType<typeof setTimeout>|undefined,disposed=false,loading=false,pending=false;
  const unavailable=()=>disposed||options.quitting()||window.isDestroyed()||window.webContents.isDestroyed();
  const log=(entry:Record<string,unknown>)=>{try{options.log(entry);}catch{/* Diagnostics must never prevent recovery. */}};
@@ -40,8 +43,8 @@ export function installRendererRecovery(window:BrowserWindow,options:{
   pending=true;queue();
  };
  const recover=()=>{if(unavailable()||loading)return;clear();attempts=[];pending=true;void reload();};
- const dispose=()=>{disposed=true;clear();window.webContents.removeListener('render-process-gone',gone);};
- window.webContents.on('render-process-gone',gone);
+ const dispose=()=>{disposed=true;clear();contents.removeListener('render-process-gone',gone);};
+ contents.on('render-process-gone',gone);
  window.once('closed',dispose);
  return {recover,dispose};
 }

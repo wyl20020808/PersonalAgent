@@ -81,7 +81,7 @@ for (const native of [false, true]) test(`explicit rework at missing-tests pause
     if (native) { for (const file of ['result.txt', 'seed.txt']) writeFileSync(path.join(state.workspace, file), content); return { mode: 'native', summary: 'Local repair fixture' }; }
     return { summary: 'Local repair fixture', changes: [{ path: 'result.txt', content }, { path: 'seed.txt', content }] };
   };
-  agents.review = async (state, storage) => {recordClaudeCall(state,storage,'review');return {verdict:executions===1?'human':'pass',reason:'Fixture decision maker requests user review'};};
+  agents.review = async (state, storage) => {recordClaudeCall(state,storage,'review');return {verdict:'human',reason:'Fixture decision maker requests user review'};};
   const paused = await rawDrive(f.store, agents);
   assert.equal(paused.nextPhase, 'verify'); assert.equal(paused.loops, 1); assert.ok(manualAcceptanceDigest(paused));
   // Ordinary recovery remains verification, not implicit development or acceptance.

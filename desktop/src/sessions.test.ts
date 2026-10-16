@@ -116,7 +116,7 @@ test('sidebar rejects unknown paths, invalid titles, active Runs and queued mess
  const session=service.sessions.create({operation:'createSession',projectPath:project,mode:'mock'});
  assert.throws(()=>validateRequest({operation:'deleteSession',sessionId:'bad'}));
  assert.throws(()=>validateRequest({operation:'renameProject',projectPath:project,title:'x'.repeat(81)}));
- assert.throws(()=>service.sidebarProjectPath('D:/unknown-sidebar-project'),/未在侧栏登记/);
+ assert.throws(()=>service.sidebarProjectPath(path.resolve(root,'unknown-sidebar-project')),/未在侧栏登记/);
  await assert.rejects(service.dispatch({operation:'renameProject',projectPath:project,title:'  '}),/不能为空/);
  await service.sessions.send({operation:'sendSession',sessionId:session.id,messageId:randomUUID(),text:'active fixture',directAcknowledged:true});
  const ref=service.sessions.get(session.id).runs[0],store=service.store(ref.profileId,ref.id),state=store.load();state.phase='executing';store.save(state);
@@ -401,7 +401,7 @@ test('dual decision session binds two identities and primary configuration; IPC 
  }finally{await service.stopOwned();}
  for(const agent of [{backend:'unsupported'},{backend:'opencode',opencode:{providerID:'x',modelID:'y',executable:'untrusted.exe'}}])assert.throws(()=>validateRequest({operation:'createSession',projectPath:project,decisionDiscussion:{...decisionDiscussion,participants:[{id:'a',agent},{id:'b',agent:{backend:'claude-code'}}]}}));
 });
-function fixture(shortPath=false){const data=shortPath?path.join('D:/pa-si',randomUUID().slice(0,8)):path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
+function fixture(shortPath=false){const data=shortPath?path.resolve(process.platform==='win32'?'D:/pa-si':'.v03e-short',randomUUID().slice(0,8)):path.join(root,'.v03e-tests',randomUUID()),project=path.join(data,'project');fs.mkdirSync(project,{recursive:true});fs.writeFileSync(path.join(project,'user.txt'),'user data\n');return {data,project,service:new DesktopService(root,data,process.execPath)};}
 async function done(service:DesktopService,sessionId:string){for(let i=0;i<250;i++){const detail=service.sessions.detail(sessionId),run=detail.runs.at(-1);if(run&&!run.active&&!['planning','execute','executing','applying','verify','review'].includes(run.phase))return completeFixtureRun(service,run.profileId,run.id);await new Promise(r=>setTimeout(r,60));}assert.fail('Controller timeout');}
 test('ordinary folder session: two formal Mock runs, immutable project, state/context and audit persist',async()=>{
  const {service,data,project}=fixture();const session=await service.dispatch({operation:'createSession',projectPath:project,mode:'mock',maxLoops:8}) as Conversation;

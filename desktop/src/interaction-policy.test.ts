@@ -2,12 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import {EventEmitter} from 'node:events';
 import {DesktopService,validateRequest} from './service.js';
 import {interactionPolicyContext,readInteractionPolicy} from '../../dist/src/interaction-policy.js';
 
 const root=process.cwd().endsWith('desktop')?path.resolve('..'):process.cwd();
-const data=fs.mkdtempSync(path.join('D:/','pa-mode-ui-'));
+const data=fs.mkdtempSync(path.join(process.platform==='win32'?'D:/':os.tmpdir(),'pa-mode-ui-'));
 const file=path.join(data,'global-policy.json');
 test.after(()=>fs.rmSync(data,{recursive:true,force:true}));
 test('user mode IPC validates exact enum, shares policy across isolated instances, logs inline without dialogs',async()=>interactionPolicyContext.run(file,async()=>{
