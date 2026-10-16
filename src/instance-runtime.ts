@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { assertD } from './store.js';
+import { runtimeHome } from './platform-runtime.js';
 
 export type InstanceId = 'main' | 'dev' | 'test';
-export const sharedRuntime = 'D:/PersonalAgent-data';
+export const sharedRuntime = runtimeHome();
 export function instanceId(): InstanceId {
   const id = process.env.PERSONALAGENT_INSTANCE ?? 'main';
   if (id !== 'main' && id !== 'dev' && id !== 'test') throw new Error('PERSONALAGENT_INSTANCE must be main, dev or test');
@@ -11,7 +12,7 @@ export function instanceId(): InstanceId {
 }
 export function instanceData(root: string): string {
   const id = instanceId();
-  const data = assertD(process.env.PERSONAL_AGENT_DESKTOP_DATA ?? (id === 'main' ? path.join(root, '.desktop-data') : path.join(sharedRuntime, 'instances', id)));
+  const data = assertD(process.env.PERSONAL_AGENT_DESKTOP_DATA ?? (id === 'main' && process.platform === 'win32' ? path.join(root, '.desktop-data') : path.join(sharedRuntime, 'instances', id)));
   if (id === 'dev' && path.resolve(data).toLowerCase() === path.resolve('D:/PersonalAgent/.desktop-data').toLowerCase()) throw new Error('DEV cannot use historical MAIN data');
   if (id === 'test' && ['D:/PersonalAgent/.desktop-data',path.join(sharedRuntime,'instances/dev')].some(other=>path.resolve(other).toLowerCase()===path.resolve(data).toLowerCase())) throw new Error('TEST cannot use MAIN or DEV data');
   return data;

@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { FlowError } from './failure.js';
 import { replaceAtomic } from './store.js';
+import { runtimeHome } from './platform-runtime.js';
 
 export type InteractionMode = 'work' | 'idle';
-export const globalPolicyFile = 'D:/PersonalAgent-data/global-interaction-policy.json';
+export const globalPolicyFile = path.join(runtimeHome(), 'global-interaction-policy.json');
 export interface InteractionPolicy { version: 1; mode: InteractionMode; reason: string }
 // Trusted dependency injection for isolated tests, never an environment variable or Run setting.
 export const interactionPolicyContext = new AsyncLocalStorage<string>();
@@ -97,12 +98,14 @@ export function classifyOperation(request: OperationRequest): OperationClass {
   if (request.kind === 'system' || request.capability === 'SYSTEM_HIGH_RISK' ||
       /\b(?:shutdown(?:\.exe)?|restart-computer|stop-computer|logoff(?:\.exe)?|bcdedit|diskpart|format\.com|pnputil|devcon|rundll32.*(?:powrprof|suspend)|sfc|netsh\s+\S*\s*reset)\b/i.test(text) ||
       /\b(?:reboot|hibernate|firmware|bios-flash|stress-ng|prime95|furmark|gpu-burn)\b/i.test(text) ||
+      /\b(?:diskutil\s+(?:erase\w*|partition\w*|apfs\s+delete\w*)|pmset\s+sleepnow|nvram|csrutil)\b/i.test(text) || /(?:tell\s+(?:application\s+)?["']?System Events["']?\s+to\s+(?:shut down|restart|sleep|log out))/i.test(text) ||
       /\b(?:reg(?:\.exe)?\s+(?:add|delete|import)|sc(?:\.exe)?\s+(?:delete|config|stop))\b/i.test(text) || /HKLM[\\:]/i.test(text) ||
       /(?:remove-item|rmdir|rm\s+-|del\s+).*(?:[cC]:[\\/](?:windows|program files)|\/system\b)/i.test(text) ||
       /(?:taskkill|stop-process).*(?:csrss|lsass|wininit|winlogon|services)(?:\.exe)?/i.test(text)) return 'SYSTEM_HIGH_RISK';
   if (request.kind === 'resource' || request.capability === 'RESOURCE_HEAVY' || /\b(?:benchmark|stress(?:-test)?|shadercompileworker|unrealbuildtool|blender.*(?:--background|-b))\b/i.test(text)) return 'RESOURCE_HEAVY';
   if (request.kind === 'desktop' || request.capability === 'DESKTOP_INTERACTIVE' || opaque ||
       /\b(?:ClipCursor|SetCursorPos|SendInput|SetWindowsHookEx|SendKeys|SetForegroundWindow|ShowWindow|ChangeDisplaySettings|pyautogui|pynput|robotjs|clipboard|Set-Clipboard|clip\.exe|xdotool|autohotkey)\b/i.test(text) ||
+      /\b(?:osascript|pbcopy|pbpaste|screencapture)\b/i.test(text) || /(?:^|[\s;&|/])open\s+(?:-[aAbgjnRWF]|["']?(?:https?:|\/|\.\/|~\/))/im.test(text) ||
       /(?:--headed|headless\s*[:=]\s*false|connectOverCDP|remote-debugging-port|user32\.(?:dll|so))/i.test(text) ||
       /\b(?:start-process|start\s+")\b/i.test(text) ||
       /^(?:electron|mouse|keyboard|window)(?:\.exe)?$/i.test(path.basename(request.executable ?? '')) ||
