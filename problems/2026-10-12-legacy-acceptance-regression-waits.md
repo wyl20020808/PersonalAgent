@@ -47,3 +47,8 @@ rtk proxy node --import ./scripts/regression-policy.mjs --test --test-concurrenc
 - #197、#334/#335 只有当次 TAP 序号与简短现象，缺稳定测试名、失败状态与原始日志，本轮不登记为额外已确认缺陷。后续用测试全名、Run failure.kind 和串行对照定性。
 
 本问题仍为待处理。可以确认专项回归失败，不能声称当前全量回归通过；本轮没有执行 DEV 交付，也不判定 TEST 不可试用。
+## 2026-10-13 第二份报告的验收契约纠正
+
+当前 TEST `53da0a4` 的 AGENTS.md 与统一规则明确：Controller 不因 tests 为空或程序检查结果自动否决决策者结论；pass 记录 decisionAccepted 并推进，正式交付授权另行保留。因此外部 D1 建议“exit≠0 硬阻断、tests=[] 必须人工”与现行授权冲突，不采纳，也不能把同批旧测试恢复到原固定门禁称为修复。acceptDecision 仍检查当前证据对应的 recordedPass 和 executorExitCode；delivery completionProof 仍检查完成状态、指纹、执行退出码与批准链。固定测试结果与执行者退出码需区分。
+
+D2 的测试维护问题合理。此次报告的 15/561 失败数未取得原日志独立复核，不能视为本轮测试结果。迁移需逐条区分旧逐项用户确认、明确保留的 human/正式交付批准及真实异常，不批量把 paused/userAccepted 改成 completed，也不为绿灯改生产权限。
