@@ -13,7 +13,9 @@ import {MockAgents} from '../src/adapters.js';
 import {Store} from '../src/store.js';
 import type {Config} from '../src/schema.js';
 
-const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'pa-git-')));
+const tempRoot = process.platform === 'win32' ? 'D:/PersonalAgent-tmp' : os.tmpdir();
+fs.mkdirSync(tempRoot,{recursive:true});
+const root=fs.realpathSync(fs.mkdtempSync(path.join(tempRoot,'pa-git-')));
 test.after(()=>fs.rmSync(root,{recursive:true,force:true}));
 async function fixture(){
  const dir=path.join(root,randomUUID().slice(0,8)),source=path.join(dir,'source');fs.mkdirSync(source,{recursive:true});

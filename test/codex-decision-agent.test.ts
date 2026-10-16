@@ -139,7 +139,7 @@ for (const count of [1, 6]) test(`decision maker chooses ${count} tasks; Control
   assert.match(p.calls[0]!.prompt.operatingMode,/任务数量与粒度/);
   assert.doesNotMatch(p.calls[0]!.prompt.action,/small implementation/);
   assert.equal(p.calls[0]!.prompt.configuredMinimumTasks,undefined);
-  for(const call of p.calls.slice(1))assert.match(call.prompt.action,/Choose the checks/);
+  for(const call of p.calls.slice(1))assert.match(call.prompt.action,/choose checks and use native tools/i);
 });
 
 test('collaborative cycle stays read-only, primary replan and review use authorized native tools', async () => {

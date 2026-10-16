@@ -55,7 +55,7 @@ test('TEST has independent default data and rejects MAIN/DEV claims without chan
  try{
   process.env.PERSONALAGENT_INSTANCE='test';delete process.env.PERSONAL_AGENT_DESKTOP_DATA;
   assert.equal(instanceData('D:/PersonalAgent-worktrees/test'),path.resolve(sharedRuntime,'instances/test'));
-  for(const data of ['D:/PersonalAgent/.desktop-data',path.join(sharedRuntime,'instances/dev')]){process.env.PERSONAL_AGENT_DESKTOP_DATA=data;assert.throws(()=>instanceData('D:/PersonalAgent-worktrees/test'),/TEST cannot use MAIN or DEV data/);}
+  for(const data of ['D:/PersonalAgent/.desktop-data',path.join(sharedRuntime,'instances/dev')]){process.env.PERSONAL_AGENT_DESKTOP_DATA=data;assert.throws(()=>instanceData('D:/PersonalAgent-worktrees/test'),/TEST cannot use (?:historical MAIN|MAIN or DEV) data/);}
   for(const owner of ['main','dev']){
    const shared=path.join(dir,owner);fs.mkdirSync(shared);fs.writeFileSync(path.join(shared,'sessions.json'),'history');
    process.env.PERSONALAGENT_INSTANCE=owner;claimInstanceData(shared);const marker=fs.readFileSync(path.join(shared,'instance.json'));

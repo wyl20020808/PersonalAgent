@@ -9,7 +9,7 @@ import { createRun as createProductionRun } from '../src/controller.js';
 import { driveWithUserAcceptance as drive } from './helpers/accepted-flow.js';
 import { git, snapshot, nativeAgentEnv } from '../src/workspace.js';
 import { agentRules, nativeThreadOptions, runCodexTurn } from '../src/native-agent.js';
-import { reviewAction, workspaceCleanupGuidance } from '../src/decision-guidance.js';
+import { planningAction, reviewAction, workspaceCleanupGuidance } from '../src/decision-guidance.js';
 import { runProcess } from '../src/process.js';
 import { activityRecorder, claudePublicEvents, codexPublicEvent } from '../src/telemetry.js';
 
@@ -236,4 +236,13 @@ test('every dispatched agent receives the mandatory workspace cleanup rules', ()
   assert.ok(agentRules.endsWith(workspaceCleanupGuidance));
   for (const required of ['收尾清理是任务完成的必要条件', '清理报告', '只删除本任务自己创建的内容', '决策者验收时核对清理报告']) assert.ok(workspaceCleanupGuidance.includes(required), required);
   assert.match(reviewAction, /cleanup report/);
+});
+test('decision prompts size tasks for one round and route newly found scope to follow-up tasks', () => {
+  assert.match(planningAction, /one executor call followed by one review/);
+  assert.match(planningAction, /in proportion to the change/);
+  assert.match(reviewAction, /belong in followUpTasks on a pass, not in rework/);
+  assert.match(reviewAction, /cheaper to fix during review/);
+  assert.match(reviewAction, /not a full regression by default/);
+  assert.match(reviewAction, /run only the combined checks the receipts lack/);
+  assert.doesNotMatch(reviewAction, /verify the whole result independently/);
 });
