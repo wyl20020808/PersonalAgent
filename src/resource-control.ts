@@ -6,6 +6,7 @@ import {processingGuidance} from './steering.js';
 import type {CallUsage} from './call-observation.js';
 import {FlowError} from './failure.js';
 import {auditRecords} from './context-trust.js';
+import {resourceAllocation} from './resource-budget.js';
 
 export type ResourceState={limits:ResourceLimits;activeMs:number;activeSince:number|null;applied:string[];knownTokens:number;unknownCalls:number;operations:number;stagnant:number;replans:number;accepted:number};
 const file='resource-control.json';
@@ -55,8 +56,9 @@ export function resourceBlock(r:ResourceState,now=Date.now()):string|undefined{
   if(r.knownTokens>=r.limits.tokens)return '已达到本次 Token 阈值；调整投入后可继续原 Run';
  }
 }
-export function resourceBrief(store:Store,state:State){
+export function resourceBrief(store:Store,state:State,role:'plan'|'execute'|'review'='plan'){
  if(!state.config.autonomousDevelopment&&!state.config.resourceLimits&&!fs.existsSync(store.file(file)))return undefined;
  const r=loadResources(store,state),elapsed=r.activeMs+(r.activeSince===null?0:Math.max(0,Date.now()-r.activeSince));
- return {remainingActiveMs:r.limits.activeMs===null?null:Math.max(0,r.limits.activeMs-elapsed),remainingKnownTokens:r.limits.tokens===null?null:Math.max(0,r.limits.tokens-r.knownTokens),unknownCalls:r.unknownCalls,instruction:'Fit remaining work to user limits. Preserve accepted results. Token threshold is checked at call boundaries and may overshoot within one call; unknown usage is not zero. Never extend limits yourself. Finish early when the goal is met.'};
+ const remainingKnownTokens=r.limits.tokens===null?null:Math.max(0,r.limits.tokens-r.knownTokens);
+ return {remainingActiveMs:r.limits.activeMs===null?null:Math.max(0,r.limits.activeMs-elapsed),remainingKnownTokens,unknownCalls:r.unknownCalls,allocation:resourceAllocation(remainingKnownTokens,role,state.tasks.filter(task=>!state.completedTaskIds?.includes(task.id)).length),instruction:'Fit remaining work to user limits. Preserve accepted results. Token threshold is checked at call boundaries and may overshoot within one call; unknown usage is not zero. Allocations are advisory, not extra budget or guaranteed reserves. Never extend limits yourself. Finish early when the goal is met.'};
 }

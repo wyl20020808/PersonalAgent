@@ -38,7 +38,7 @@ async function fixture(extra: Partial<Config> = {}, context = false) {
 function request(f: Awaited<ReturnType<typeof fixture>>, role: 'plan' | 'review' = 'plan'): DecisionRequest {
   const state = f.store.load(); return { state, store: f.store, role, phase: role, prompt: JSON.stringify({ action: 'Local fixture' }), schema: role === 'plan' ? planSchema : reviewSchema, workspace: fs.realpathSync(state.workspace), runId: state.id, taskId: role === 'plan' ? null : state.tasks[state.taskIndex]?.id ?? null, timeoutMs: f.config.timeoutMs, signal: new AbortController().signal };
 }
-function protocol(options: { taskCount?: number; failB?: boolean; timeout?: boolean; abort?: AbortController; invalid?: boolean; missingThread?: boolean; badScope?: boolean; shared?: boolean; wrongExecute?: boolean; noCompleted?: boolean } = {}) {
+function protocol(options: { resourceUsage?:boolean; taskCount?: number; failB?: boolean; timeout?: boolean; abort?: AbortController; invalid?: boolean; missingThread?: boolean; badScope?: boolean; shared?: boolean; wrongExecute?: boolean; noCompleted?: boolean } = {}) {
   const calls: { request: CodexDecisionTurn; options: ThreadOptions; prompt: any; resumed: boolean }[] = [], execution: any[] = [], sessions = new Map<string, string>();
   let fail = options.failB;
   const run: typeof runProcess = async (executable, args, processOptions) => {
@@ -73,6 +73,10 @@ function protocol(options: { taskCount?: number; failB?: boolean; timeout?: bool
       const r = JSON.parse(processOptions.input!); execution.push(r);
       fs.writeFileSync(path.join(r.workspace, 'core.js'), options.wrongExecute ? 'wrong\n' : 'fixed\n');
       processOptions.onLine!(JSON.stringify({ type: 'thread', id: 'execution-thread' }));
+      if(options.resourceUsage){
+        processOptions.onLine!(JSON.stringify({type:'observation',data:{type:'context.budget-notice',threadId:'execution-thread',turnId:'fixture-turn',status:'accepted',afterTokens:10,observedTokens:16}}));
+        processOptions.onLine!(JSON.stringify({type:'observation',data:{type:'turn.completed',usage:{input_tokens:12,output_tokens:4,cached_input_tokens:0,scope:'turn'}}}));
+      }
       processOptions.onLine!(JSON.stringify({ type: 'result', data: { mode: 'native', summary: 'Local execution fixture' } }));
       return { exitCode: 0, stdout: '', stderr: '' };
     }
@@ -83,6 +87,19 @@ function protocol(options: { taskCount?: number; failB?: boolean; timeout?: bool
   };
   return { run, calls, execution, sessions };
 }
+
+test('resource allocation reaches real adapter prompts by role and notice audit never changes acceptance',async()=>{
+ const f=await fixture({resourceLimits:{tokens:1000,activeMs:null}}),p=protocol({resourceUsage:true});
+ const done=await drive(f.store,new RealAgents(f.config,p.run));assert.equal(done.phase,'completed',done.reason);
+ assert.equal(p.calls[0]!.prompt.resourceBudget.allocation.role,'plan');
+ assert.equal(p.calls[0]!.prompt.resourceBudget.allocation.suggestedCallTokens,100);
+ const execution=JSON.parse(p.execution[0].prompt).resourceBudget;
+ assert.equal(execution.allocation.role,'execute');assert.equal(execution.allocation.reviewReserveTokens,197);
+ assert.equal(p.calls.at(-1)!.prompt.resourceBudget.allocation.role,'review');
+ const notices=fs.readFileSync(f.store.file('audit.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line)).filter(row=>row.event==='resource-budget-notice');
+ assert.equal(notices.length,1);assert.equal(notices[0].data.status,'accepted');assert.ok(notices[0].data.callId);
+ assert.equal(p.calls.filter(c=>c.request.role==='review').length,1);
+});
 function localOpenCode() {
   const sessions = new Map<string, any>();
   const launcher: OpenCodeLauncher = async (_executable, directory) => {

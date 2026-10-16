@@ -35,7 +35,7 @@ export interface CallUsage extends Tokens {
 // The installed SDK 0.161.0 exposes commands and turn usage, but no Read item or model identifier.
 // Send only the fields needed for observation across the worker boundary, never tool output/content.
 export function codexObservation(event: any): object | null {
-  if (['context.usage', 'context.compaction', 'context.compaction-failed'].includes(event.type)) return event;
+  if (['context.usage', 'context.compaction', 'context.compaction-failed', 'context.budget-notice'].includes(event.type)) return event;
   if (['turn.completed', 'turn.failed'].includes(event.type)) return { type: event.type, usage: event.usage };
   if (['item.started', 'item.updated', 'item.completed'].includes(event.type) && event.item?.type === 'command_execution') {
     const { id, type, command, status, exit_code } = event.item;
@@ -118,6 +118,7 @@ export class CallObservation {
   }
   observe(event: any): void {
     if (this.closed || !event || event.isReplay === true) return;
+    if(event.type==='context.budget-notice'){this.store.audit('resource-budget-notice',{callId:this.usage.callId,threadId:event.threadId,turnId:event.turnId,status:event.status,afterTokens:event.afterTokens,observedTokens:event.observedTokens});return;}
     this.context.observe(event);
     if(event.type==='stream_event'&&!['message_start','message_delta'].includes(event.event?.type))return;
     if (this.usage.agent === 'codex') {

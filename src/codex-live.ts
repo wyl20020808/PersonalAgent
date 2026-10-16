@@ -68,7 +68,7 @@ export class CodexLiveProjection {
 }
 
 /** Each worker owns one stdio App Server and its descendants; no detached service. */
-export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolean}={}):CodexTurnClient {
+export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolean;budgetNotice?:{afterTokens:number;text:string}}={}):CodexTurnClient {
  const thread=(id:string|null,settings:ThreadOptions={})=>({async runStreamed(input:Input,turn:TurnOptions={}){
   async function* events():AsyncGenerator<ThreadEvent>{
    turn.signal?.throwIfAborted();const binary=executable(options),env={...process.env,...options.env};
@@ -123,11 +123,23 @@ export function streamingCodex(options:CodexOptions & {compactBeforeTurn?:boolea
     const result=await request('turn/start',{threadId,input:parts,effort:settings.modelReasoningEffort,outputSchema:turn.outputSchema,
      ...(settings.sandboxMode==='read-only'?{sandboxPolicy:{type:'readOnly',networkAccess:settings.networkAccessEnabled??false}}:{})});
     if(!result.turn?.id)throw Error('Codex live turn identity missing');
-    const projection=new CodexLiveProjection(threadId,result.turn.id);yield {type:'turn.started'};
+    const projection=new CodexLiveProjection(threadId,result.turn.id);let noticeSent=false;yield {type:'turn.started'};
     for(;;){if(failure)throw failure;const next=queue.shift();if(!next){await new Promise<void>(resolve=>{wake=resolve;});wake=undefined;continue;}
+     if(next.budgetNotice){yield {type:'context.budget-notice',...next.budgetNotice} as any;continue;}
      for(const projected of projection.accept(next.method,next.params)){
       yield Object.assign(projected,{nativeSource:'codex-app-server'});
       if(projected.type==='turn.completed'||projected.type==='turn.failed')return;
+      const notice=options.budgetNotice,u=projected.usage;
+      // A trusted per-turn total only; cached input is already included. Never interrupt tools.
+      if(!noticeSent&&notice&&Number.isSafeInteger(notice.afterTokens)&&notice.afterTokens>0&&projected.type==='context.usage'&&u?.scope==='turn'&&[u.input_tokens,u.output_tokens].every(n=>Number.isSafeInteger(n)&&n>=0)&&u.input_tokens+u.output_tokens>=notice.afterTokens){
+       noticeSent=true;
+       if(queue.some(e=>e.method==='turn/completed'&&e.params?.threadId===threadId&&e.params?.turn?.id===result.turn.id))continue;
+       const receipt={threadId,turnId:result.turn.id,afterTokens:notice.afterTokens,observedTokens:u.input_tokens+u.output_tokens};
+       const report=(status:string)=>{queue.push({budgetNotice:{...receipt,status}});wake?.();};
+       // Non-blocking: unsupported steering or an already finished turn must not stall or fail work.
+       void request('turn/steer',{threadId,expectedTurnId:result.turn.id,input:[{type:'text',text:notice.text}]}).then(reply=>report(reply?.turnId===result.turn.id?'accepted':'unavailable'),()=>report('unavailable'));
+       yield {type:'context.budget-notice',...receipt,status:'requested'} as any;
+      }
      }
     }
    }finally{

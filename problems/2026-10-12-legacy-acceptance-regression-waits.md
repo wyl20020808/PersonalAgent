@@ -10,6 +10,8 @@
 
 ## 最新 TEST 组合复核
 
+2026-10-16 Token 效率任务补充：在 `test@efcac51ef96b8945844e966641d24ad89fbcb3f4` 的独立未修改基线，T1/T2/T3 固定回归及 Git 版本回归四项均再次复现 `completed` 与旧 `paused` 预期不符；任务工作树出现相同四项失败。证据：`D:/PersonalAgent-validation/autonomous-budget-efficiency-20261016/baseline.log`、`regression.log`。本轮新增预算分配/提醒的最终针对性检查 10/10 通过，没有修改这四项旧断言或生产验收政策。状态仍为待处理，影响为不能宣称扩展回归全部通过；不阻碍这次已验证的预算提示增量。
+
 模型上下文任务（2026-10-12）补充证据：`call-observation.test.ts` 的 T1/T2/T3 固定回归及 Git 版本回归共四项沿用旧暂停预期；扩大检查 19/23。在干净 `test@aa52a965e0855dcda40566228b8286cd3732e4a4` 独立工作区过滤 T1，同样复现 `completed` 与 `paused` 不符。直接相关的观测检查 11/11，通过。该任务没有修改旧固定回归脚本或生产验收协议；与本记录合并登记，不重复创建问题文件。
 
 本轮整合最新 TEST 的 `b939c22` 夹具等待修正后，桌面巡检与完整 thread 组合 35/35 通过，日志 `.validation/automatic-combined-desktop.log`。上述六项 thread 问题已由该独立任务修正，不再作为本功能剩余阻碍。此前失败批次保留。固定任务旧 `paused` 断言尚未处理，本记录仍为待处理，不标记整体已解决。
